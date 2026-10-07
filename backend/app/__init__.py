@@ -1,0 +1,1 @@
+"""FireLens FastAPI application."""
