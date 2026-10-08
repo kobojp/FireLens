@@ -18,6 +18,7 @@ from backend.app.settings import (
     save_settings,
     update_category_aliases,
 )
+from desktop.version import __version__
 
 
 def test_settings_persist_and_validate(db_path: Path) -> None:
@@ -185,7 +186,7 @@ def test_settings_api_and_app_info(monkeypatch, tmp_path: Path) -> None:
         assert updated.json()["thumbnail_quality"] == 88
         info = client.get("/api/app-info")
         assert info.status_code == 200
-        assert info.json()["version"] == "1.1.0"
+        assert info.json()["version"] == __version__
         assert info.json()["online_update_enabled"] is False
 
 

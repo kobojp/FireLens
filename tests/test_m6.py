@@ -19,7 +19,6 @@ from desktop.version import __version__
 
 def test_version_source_matches_project_metadata() -> None:
     project = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
-    assert __version__ == "1.1.0"
     assert project["project"]["version"] == __version__
 
 

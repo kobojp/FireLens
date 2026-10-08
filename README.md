@@ -85,8 +85,8 @@ Windows 可執行檔請從 GitHub Releases 下載。Release binary 不直接提�
 GitHub Actions 會監聽 `v*` 標籤。建立正式版本前，先確認 `desktop/version.py` 的版本號一致，再推送 Tag：
 
 ```powershell
-git tag v1.1.0
-git push origin v1.1.0
+git tag v1.1.1
+git push origin v1.1.1
 ```
 
 工作流程會在 `windows-latest` 上自動執行完整測試與 PyInstaller 打包、執行 `FireLens.exe --self-test`，接著建立 GitHub Release 並上傳：
