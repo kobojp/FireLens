@@ -82,7 +82,21 @@ FireLens 將照片磁碟內容視為真相來源；掃描功能只建立索引�
 ## 發行版
 
 Windows 可執行檔請從 GitHub Releases 下載。Release binary 不直接提交進 Git 歷史。
+GitHub Actions 會監聽 `v*` 標籤。建立正式版本前，先確認 `desktop/version.py` 的版本號一致，再推送 Tag：
+
+```powershell
+git tag v1.1.0
+git push origin v1.1.0
+```
+
+工作流程會在 `windows-latest` 上自動執行完整測試與 PyInstaller 打包、執行 `FireLens.exe --self-test`，接著建立 GitHub Release 並上傳：
+
+- `FireLens-<版本>-windows-x64.exe`
+- `SHA256SUMS.txt`
+
+如果 Tag 與 `desktop/version.py` 版本不一致，Release 會直接停止，不會發布錯誤版本。
 
 ## License
 
 MIT License，詳見 [LICENSE](LICENSE)。
+

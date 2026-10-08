@@ -28,6 +28,7 @@ Invoke-NativeChecked 'uv.exe' @('sync', '--locked', '--all-groups')
 Invoke-NativeChecked 'uv.exe' @('run', '--locked', 'ruff', 'format', '--check', '.')
 Invoke-NativeChecked 'uv.exe' @('run', '--locked', 'ruff', 'check', '.')
 Invoke-NativeChecked 'uv.exe' @('run', '--locked', 'pytest', '-q')
+Invoke-NativeChecked 'uv.exe' @('run', '--locked', 'python', 'packaging/generate_icon.py')
 Invoke-NativeChecked 'uv.exe' @('run', '--locked', 'pyinstaller', '--clean', '--noconfirm', 'packaging/firelens.spec')
 $Exe = Join-Path $Root 'dist\FireLens.exe'
 if (-not (Test-Path $Exe)) { throw 'PyInstaller 未產生 FireLens.exe' }

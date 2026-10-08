@@ -26,6 +26,8 @@ build/
 dist/
 *.spec
 !/packaging/firelens.spec
+/packaging/assets/firelens.ico
+/packaging/assets/firelens.png
 
 # Editor / OS
 .DS_Store

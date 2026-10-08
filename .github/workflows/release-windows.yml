@@ -1,0 +1,113 @@
+name: Release Windows EXE
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "既有版本標籤，例如 v1.1.0（手動測試時可填）"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    name: Build and release Windows x64
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v10
+        with:
+          enable-cache: true
+
+      - name: Resolve and validate release version
+        id: version
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ('${{ github.event_name }}' -eq 'workflow_dispatch' -and '${{ inputs.tag }}') {
+            $tag = '${{ inputs.tag }}'
+          } else {
+            $tag = '${{ github.ref_name }}'
+          }
+
+          if ($tag -notmatch '^v(\d+)\.(\d+)\.(\d+)(?:[-+][0-9A-Za-z.-]+)?$') {
+            throw "Tag 格式不合法：$tag。請使用 v1.2.3 形式。"
+          }
+
+          $versionText = Get-Content 'desktop/version.py' -Raw
+          if ($versionText -notmatch '__version__\s*=\s*"([^"]+)"') {
+            throw '無法從 desktop/version.py 讀取 __version__。'
+          }
+          $appVersion = $Matches[1]
+          $tagVersion = $tag.Substring(1)
+          if ($appVersion -ne $tagVersion) {
+            throw "版本不一致：Tag=$tagVersion，desktop/version.py=$appVersion"
+          }
+
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "version=$appVersion" >> $env:GITHUB_OUTPUT
+          "asset=FireLens-$appVersion-windows-x64.exe" >> $env:GITHUB_OUTPUT
+
+      - name: Build and test Windows EXE
+        shell: pwsh
+        run: .\packaging\build.ps1
+
+      - name: Prepare release assets
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force release | Out-Null
+          $asset = '${{ steps.version.outputs.asset }}'
+          Copy-Item 'dist\FireLens.exe' "release\$asset"
+          $hash = (Get-FileHash "release\$asset" -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $asset" | Set-Content 'release\SHA256SUMS.txt' -Encoding ascii
+          Get-ChildItem release | Format-Table Name, Length
+          Get-Content 'release\SHA256SUMS.txt'
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: FireLens-${{ steps.version.outputs.version }}-windows-x64
+          path: |
+            release/${{ steps.version.outputs.asset }}
+            release/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Create GitHub Release
+        if: github.event_name == 'push'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create '${{ steps.version.outputs.tag }}' `
+            'release\${{ steps.version.outputs.asset }}' `
+            'release\SHA256SUMS.txt' `
+            --title 'FireLens ${{ steps.version.outputs.tag }}' `
+            --generate-notes `
+            --verify-tag
+
