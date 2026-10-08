@@ -20,6 +20,8 @@ import type {
   AppSettings,
   AppInfo,
   BackupRestoreResult,
+  UpdateStatus,
+  UpdateInstallResult,
 } from './types'
 
 export class ApiError extends Error {
@@ -47,6 +49,13 @@ export const api = {
     method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(settings),
   }),
   appInfo: () => request<AppInfo>('/api/app-info'),
+  checkUpdate: () => request<UpdateStatus>('/api/update/check'),
+  downloadUpdate: (version: string) => request<UpdateStatus>('/api/update/download', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ version }),
+  }),
+  installUpdate: (version: string) => request<UpdateInstallResult>('/api/update/install', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ version }),
+  }),
   updateRootSettings: (rootId: number, label: string, isCloudStream: boolean) => request<RootRecord>(`/api/roots/${rootId}/settings`, {
     method: 'PUT', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ label, is_cloud_stream: isCloudStream }),

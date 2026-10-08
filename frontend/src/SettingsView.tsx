@@ -5,6 +5,7 @@ import type {
   AppSettings,
   CategoryDefinition,
   RootRecord,
+  UpdateStatus,
 } from './types'
 
 type Props = {
@@ -38,6 +39,8 @@ export function SettingsView({
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null)
+  const [updateBusy, setUpdateBusy] = useState(false)
 
   useEffect(() => setDraft(settings), [settings])
   useEffect(() => {
@@ -105,6 +108,42 @@ export function SettingsView({
     } catch (err) {
       setError(err instanceof Error ? err.message : '備份還原失敗')
     } finally { setBusy(false) }
+  }
+
+  async function checkUpdate() {
+    setUpdateBusy(true); setError(''); setMessage('')
+    try {
+      const status = await api.checkUpdate()
+      setUpdateStatus(status)
+      setMessage(status.available ? `發現新版 FireLens v${status.latest_version}` : '目前已是最新版本。')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '檢查更新失敗')
+    } finally { setUpdateBusy(false) }
+  }
+
+  async function downloadUpdate() {
+    if (!updateStatus?.available) return
+    setUpdateBusy(true); setError(''); setMessage('')
+    try {
+      const status = await api.downloadUpdate(updateStatus.latest_version)
+      setUpdateStatus(status)
+      setMessage(`v${status.latest_version} 已下載、驗證簽章與 SHA-256，並通過 EXE self-test。`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '下載更新失敗')
+    } finally { setUpdateBusy(false) }
+  }
+
+  async function installUpdate() {
+    if (!updateStatus?.downloaded || !updateStatus.installable) return
+    if (!window.confirm(`確定安裝 FireLens v${updateStatus.latest_version}？程式會自動關閉、更新並重新啟動。`)) return
+    setUpdateBusy(true); setError(''); setMessage('')
+    try {
+      await api.installUpdate(updateStatus.latest_version)
+      setMessage('更新已排程，FireLens 即將關閉並重新啟動。')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '安裝更新失敗')
+      setUpdateBusy(false)
+    }
   }
 
   if (!draft) return <section className="settings-page"><p>讀取設定中…</p></section>
@@ -210,6 +249,39 @@ export function SettingsView({
       </section>
 
       {appInfo && <section className="panel-card settings-card">
+        <div className="panel-title"><h2>線上更新</h2><span>Ed25519 安全簽章</span></div>
+        <p className="help-text">
+          目前版本 v{appInfo.version}。FireLens 只接受由內建公鑰驗證通過的 GitHub Release；下載後還會再次核對 SHA-256 並執行 EXE self-test。
+        </p>
+        <div className="backup-actions">
+          <button type="button" className="secondary-button" disabled={updateBusy || !appInfo.online_update_enabled} onClick={() => void checkUpdate()}>
+            {updateBusy ? '處理中…' : '檢查更新'}
+          </button>
+          {updateStatus?.available && !updateStatus.downloaded && (
+            <button type="button" className="primary-button" disabled={updateBusy} onClick={() => void downloadUpdate()}>
+              下載並驗證 v{updateStatus.latest_version}
+            </button>
+          )}
+          {updateStatus?.available && updateStatus.downloaded && (
+            <button type="button" className="primary-button" disabled={updateBusy || !updateStatus.installable} onClick={() => void installUpdate()}>
+              安裝並重新啟動 v{updateStatus.latest_version}
+            </button>
+          )}
+        </div>
+        {!appInfo.online_update_enabled && <p className="help-text">{appInfo.online_update_reason}</p>}
+        {updateStatus && <div className="settings-list">
+          <div className="settings-row">
+            <b>{updateStatus.available ? `有新版 v${updateStatus.latest_version}` : `最新版本 v${updateStatus.latest_version}`}</b>
+            <span>{updateStatus.signature_verified ? '✓ 簽章已驗證' : '簽章未驗證'}</span>
+            <span>{humanBytes(updateStatus.asset_size)}</span>
+            <a href={updateStatus.release_url} target="_blank" rel="noreferrer">查看 Release</a>
+          </div>
+          <p className="help-text">{updateStatus.install_reason}</p>
+          {updateStatus.notes && <p className="help-text" style={{ whiteSpace: 'pre-wrap' }}>{updateStatus.notes}</p>}
+        </div>}
+      </section>}
+
+      {appInfo && <section className="panel-card settings-card">
         <div className="panel-title"><h2>應用程式資訊</h2><span>v{appInfo.version}</span></div>
         <dl className="path-list">
           <div><dt>資料庫 schema</dt><dd>{appInfo.schema_version}</dd></div>
@@ -217,7 +289,8 @@ export function SettingsView({
           <div><dt>快取</dt><dd><code>{appInfo.cache_dir}</code>（{humanBytes(appInfo.cache_size_bytes)}）</dd></div>
           <div><dt>日誌</dt><dd><code>{appInfo.log_file}</code>（{humanBytes(appInfo.log_size_bytes)}）</dd></div>
           <div><dt>備份快照</dt><dd><code>{appInfo.backup_dir}</code></dd></div>
-          <div><dt>線上更新</dt><dd>{appInfo.online_update_enabled ? '啟用' : appInfo.online_update_reason}</dd></div>
+          <div><dt>線上更新</dt><dd>{appInfo.online_update_enabled ? appInfo.online_update_install_reason : appInfo.online_update_reason}</dd></div>
+          <div><dt>更新來源</dt><dd><code>{appInfo.online_update_repository}</code></dd></div>
         </dl>
       </section>}
     </section>

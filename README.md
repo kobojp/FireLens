@@ -85,8 +85,8 @@ Windows 可執行檔請從 GitHub Releases 下載。Release binary 不直接提�
 GitHub Actions 會監聽 `v*` 標籤。建立正式版本前，先確認 `desktop/version.py` 的版本號一致，再推送 Tag：
 
 ```powershell
-git tag v1.1.1
-git push origin v1.1.1
+git tag v1.2.0
+git push origin v1.2.0
 ```
 
 工作流程會在 `windows-latest` 上自動執行完整測試與 PyInstaller 打包、執行 `FireLens.exe --self-test`，接著建立 GitHub Release 並上傳：
@@ -95,6 +95,22 @@ git push origin v1.1.1
 - `SHA256SUMS.txt`
 
 如果 Tag 與 `desktop/version.py` 版本不一致，Release 會直接停止，不會發布錯誤版本。
+
+### 安全線上更新
+
+FireLens v1.2.0 起內建 Windows 線上更新器。設定頁可手動檢查 GitHub Releases；有新版時會先下載到 `%LOCALAPPDATA%\\FireLens\\updates`，完成以下驗證後才允許安裝：
+
+- Release 必須包含 `update-manifest.json` 與 `update-manifest.sig`
+- manifest 必須通過 FireLens 內建 Ed25519 公鑰驗證
+- EXE 檔名、版本、檔案大小與 SHA-256 必須完全符合已簽章 manifest
+- 下載完成後先使用獨立暫存資料目錄執行新版 `--self-test`
+- 安裝前備份目前 EXE；新版啟動失敗時更新程序會嘗試自動回滾
+
+GitHub Actions 的簽章私鑰只可存放在 repository Actions Secret：
+
+`FIRELENS_UPDATE_PRIVATE_KEY_B64`
+
+私鑰不得提交到 Git。缺少此 Secret 時，Release workflow 會刻意失敗，避免發布 FireLens 無法驗證的未簽章更新。
 
 ## License
 

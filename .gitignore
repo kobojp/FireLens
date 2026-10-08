@@ -44,3 +44,7 @@ desktop.ini
 # Release binaries belong in GitHub Releases, not Git history
 *.exe
 *.zip
+
+# Release signing private keys must never enter Git
+*update_private_key*
+/release-keys/

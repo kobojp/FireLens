@@ -88,6 +88,17 @@ jobs:
           Get-ChildItem release | Format-Table Name, Length
           Get-Content 'release\SHA256SUMS.txt'
 
+      - name: Sign update manifest
+        shell: pwsh
+        env:
+          FIRELENS_UPDATE_PRIVATE_KEY_B64: ${{ secrets.FIRELENS_UPDATE_PRIVATE_KEY_B64 }}
+        run: |
+          uv run --locked python packaging/sign_release.py `
+            --version '${{ steps.version.outputs.version }}' `
+            --exe 'release\${{ steps.version.outputs.asset }}' `
+            --manifest 'release\update-manifest.json' `
+            --signature 'release\update-manifest.sig'
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
@@ -95,6 +106,8 @@ jobs:
           path: |
             release/${{ steps.version.outputs.asset }}
             release/SHA256SUMS.txt
+            release/update-manifest.json
+            release/update-manifest.sig
           if-no-files-found: error
           retention-days: 14
 
@@ -107,6 +120,8 @@ jobs:
           gh release create '${{ steps.version.outputs.tag }}' `
             'release\${{ steps.version.outputs.asset }}' `
             'release\SHA256SUMS.txt' `
+            'release\update-manifest.json' `
+            'release\update-manifest.sig' `
             --title 'FireLens ${{ steps.version.outputs.tag }}' `
             --generate-notes `
             --verify-tag

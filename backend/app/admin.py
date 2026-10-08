@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import threading
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -7,6 +9,13 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
+from desktop.update import (
+    UpdateError,
+    check_for_update,
+    download_update,
+    schedule_install,
+    update_capability,
+)
 from desktop.version import __version__
 
 from .backup import MAX_BACKUP_BYTES, BackupError, export_backup, restore_backup
@@ -48,6 +57,10 @@ class CategoryAliasesUpdate(BaseModel):
     aliases: dict[str, str]
 
 
+class UpdateVersionRequest(BaseModel):
+    version: str = Field(min_length=5, max_length=40)
+
+
 def _directory_size(path: Path) -> int:
     if not path.is_dir():
         return 0
@@ -64,6 +77,7 @@ def _directory_size(path: Path) -> int:
 @router.get("/app-info")
 def app_info() -> dict[str, object]:
     log_path = configure_logging()
+    updater = update_capability()
     return {
         "version": __version__,
         "schema_version": SCHEMA_VERSION,
@@ -77,9 +91,43 @@ def app_info() -> dict[str, object]:
         "log_file": str(log_path),
         "log_size_bytes": log_path.stat().st_size if log_path.is_file() else 0,
         "cache_size_bytes": _directory_size(get_cache_dir()),
-        "online_update_enabled": False,
-        "online_update_reason": "尚未設定簽章更新來源與公鑰，因此安全停用。",
+        "online_update_enabled": updater["enabled"],
+        "online_update_reason": updater["reason"],
+        "online_update_installable": updater["installable"],
+        "online_update_install_reason": updater["install_reason"],
+        "online_update_repository": updater["repository"],
     }
+
+
+@router.get("/update/check")
+def check_update() -> dict[str, object]:
+    try:
+        return check_for_update()
+    except UpdateError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.post("/update/download")
+def download_update_package(payload: UpdateVersionRequest) -> dict[str, object]:
+    try:
+        return download_update(payload.version)
+    except UpdateError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/update/install")
+def install_update_package(payload: UpdateVersionRequest) -> dict[str, object]:
+    try:
+        result = schedule_install(payload.version)
+    except UpdateError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # Give the HTTP response enough time to reach the WebView, then release the
+    # current EXE so the detached updater can replace it safely.
+    timer = threading.Timer(1.5, lambda: os._exit(0))
+    timer.daemon = True
+    timer.start()
+    return result
 
 
 @router.get("/settings")

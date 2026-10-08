@@ -1,9 +1,10 @@
 [project]
 name = "firelens"
-version = "1.1.1"
+version = "1.2.0"
 description = "FireLens 滅火器、放置盒與燈具更換照片管理工具"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+  "cryptography>=45,<47",
   "fastapi>=0.119,<1",
   "openpyxl>=3.1.5,<4",
   "pillow>=11,<13",

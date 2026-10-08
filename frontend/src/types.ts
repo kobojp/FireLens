@@ -316,6 +316,31 @@ export type AppInfo = {
   cache_size_bytes: number
   online_update_enabled: boolean
   online_update_reason: string
+  online_update_installable: boolean
+  online_update_install_reason: string
+  online_update_repository: string
+}
+
+export type UpdateStatus = {
+  current_version: string
+  latest_version: string
+  available: boolean
+  signature_verified: boolean
+  asset_name: string
+  asset_size: number
+  downloaded: boolean
+  installable: boolean
+  install_reason: string
+  release_url: string
+  notes: string
+  asset_url?: string
+}
+
+export type UpdateInstallResult = {
+  scheduled: boolean
+  version: string
+  backup_path: string
+  log_path: string
 }
 
 export type BackupRestoreResult = {

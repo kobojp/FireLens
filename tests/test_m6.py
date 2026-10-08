@@ -106,5 +106,6 @@ def test_isolated_upgrade_and_online_update_policy() -> None:
     spec.loader.exec_module(module)
     assert module.run() == 0
     capability = update_capability()
-    assert capability["enabled"] is False
-    assert "簽章" in str(capability["reason"])
+    assert capability["enabled"] is True
+    assert "Ed25519" in str(capability["reason"])
+    assert capability["repository"] == "kobojp/FireLens"

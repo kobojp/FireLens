@@ -187,7 +187,8 @@ def test_settings_api_and_app_info(monkeypatch, tmp_path: Path) -> None:
         info = client.get("/api/app-info")
         assert info.status_code == 200
         assert info.json()["version"] == __version__
-        assert info.json()["online_update_enabled"] is False
+        assert info.json()["online_update_enabled"] is True
+        assert info.json()["online_update_repository"] == "kobojp/FireLens"
 
 
 def test_rotating_log_written_under_appdata(monkeypatch, tmp_path: Path) -> None:
