@@ -36,9 +36,7 @@ desktop.ini
 .idea/
 .vscode/
 
-# Internal project notes / site-specific validation records
-/AGENTS.md
-/TASKS.md
+# Site-specific validation records
 /docs/
 
 # Release binaries belong in GitHub Releases, not Git history

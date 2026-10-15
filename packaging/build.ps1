@@ -25,6 +25,7 @@ finally {
   Pop-Location
 }
 Invoke-NativeChecked 'uv.exe' @('sync', '--locked', '--all-groups')
+Invoke-NativeChecked 'uv.exe' @('run', '--locked', 'python', 'packaging/check_version_consistency.py')
 Invoke-NativeChecked 'uv.exe' @('run', '--locked', 'ruff', 'format', '--check', '.')
 Invoke-NativeChecked 'uv.exe' @('run', '--locked', 'ruff', 'check', '.')
 Invoke-NativeChecked 'uv.exe' @('run', '--locked', 'pytest', '-q')

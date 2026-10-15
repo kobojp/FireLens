@@ -72,6 +72,10 @@ jobs:
           "version=$appVersion" >> $env:GITHUB_OUTPUT
           "asset=FireLens-$appVersion-windows-x64.exe" >> $env:GITHUB_OUTPUT
 
+      - name: Validate project version consistency
+        shell: pwsh
+        run: python packaging/check_version_consistency.py --tag '${{ steps.version.outputs.tag }}'
+
       - name: Build and test Windows EXE
         shell: pwsh
         run: .\packaging\build.ps1
