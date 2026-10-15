@@ -12,6 +12,13 @@ HISTORICAL_MARKERS = ("Release", "當時", "歷史", "起內建", "起支援", "
 FUTURE_MARKERS = ("預計", "規劃版本", "下一版")
 
 
+def _configure_utf8_console() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(encoding="utf-8", errors="backslashreplace")
+
+
 def _text(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
 
@@ -143,6 +150,7 @@ def validate(tag: str | None = None) -> list[str]:
 
 
 def main() -> int:
+    _configure_utf8_console()
     parser = argparse.ArgumentParser(description="檢查 FireLens 所有受管版本來源是否一致")
     parser.add_argument("--tag", help="Release Tag，例如 v1.3.0")
     args = parser.parse_args()
