@@ -45,7 +45,11 @@ class SettingsUpdate(BaseModel):
     theme: str | None = None
     thumbnail_quality: int | None = None
     slot_order: dict[str, list[str]] | None = None
+    quick_create: dict[str, str] | None = None
     custom_slots: dict[str, list[str]] | None = None
+    auto_scan_on_start: bool | None = None
+    auto_scan_min_interval_minutes: int | None = None
+    new_item_panel_open: bool | None = None
 
 
 class RootSettingsUpdate(BaseModel):

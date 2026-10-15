@@ -12,6 +12,7 @@ from backend.app import storage
 from backend.app.db import connect
 from backend.app.main import create_app
 from backend.app.scanner import scan_root
+from tests.scan_helpers import run_scan
 
 
 def jpeg_bytes(color: tuple[int, int, int]) -> bytes:
@@ -44,8 +45,7 @@ def setup_client(monkeypatch, tmp_path: Path, sample_source: Path) -> tuple[Test
     )
     assert created.status_code == 201
     root_id = int(created.json()["id"])
-    scan = client.post(f"/api/roots/{root_id}/scan")
-    assert scan.status_code == 200
+    run_scan(client, root_id)
     return client, root_id, appdata / "firelens.sqlite3"
 
 
@@ -260,8 +260,7 @@ def test_create_empty_period_and_building_are_structural_not_fake_items(
         assert building.status_code == 201
         assert (sample_source / "滅火器" / "2026年" / "11月份更換" / "新棟").is_dir()
 
-        rescanned = client.post(f"/api/roots/{root_id}/scan")
-        assert rescanned.status_code == 200
+        run_scan(client, root_id)
         tree = client.get(f"/api/roots/{root_id}/tree").json()
         extinguisher = next(node for node in tree if node["key"] == "extinguisher")
         year = next(node for node in extinguisher["children"] if node["key"] == "2026年")

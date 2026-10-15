@@ -5,6 +5,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from backend.app.main import create_app
+from tests.scan_helpers import run_scan
 
 
 def test_health_and_tree_smoke(monkeypatch, tmp_path: Path, sample_source: Path) -> None:
@@ -23,9 +24,8 @@ def test_health_and_tree_smoke(monkeypatch, tmp_path: Path, sample_source: Path)
         assert created.status_code == 201
         root_id = created.json()["id"]
 
-        scan = client.post(f"/api/roots/{root_id}/scan")
-        assert scan.status_code == 200
-        assert scan.json()["items"] == 4
+        scan = run_scan(client, root_id)
+        assert scan["items"] == 4
 
         tree = client.get(f"/api/roots/{root_id}/tree")
         assert tree.status_code == 200

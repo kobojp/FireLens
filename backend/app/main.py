@@ -53,7 +53,13 @@ from .reconcile import (
     seed_default_aliases,
     set_reshoot_mark,
 )
-from .scanner import scan_root
+from .scan_jobs import (
+    ScanAlreadyRunning,
+    ScanJobError,
+    cancel_scan_job,
+    scan_job_status,
+    start_scan_job,
+)
 from .security import DesktopSecurityMiddleware
 from .settings import custom_slots_for
 from .storage import (
@@ -241,21 +247,24 @@ def create_app() -> FastAPI:
                 )
             ]
 
-    @app.post("/api/roots/{root_id}/scan")
+    @app.post("/api/roots/{root_id}/scan", status_code=202)
     def scan(root_id: int) -> dict[str, object]:
-        with database() as conn:
-            try:
-                result = scan_root(conn, root_id)
-            except ValueError as exc:
-                raise HTTPException(status_code=404, detail=str(exc)) from exc
-            except FileNotFoundError as exc:
-                raise HTTPException(status_code=400, detail=str(exc)) from exc
-            return {
-                "root_id": result.root_id,
-                "items": result.items,
-                "photos": result.photos,
-                "categories": result.categories,
-            }
+        try:
+            return start_scan_job(root_id)
+        except ScanAlreadyRunning as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ScanJobError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/roots/{root_id}/scan")
+    def scan_status(root_id: int) -> dict[str, object]:
+        return scan_job_status(root_id)
+
+    @app.post("/api/roots/{root_id}/scan/cancel")
+    def cancel_scan(root_id: int) -> dict[str, object]:
+        return cancel_scan_job(root_id)
 
     @app.get("/api/roots/{root_id}/tree")
     def tree(root_id: int) -> list[dict[str, object]]:

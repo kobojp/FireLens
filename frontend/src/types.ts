@@ -60,6 +60,22 @@ export type ScanSummary = {
   items: number
   photos: number
   categories: Record<string, number>
+  added_items: number
+  updated_items: number
+  removed_items: number
+  added_photos: number
+  updated_photos: number
+  removed_photos: number
+}
+
+export type ScanJobStatus = {
+  root_id: number
+  state: 'idle' | 'running' | 'completed' | 'cancelled' | 'error'
+  started_at: string | null
+  finished_at: string | null
+  cancel_requested: boolean
+  summary: ScanSummary | null
+  error: string | null
 }
 
 export type ItemFolderCreate = {
@@ -299,6 +315,9 @@ export type AppSettings = {
     building: string
   }
   custom_slots: Record<string, string[]>
+  auto_scan_on_start: boolean
+  auto_scan_min_interval_minutes: number
+  new_item_panel_open: boolean
 }
 
 export type AppInfo = {

@@ -4,6 +4,7 @@ import os
 import re
 import sqlite3
 import stat
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -31,6 +32,21 @@ class ScanSummary:
     items: int
     photos: int
     categories: dict[str, int]
+    added_items: int = 0
+    updated_items: int = 0
+    removed_items: int = 0
+    added_photos: int = 0
+    updated_photos: int = 0
+    removed_photos: int = 0
+
+
+class ScanCancelled(RuntimeError):
+    pass
+
+
+def _check_cancelled(cancel_check: Callable[[], bool] | None) -> None:
+    if cancel_check is not None and cancel_check():
+        raise ScanCancelled("掃描已取消")
 
 
 def _is_cloud_placeholder_stat(info: os.stat_result) -> bool:
@@ -112,7 +128,12 @@ def _candidate_item_dirs(period_dir: Path, structural_dirs: set[Path] | None = N
     return candidates
 
 
-def scan_root(conn: sqlite3.Connection, root_id: int) -> ScanSummary:
+def scan_root(
+    conn: sqlite3.Connection,
+    root_id: int,
+    *,
+    cancel_check: Callable[[], bool] | None = None,
+) -> ScanSummary:
     root_row = conn.execute("SELECT id, path FROM root WHERE id = ?", (root_id,)).fetchone()
     if root_row is None:
         raise ValueError("找不到指定的根目錄")
@@ -121,15 +142,17 @@ def scan_root(conn: sqlite3.Connection, root_id: int) -> ScanSummary:
     if not root_path.is_dir():
         raise FileNotFoundError(f"根目錄不存在或無法讀取：{root_path}")
 
+    _check_cancelled(cancel_check)
     category_rows = {
         row["code"]: row["id"] for row in conn.execute("SELECT id, code FROM category")
     }
-    item_rows: list[tuple[object, ...]] = []
+    item_rows: dict[str, tuple[object, ...]] = {}
     photo_rows_by_relative: dict[str, list[tuple[str, str, str, str | None, int, int, int]]] = {}
     counts: dict[str, int] = {code: 0 for code in CATEGORY_DIRS.values()}
     custom_by_category = {code: custom_slots_for(conn, code) for code in CATEGORY_DIRS.values()}
 
     for category_name, category_code in CATEGORY_DIRS.items():
+        _check_cancelled(cancel_check)
         category_dir = root_path / category_name
         if not category_dir.is_dir():
             continue
@@ -138,9 +161,11 @@ def scan_root(conn: sqlite3.Connection, root_id: int) -> ScanSummary:
         for year_dir in sorted(
             (path for path in category_dir.iterdir() if path.is_dir()), key=lambda path: path.name
         ):
+            _check_cancelled(cancel_check)
             for period_dir in sorted(
                 (path for path in year_dir.iterdir() if path.is_dir()), key=lambda path: path.name
             ):
+                _check_cancelled(cancel_check)
                 structural_dirs = {
                     (period_dir / Path(*building.split(" / "))).resolve()
                     for building in managed_buildings(
@@ -152,29 +177,34 @@ def scan_root(conn: sqlite3.Connection, root_id: int) -> ScanSummary:
                     )
                 }
                 for item_dir in _candidate_item_dirs(period_dir, structural_dirs):
+                    _check_cancelled(cancel_check)
                     relative_item = item_dir.relative_to(root_path).as_posix()
                     location_parts = item_dir.relative_to(period_dir).parts[:-1]
                     building = " / ".join(location_parts) if location_parts else "(未分棟)"
+                    try:
+                        dir_mtime_ns = item_dir.stat(follow_symlinks=False).st_mtime_ns
+                    except OSError:
+                        dir_mtime_ns = 0
                     image_paths = sorted(
                         (path for path in item_dir.iterdir() if _is_image(path)),
                         key=lambda path: path.name.casefold(),
                     )
                     filenames = [path.name for path in image_paths]
-                    item_rows.append(
-                        (
-                            root_id,
-                            category_id,
-                            year_dir.name,
-                            period_dir.name,
-                            building,
-                            item_dir.name,
-                            relative_item,
-                            _status_for(category_code, filenames),
-                            len(image_paths),
-                        )
+                    item_rows[relative_item] = (
+                        root_id,
+                        category_id,
+                        year_dir.name,
+                        period_dir.name,
+                        building,
+                        item_dir.name,
+                        relative_item,
+                        _status_for(category_code, filenames),
+                        len(image_paths),
+                        dir_mtime_ns,
                     )
                     photo_rows: list[tuple[str, str, str, str | None, int, int, int]] = []
                     for path in image_paths:
+                        _check_cancelled(cancel_check)
                         metadata = _image_metadata(path)
                         if metadata is None:
                             continue
@@ -195,36 +225,163 @@ def scan_root(conn: sqlite3.Connection, root_id: int) -> ScanSummary:
                     photo_rows_by_relative[relative_item] = photo_rows
                     counts[category_code] += 1
 
+    _check_cancelled(cancel_check)
+    existing_items = {
+        str(row["relative_path"]): row
+        for row in conn.execute(
+            """
+            SELECT id, category_id, year, period, building, code, relative_path,
+                   status, photo_count, dir_mtime_ns
+            FROM item WHERE root_id=?
+            """,
+            (root_id,),
+        )
+    }
+    added_items = updated_items = removed_items = 0
+    added_photos = updated_photos = removed_photos = 0
+
     with conn:
-        conn.execute("DELETE FROM item WHERE root_id = ?", (root_id,))
-        conn.executemany(
-            """
-            INSERT INTO item(
-                root_id, category_id, year, period, building, code, relative_path,
-                status, photo_count
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            item_rows,
-        )
-        item_ids = {
-            row["relative_path"]: row["id"]
-            for row in conn.execute(
-                "SELECT id, relative_path FROM item WHERE root_id = ?", (root_id,)
+        for relative_item, row in existing_items.items():
+            if relative_item in item_rows:
+                continue
+            _check_cancelled(cancel_check)
+            removed_photos += int(
+                conn.execute("SELECT COUNT(*) FROM photo WHERE item_id=?", (row["id"],)).fetchone()[
+                    0
+                ]
             )
-        }
-        all_photos: list[tuple[object, ...]] = []
-        for relative_item, photos in photo_rows_by_relative.items():
-            item_id = item_ids[relative_item]
-            all_photos.extend((item_id, *photo) for photo in photos)
-        conn.executemany(
-            """
-            INSERT INTO photo(
-                item_id, filename, relative_path, extension, slot, size_bytes, mtime_ns,
-                cloud_placeholder
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            all_photos,
-        )
+            conn.execute("DELETE FROM item WHERE id=?", (row["id"],))
+            removed_items += 1
+
+        for relative_item, desired in item_rows.items():
+            _check_cancelled(cancel_check)
+            existing = existing_items.get(relative_item)
+            photos = photo_rows_by_relative[relative_item]
+            if existing is None:
+                cursor = conn.execute(
+                    """
+                    INSERT INTO item(
+                        root_id, category_id, year, period, building, code, relative_path,
+                        status, photo_count, dir_mtime_ns
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    desired,
+                )
+                item_id = int(cursor.lastrowid)
+                conn.executemany(
+                    """
+                    INSERT INTO photo(
+                        item_id, filename, relative_path, extension, slot, size_bytes, mtime_ns,
+                        cloud_placeholder
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    [(item_id, *photo) for photo in photos],
+                )
+                added_items += 1
+                added_photos += len(photos)
+                continue
+
+            item_id = int(existing["id"])
+            desired_item_values = desired[1:]
+            existing_item_values = (
+                existing["category_id"],
+                existing["year"],
+                existing["period"],
+                existing["building"],
+                existing["code"],
+                existing["relative_path"],
+                existing["status"],
+                existing["photo_count"],
+                existing["dir_mtime_ns"],
+            )
+            item_changed = desired_item_values != existing_item_values
+
+            existing_photos = {
+                str(row["relative_path"]): row
+                for row in conn.execute(
+                    """
+                    SELECT id, filename, relative_path, extension, slot, size_bytes, mtime_ns,
+                           sha256, thumbnail_path, cloud_placeholder
+                    FROM photo WHERE item_id=?
+                    """,
+                    (item_id,),
+                )
+            }
+            desired_photos = {photo[1]: photo for photo in photos}
+
+            for relative_photo, photo_row in existing_photos.items():
+                if relative_photo in desired_photos:
+                    continue
+                _check_cancelled(cancel_check)
+                conn.execute("DELETE FROM photo WHERE id=?", (photo_row["id"],))
+                removed_photos += 1
+                item_changed = True
+
+            for relative_photo, desired_photo in desired_photos.items():
+                _check_cancelled(cancel_check)
+                current_photo = existing_photos.get(relative_photo)
+                if current_photo is None:
+                    conn.execute(
+                        """
+                        INSERT INTO photo(
+                            item_id, filename, relative_path, extension, slot, size_bytes, mtime_ns,
+                            cloud_placeholder
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (item_id, *desired_photo),
+                    )
+                    added_photos += 1
+                    item_changed = True
+                    continue
+
+                current_values = (
+                    current_photo["filename"],
+                    current_photo["relative_path"],
+                    current_photo["extension"],
+                    current_photo["slot"],
+                    current_photo["size_bytes"],
+                    current_photo["mtime_ns"],
+                    current_photo["cloud_placeholder"],
+                )
+                if current_values == desired_photo:
+                    continue
+                content_changed = int(current_photo["size_bytes"]) != int(desired_photo[4]) or int(
+                    current_photo["mtime_ns"]
+                ) != int(desired_photo[5])
+                if content_changed:
+                    conn.execute(
+                        """
+                        UPDATE photo SET filename=?, relative_path=?, extension=?, slot=?,
+                            size_bytes=?, mtime_ns=?, cloud_placeholder=?, sha256=NULL,
+                            thumbnail_path=NULL
+                        WHERE id=?
+                        """,
+                        (*desired_photo, current_photo["id"]),
+                    )
+                else:
+                    conn.execute(
+                        """
+                        UPDATE photo SET filename=?, relative_path=?, extension=?, slot=?,
+                            size_bytes=?, mtime_ns=?, cloud_placeholder=?
+                        WHERE id=?
+                        """,
+                        (*desired_photo, current_photo["id"]),
+                    )
+                updated_photos += 1
+                item_changed = True
+
+            if item_changed:
+                conn.execute(
+                    """
+                    UPDATE item SET category_id=?, year=?, period=?, building=?, code=?,
+                        relative_path=?, status=?, photo_count=?, dir_mtime_ns=?
+                    WHERE id=?
+                    """,
+                    (*desired_item_values, item_id),
+                )
+                updated_items += 1
+
+        _check_cancelled(cancel_check)
         conn.execute(
             "UPDATE root SET last_scan_at = CURRENT_TIMESTAMP WHERE id = ?",
             (root_id,),
@@ -235,6 +392,12 @@ def scan_root(conn: sqlite3.Connection, root_id: int) -> ScanSummary:
         items=len(item_rows),
         photos=sum(len(photos) for photos in photo_rows_by_relative.values()),
         categories=counts,
+        added_items=added_items,
+        updated_items=updated_items,
+        removed_items=removed_items,
+        added_photos=added_photos,
+        updated_photos=updated_photos,
+        removed_photos=removed_photos,
     )
 
 

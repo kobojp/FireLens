@@ -20,6 +20,9 @@ DEFAULT_SETTINGS: dict[str, object] = {
         "building": "",
     },
     "custom_slots": {},
+    "auto_scan_on_start": True,
+    "auto_scan_min_interval_minutes": 5,
+    "new_item_panel_open": True,
 }
 
 MAX_CUSTOM_SLOT_LENGTH = 20
@@ -160,7 +163,16 @@ def _validate_custom_slots(conn: sqlite3.Connection, value: object) -> dict[str,
 
 
 def save_settings(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict[str, object]:
-    allowed = {"theme", "thumbnail_quality", "slot_order", "quick_create", "custom_slots"}
+    allowed = {
+        "theme",
+        "thumbnail_quality",
+        "slot_order",
+        "quick_create",
+        "custom_slots",
+        "auto_scan_on_start",
+        "auto_scan_min_interval_minutes",
+        "new_item_panel_open",
+    }
     unknown = set(payload) - allowed
     if unknown:
         raise SettingsError(f"不支援的設定：{', '.join(sorted(unknown))}")
@@ -182,6 +194,21 @@ def save_settings(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict[str
         updates["quick_create"] = _validate_quick_create(conn, payload["quick_create"])
     if "custom_slots" in payload:
         updates["custom_slots"] = _validate_custom_slots(conn, payload["custom_slots"])
+    if "auto_scan_on_start" in payload:
+        enabled = payload["auto_scan_on_start"]
+        if not isinstance(enabled, bool):
+            raise SettingsError("啟動時自動掃描必須是布林值")
+        updates["auto_scan_on_start"] = enabled
+    if "auto_scan_min_interval_minutes" in payload:
+        interval = payload["auto_scan_min_interval_minutes"]
+        if isinstance(interval, bool) or not isinstance(interval, int) or not 1 <= interval <= 1440:
+            raise SettingsError("自動掃描間隔必須是 1～1440 分鐘的整數")
+        updates["auto_scan_min_interval_minutes"] = interval
+    if "new_item_panel_open" in payload:
+        expanded = payload["new_item_panel_open"]
+        if not isinstance(expanded, bool):
+            raise SettingsError("新增編號資料夾展開狀態必須是布林值")
+        updates["new_item_panel_open"] = expanded
 
     with conn:
         for key, value in updates.items():

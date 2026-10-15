@@ -10,6 +10,7 @@ from backend.app import organizer
 from backend.app.db import connect
 from backend.app.main import create_app
 from backend.app.scanner import scan_root
+from tests.scan_helpers import run_scan
 
 
 def add_item(root: Path, period: str, building: str, code: str, files: dict[str, bytes]) -> Path:
@@ -217,7 +218,7 @@ def test_api_preview_execute_history_and_undo(
         root = client.post("/api/roots", json={"path": str(sample_source), "label": "M4 API"})
         assert root.status_code == 201
         root_id = int(root.json()["id"])
-        assert client.post(f"/api/roots/{root_id}/scan").status_code == 200
+        run_scan(client, root_id)
 
         analysis = client.get(f"/api/organizer/{root_id}")
         assert analysis.status_code == 200

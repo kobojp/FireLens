@@ -1,6 +1,8 @@
-import { useDeferredValue, useEffect, useMemo, useState } from 'react'
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from './api'
+import { initialNewItemPanelOpen, newItemPanelButtonText } from './newItemPanel'
 import { photosForSlot, slotAllowsAdditional, unmappedPhotos } from './slots'
+import { scanSummaryText, shouldAutoScan } from './scanPolicy'
 import { countByStatus, countItems } from './tree'
 import { TreeView } from './TreeView'
 import { ReconcileView } from './ReconcileView'
@@ -18,6 +20,7 @@ import type {
   OfflineQueueEntry,
   AppSettings,
   AppInfo,
+  ScanJobStatus,
   ScanSummary,
   TreeNode,
 } from './types'
@@ -210,7 +213,7 @@ export default function App() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [newRootPath, setNewRootPath] = useState('')
-  const [showNewItem, setShowNewItem] = useState(false)
+  const [showNewItem, setShowNewItem] = useState(initialNewItemPanelOpen(undefined))
   const [showNewPeriod, setShowNewPeriod] = useState(false)
   const [showNewBuilding, setShowNewBuilding] = useState(false)
   const [newPeriodName, setNewPeriodName] = useState('')
@@ -234,7 +237,12 @@ export default function App() {
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null)
   const [quickCreateHydrated, setQuickCreateHydrated] = useState(false)
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null)
+  const [scanJob, setScanJob] = useState<ScanJobStatus | null>(null)
   const [treeQuery, setTreeQuery] = useState('')
+  const activeRootRef = useRef<number | null>(null)
+  const selectedItemIdRef = useRef<number | null>(null)
+  const scanMonitorToken = useRef(0)
+  const autoScanAttempted = useRef(new Set<number>())
   const deferredTreeQuery = useDeferredValue(treeQuery)
 
   const statusCounts = useMemo(() => countByStatus(nodes), [nodes])
@@ -253,6 +261,7 @@ export default function App() {
     const custom = item.custom_slots || []
     return [...base, ...custom]
   }, [item, appSettings])
+  const scanRunning = rootId !== null && scanJob?.root_id === rootId && scanJob.state === 'running'
 
   async function refreshRoots() {
     try {
@@ -277,6 +286,10 @@ export default function App() {
 
   async function syncOffline() {
     if (rootId === null) return
+    if (scanRunning) {
+      setError('掃描進行中，請等待完成或先取消掃描再同步離線照片。')
+      return
+    }
     setBusy(true)
     setError('')
     setCacheMessage('')
@@ -317,6 +330,7 @@ export default function App() {
     void api.settings().then((settings) => {
       setAppSettings(settings)
       setNewItem((current) => ({ ...current, ...settings.quick_create }))
+      setShowNewItem(initialNewItemPanelOpen(settings.new_item_panel_open))
       setQuickCreateHydrated(true)
     }).catch((err) => {
       setError(err instanceof Error ? err.message : '讀取應用設定失敗')
@@ -364,10 +378,17 @@ export default function App() {
   ])
 
   useEffect(() => {
+    selectedItemIdRef.current = item?.id ?? null
+  }, [item?.id])
+
+  useEffect(() => {
+    activeRootRef.current = rootId
+    scanMonitorToken.current += 1
     setSelected(null)
     setItem(null)
     if (rootId === null) {
       setNodes([])
+      setScanJob(null)
       return
     }
     setError('')
@@ -377,7 +398,29 @@ export default function App() {
     void refreshCacheState(rootId).catch((err) => {
       setError(err instanceof Error ? err.message : '讀取快取狀態失敗')
     })
+    void api.scanStatus(rootId).then((status) => {
+      if (activeRootRef.current !== rootId) return
+      setScanJob(status)
+      if (status.state === 'running') void monitorScan(rootId)
+    }).catch(() => undefined)
   }, [rootId])
+
+  useEffect(() => {
+    if (rootId === null || !appSettings || !rootStatusInfo) return
+    if (rootStatusInfo.root_id !== rootId || autoScanAttempted.current.has(rootId)) return
+    autoScanAttempted.current.add(rootId)
+    if (!appSettings.auto_scan_on_start || !rootStatusInfo.connected) return
+    if (shouldAutoScan(rootStatusInfo.last_scan_at, appSettings.auto_scan_min_interval_minutes)) {
+      void startScan(true)
+    }
+  }, [
+    rootId,
+    rootStatusInfo?.root_id,
+    rootStatusInfo?.connected,
+    rootStatusInfo?.last_scan_at,
+    appSettings?.auto_scan_on_start,
+    appSettings?.auto_scan_min_interval_minutes,
+  ])
 
   async function addRoot() {
     const path = newRootPath.trim()
@@ -396,20 +439,82 @@ export default function App() {
     }
   }
 
-  async function scan() {
-    if (rootId === null) return
-    setBusy(true)
+  async function monitorScan(id: number) {
+    const token = ++scanMonitorToken.current
+    while (activeRootRef.current === id && scanMonitorToken.current === token) {
+      await new Promise((resolve) => window.setTimeout(resolve, 300))
+      if (activeRootRef.current !== id || scanMonitorToken.current !== token) return
+      try {
+        const status = await api.scanStatus(id)
+        if (activeRootRef.current !== id || scanMonitorToken.current !== token) return
+        setScanJob(status)
+        if (status.state === 'running') continue
+        if (status.state === 'completed' && status.summary) {
+          setScanSummary(status.summary)
+          await Promise.all([refreshTree(id), refreshCacheState(id)])
+          const selectedId = selectedItemIdRef.current
+          if (selectedId !== null) {
+            try {
+              setItem(await api.item(selectedId))
+            } catch {
+              setSelected(null)
+              setItem(null)
+            }
+          }
+          setCacheMessage(`掃描完成：${scanSummaryText(status.summary)}`)
+        } else if (status.state === 'cancelled') {
+          setCacheMessage('掃描已取消；原有索引保持不變。')
+        } else if (status.state === 'error') {
+          setError(status.error || '掃描失敗')
+        }
+        return
+      } catch (err) {
+        setError(err instanceof Error ? err.message : '讀取掃描狀態失敗')
+        return
+      }
+    }
+  }
+
+  async function startScan(automatic = false) {
+    const id = rootId
+    if (id === null) return
     setError('')
+    if (!automatic) setCacheMessage('')
     try {
-      setScanSummary(await api.scanRoot(rootId))
-      await refreshTree(rootId)
-      await refreshCacheState(rootId)
-      setSelected(null)
-      setItem(null)
+      const current = await api.scanStatus(id)
+      const status = current.state === 'running' ? current : await api.startScan(id)
+      if (activeRootRef.current !== id) return
+      setScanJob(status)
+      setCacheMessage(automatic ? '背景掃描中…可繼續瀏覽照片。' : '掃描中…可繼續瀏覽照片。')
+      void monitorScan(id)
     } catch (err) {
-      setError(err instanceof Error ? err.message : '掃描失敗')
-    } finally {
-      setBusy(false)
+      setError(err instanceof Error ? err.message : '啟動掃描失敗')
+    }
+  }
+
+  async function cancelScan() {
+    const id = rootId
+    if (id === null) return
+    try {
+      const status = await api.cancelScan(id)
+      setScanJob(status)
+      if (status.state === 'running') setCacheMessage('正在取消掃描…')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '取消掃描失敗')
+    }
+  }
+
+  async function toggleNewItemPanel() {
+    if (rootId === null) return
+    const next = !showNewItem
+    setShowNewItem(next)
+    if (!appSettings) return
+    try {
+      const updated = await api.saveSettings({ ...appSettings, new_item_panel_open: next })
+      setAppSettings(updated)
+    } catch (err) {
+      setShowNewItem(!next)
+      setError(err instanceof Error ? err.message : '記錄新增資料夾展開狀態失敗')
     }
   }
 
@@ -426,6 +531,10 @@ export default function App() {
 
   async function upload(slot: string, file: File, replacePhotoId?: number) {
     if (!item || rootId === null) return
+    if (scanRunning) {
+      setError('掃描進行中，請等待完成或先取消掃描再匯入照片。')
+      return
+    }
     setBusy(true)
     setError('')
     try {
@@ -445,6 +554,10 @@ export default function App() {
 
   async function confirmDeleteItemFolder() {
     if (!folderToDelete || rootId === null) return
+    if (scanRunning) {
+      setError('掃描進行中，請等待完成或先取消掃描再刪除資料夾。')
+      return
+    }
     
     setBusy(true)
     setError('')
@@ -464,6 +577,10 @@ export default function App() {
 
   async function confirmDeletePhoto() {
     if (!photoToDelete || rootId === null) return
+    if (scanRunning) {
+      setError('掃描進行中，請等待完成或先取消掃描再刪除照片。')
+      return
+    }
     setBusy(true)
     setError('')
     try {
@@ -481,6 +598,10 @@ export default function App() {
 
   async function reorderSlotPhotos(slot: string, photoIds: number[]) {
     if (!item || rootId === null) return
+    if (scanRunning) {
+      setError('掃描進行中，請等待完成或先取消掃描再調整照片順序。')
+      return
+    }
     setBusy(true)
     setError('')
     try {
@@ -496,6 +617,10 @@ export default function App() {
 
   async function createNumberFolder() {
     if (rootId === null) return
+    if (scanRunning) {
+      setError('掃描進行中，請等待完成或先取消掃描再建立資料夾。')
+      return
+    }
     setBusy(true)
     setError('')
     try {
@@ -520,6 +645,10 @@ export default function App() {
 
   async function createPeriod() {
     if (rootId === null || !newItem.year.trim() || !newPeriodName.trim()) return
+    if (scanRunning) {
+      setError('掃描進行中，請等待完成或先取消掃描再建立月份／批次。')
+      return
+    }
     setBusy(true)
     setError('')
     setCacheMessage('')
@@ -544,6 +673,10 @@ export default function App() {
 
   async function createBuilding() {
     if (rootId === null || !newItem.year.trim() || !newItem.period.trim() || !newBuildingName.trim()) return
+    if (scanRunning) {
+      setError('掃描進行中，請等待完成或先取消掃描再建立棟別。')
+      return
+    }
     setBusy(true)
     setError('')
     setCacheMessage('')
@@ -577,7 +710,7 @@ export default function App() {
       <header className="topbar">
         <div>
           <strong>FireLens</strong>
-          <span>照片管理、核對與離線工作 · v{appInfo?.version ?? '1.1.0'}</span>
+          <span>照片管理、核對與離線工作 · v{appInfo?.version ?? '1.3.0'}</span>
         </div>
         <div className="root-controls">
           <label htmlFor="root-select">根目錄</label>
@@ -585,9 +718,10 @@ export default function App() {
             {roots.length === 0 && <option value="">尚未設定</option>}
             {roots.map((root) => <option key={root.id} value={root.id}>{root.label}</option>)}
           </select>
-          <button type="button" onClick={() => void scan()} disabled={rootId === null || busy}>
-            {busy ? '處理中…' : '重新掃描'}
+          <button type="button" onClick={() => void startScan(false)} disabled={rootId === null || scanRunning}>
+            {scanRunning ? '掃描中…' : '重新掃描'}
           </button>
+          {scanRunning && <button type="button" className="outline-button" onClick={() => void cancelScan()}>取消掃描</button>}
           {rootStatusInfo && (
             <span className={`connection-badge ${rootStatusInfo.connected ? 'online' : 'offline'}`}>
               {rootStatusInfo.connected ? '已連線' : '離線快取'}
@@ -616,15 +750,23 @@ export default function App() {
           disabled={busy}
         />
         <button type="button" onClick={() => void addRoot()} disabled={busy || !newRootPath.trim()}>加入</button>
-        <button type="button" className="outline-button" onClick={() => setShowNewItem((value) => !value)} disabled={rootId === null}>
-          ＋ 新增編號資料夾
+        <button
+          type="button"
+          className="outline-button"
+          onClick={() => void toggleNewItemPanel()}
+          disabled={rootId === null}
+          aria-expanded={rootId !== null ? showNewItem : false}
+          aria-controls="new-item-form"
+          aria-label={newItemPanelButtonText(showNewItem, rootId !== null)}
+        >
+          {newItemPanelButtonText(showNewItem, rootId !== null)}
         </button>
         <button type="button" className="outline-button" onClick={() => void buildThumbnailCache()} disabled={busy || rootId === null || rootStatusInfo?.connected === false}>建立縮圖快取</button>
-        <button type="button" className="outline-button" onClick={() => void syncOffline()} disabled={busy || rootId === null || !rootStatusInfo?.connected || rootStatusInfo.pending_imports === 0}>同步離線照片</button>
+        <button type="button" className="outline-button" onClick={() => void syncOffline()} disabled={busy || scanRunning || rootId === null || !rootStatusInfo?.connected || rootStatusInfo.pending_imports === 0}>同步離線照片</button>
       </section>
 
-      {showNewItem && (
-        <section className="new-item-form" aria-label="新增編號資料夾">
+      {rootId !== null && showNewItem && (
+        <section id="new-item-form" className="new-item-form" aria-label="新增編號資料夾">
           <label>類別
             <select value={newItem.category_code} onChange={(event) => setNewItem((current) => ({
               ...current,
@@ -667,13 +809,13 @@ export default function App() {
                   {newItemOptions.periods.length === 0 && <option value="">尚無可用月份/批次</option>}
                   {newItemOptions.periods.map((period) => <option key={period} value={period}>{period}</option>)}
                 </select>
-                <button type="button" className="mini-add-button" onClick={() => setShowNewPeriod((value) => !value)} disabled={busy || !newItem.year.trim()}>＋</button>
+                <button type="button" className="mini-add-button" onClick={() => setShowNewPeriod((value) => !value)} disabled={busy || scanRunning || !newItem.year.trim()}>＋</button>
               </div>
             </label>
             {showNewPeriod && (
               <div className="inline-folder-create">
                 <input value={newPeriodName} onChange={(event) => setNewPeriodName(event.target.value)} placeholder="例：11月份更換" />
-                <button type="button" onClick={() => void createPeriod()} disabled={busy || !newPeriodName.trim()}>新增</button>
+                <button type="button" onClick={() => void createPeriod()} disabled={busy || scanRunning || !newPeriodName.trim()}>新增</button>
               </div>
             )}
           </div>
@@ -684,13 +826,13 @@ export default function App() {
                   {newItemOptions.buildings.length === 0 && <option value="">尚無可用棟別</option>}
                   {newItemOptions.buildings.map((building) => <option key={building} value={building}>{building}</option>)}
                 </select>
-                <button type="button" className="mini-add-button" onClick={() => setShowNewBuilding((value) => !value)} disabled={busy || !newItem.period.trim()}>＋</button>
+                <button type="button" className="mini-add-button" onClick={() => setShowNewBuilding((value) => !value)} disabled={busy || scanRunning || !newItem.period.trim()}>＋</button>
               </div>
             </label>
             {showNewBuilding && (
               <div className="inline-folder-create">
                 <input value={newBuildingName} onChange={(event) => setNewBuildingName(event.target.value)} placeholder="例：中正樓" />
-                <button type="button" onClick={() => void createBuilding()} disabled={busy || !newBuildingName.trim()}>新增</button>
+                <button type="button" onClick={() => void createBuilding()} disabled={busy || scanRunning || !newBuildingName.trim()}>新增</button>
               </div>
             )}
           </div>
@@ -700,7 +842,7 @@ export default function App() {
           <button
             type="button"
             onClick={() => void createNumberFolder()}
-            disabled={busy || !newItem.year.trim() || !newItem.period.trim() || !newItem.building.trim() || !newItem.code.trim()}
+            disabled={busy || scanRunning || !newItem.year.trim() || !newItem.period.trim() || !newItem.building.trim() || !newItem.code.trim()}
           >
             建立資料夾
           </button>
@@ -723,7 +865,7 @@ export default function App() {
             <div><h2>{item?.code ?? '照片槽位'}</h2>{item && <small>{item.category_name} · {item.building}</small>}</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               {item && (
-                <button type="button" className="danger-button" onClick={() => setFolderToDelete(item)} disabled={busy}>
+                <button type="button" className="danger-button" onClick={() => setFolderToDelete(item)} disabled={busy || scanRunning}>
                   刪除
                 </button>
               )}
@@ -739,7 +881,7 @@ export default function App() {
                     key={slot}
                     item={item}
                     slot={slot}
-                    disabled={busy}
+                    disabled={busy || scanRunning}
                     onImport={(targetSlot, file) => void upload(targetSlot, file)}
                     onPreview={openPreview}
                     onReplace={(targetSlot, photoId, file) => void upload(targetSlot, file, photoId)}
@@ -793,7 +935,7 @@ export default function App() {
               )}
             </div>
           )}
-          {scanSummary && <div className="scan-summary"><b>最近掃描</b><p>{scanSummary.items} 個項目 / {scanSummary.photos} 張照片</p></div>}
+          {scanSummary && <div className="scan-summary"><b>最近掃描</b><p>{scanSummary.items} 個項目 / {scanSummary.photos} 張照片</p><p>{scanSummaryText(scanSummary)}</p></div>}
           <div className="notice"><b>寫入保護</b><p>匯入使用暫存檔 → 原子換名 → SHA-256 驗證；既有檔名不會被直接覆蓋。</p></div>
           <div className="notice"><b>來源照片不變</b><p>拖入的原始照片只讀取內容，FireLens 只在目標設備資料夾建立副本。</p></div>
         </aside>

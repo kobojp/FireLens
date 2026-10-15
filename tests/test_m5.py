@@ -16,6 +16,7 @@ from backend.app.cache import (
 )
 from backend.app.db import SCHEMA_VERSION, connect
 from backend.app.scanner import FILE_ATTRIBUTE_OFFLINE, _is_cloud_placeholder_stat, scan_root
+from tests.scan_helpers import run_scan
 
 
 def jpeg_bytes() -> bytes:
@@ -41,10 +42,10 @@ def add_root(conn, root: Path, *, cloud: bool = True) -> int:
     return int(cursor.lastrowid)
 
 
-def test_schema_v5_and_placeholder_flag(db_path: Path) -> None:
+def test_schema_v6_and_placeholder_flag(db_path: Path) -> None:
     conn = connect(db_path)
     try:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION == 5
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION == 6
         tables = {
             row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
         }
@@ -172,7 +173,7 @@ def test_upload_api_queues_when_root_is_offline(monkeypatch, tmp_path: Path) -> 
         )
         assert created.status_code == 201
         root_id = int(created.json()["id"])
-        assert client.post(f"/api/roots/{root_id}/scan").status_code == 200
+        run_scan(client, root_id)
         tree = client.get(f"/api/roots/{root_id}/tree").json()
         item_id = int(tree[0]["children"][0]["children"][0]["children"][0]["children"][0]["id"])
         root.rename(root.with_name("photos-offline"))

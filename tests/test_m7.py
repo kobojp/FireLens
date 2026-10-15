@@ -40,6 +40,9 @@ def test_settings_persist_and_validate(db_path: Path) -> None:
                     "period": "10月份更換",
                     "building": "中正樓",
                 },
+                "auto_scan_on_start": False,
+                "auto_scan_min_interval_minutes": 30,
+                "new_item_panel_open": False,
             },
         )
         assert updated["theme"] == "dark"
@@ -49,12 +52,17 @@ def test_settings_persist_and_validate(db_path: Path) -> None:
         persisted = get_settings(conn)
         assert persisted["slot_order"]["extinguisher"] == ["完成", "藥劑", "編號"]
         assert persisted["quick_create"]["building"] == "中正樓"
+        assert persisted["auto_scan_on_start"] is False
+        assert persisted["auto_scan_min_interval_minutes"] == 30
+        assert persisted["new_item_panel_open"] is False
         with pytest.raises(SettingsError):
             save_settings(conn, {"thumbnail_quality": 20})
         with pytest.raises(SettingsError):
             save_settings(conn, {"slot_order": {"extinguisher": ["完成"]}})
         with pytest.raises(SettingsError):
             save_settings(conn, {"quick_create": {"category_code": "unknown"}})
+        with pytest.raises(SettingsError):
+            save_settings(conn, {"auto_scan_min_interval_minutes": 0})
     finally:
         conn.close()
 
@@ -178,12 +186,24 @@ def test_settings_api_and_app_info(monkeypatch, tmp_path: Path) -> None:
         assert settings.status_code == 200
         assert settings.json()["theme"] == "system"
         assert settings.json()["quick_create"]["category_code"] == "extinguisher"
+        assert settings.json()["auto_scan_on_start"] is True
+        assert settings.json()["auto_scan_min_interval_minutes"] == 5
+        assert settings.json()["new_item_panel_open"] is True
         updated = client.put(
             "/api/settings",
-            json={"theme": "light", "thumbnail_quality": 88},
+            json={
+                "theme": "light",
+                "thumbnail_quality": 88,
+                "auto_scan_on_start": False,
+                "auto_scan_min_interval_minutes": 15,
+                "new_item_panel_open": False,
+            },
         )
         assert updated.status_code == 200
         assert updated.json()["thumbnail_quality"] == 88
+        assert updated.json()["auto_scan_on_start"] is False
+        assert updated.json()["auto_scan_min_interval_minutes"] == 15
+        assert updated.json()["new_item_panel_open"] is False
         info = client.get("/api/app-info")
         assert info.status_code == 200
         assert info.json()["version"] == __version__

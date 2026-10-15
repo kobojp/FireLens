@@ -164,7 +164,29 @@ export function SettingsView({
           <label>縮圖 JPEG 品質：{draft.thumbnail_quality}
             <input type="range" min="60" max="95" value={draft.thumbnail_quality} onChange={(event) => setDraft({ ...draft, thumbnail_quality: Number(event.target.value) })} />
           </label>
+          <label className="check-label">
+            <input
+              type="checkbox"
+              checked={draft.auto_scan_on_start}
+              onChange={(event) => setDraft({ ...draft, auto_scan_on_start: event.target.checked })}
+            />
+            啟動時自動掃描
+          </label>
+          <label>自動掃描最短間隔（分鐘）
+            <input
+              type="number"
+              min="1"
+              max="1440"
+              value={draft.auto_scan_min_interval_minutes}
+              disabled={!draft.auto_scan_on_start}
+              onChange={(event) => setDraft({
+                ...draft,
+                auto_scan_min_interval_minutes: Math.max(1, Math.min(1440, Number(event.target.value) || 1)),
+              })}
+            />
+          </label>
         </div>
+        <p className="help-text">自動掃描預設開啟，預設至少相隔 5 分鐘才再次觸發；手動「重新掃描」不受此門檻限制。</p>
         <h3>槽位顯示順序</h3>
         <div className="settings-grid">
           {categories.map((category) => (

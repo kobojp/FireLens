@@ -18,6 +18,7 @@ from backend.app.reconcile import (
     seed_default_aliases,
 )
 from backend.app.scanner import scan_root
+from tests.scan_helpers import run_scan
 
 
 def workbook_bytes(rows: list[tuple[object, object, object, object]]) -> bytes:
@@ -282,7 +283,7 @@ def test_m3_api_excel_text_reconcile_and_download(
             "/api/roots", json={"path": str(sample_source), "label": "M3 API"}
         )
         root_id = root_response.json()["id"]
-        assert client.post(f"/api/roots/{root_id}/scan").status_code == 200
+        run_scan(client, root_id)
 
         data = workbook_bytes(
             [
