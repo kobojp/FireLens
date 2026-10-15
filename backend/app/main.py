@@ -35,19 +35,24 @@ from .organizer import (
     OrganizerError,
     analyze_root,
     execute_renames,
+    preview_photo_rename,
     preview_renames,
+    rename_existing_photo,
     rename_history,
     undo_rename,
 )
 from .reconcile import (
     ReconcileError,
     build_reconciliation,
+    delete_ledger,
     export_reconciliation,
+    get_ledger_detail,
     import_ledger,
     list_aliases,
     list_ledgers,
     parse_excel_bytes,
     parse_text_rows,
+    rename_ledger,
     reshoot_text,
     save_alias,
     seed_default_aliases,
@@ -114,6 +119,10 @@ class LedgerTextImport(BaseModel):
     text: str = Field(min_length=1)
 
 
+class LedgerRename(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+
+
 class AliasUpsert(BaseModel):
     source_value: str = Field(min_length=1)
     target_value: str = Field(min_length=1)
@@ -140,6 +149,12 @@ class RenameSelection(BaseModel):
 
 class ReorderPhotos(BaseModel):
     photo_ids: list[int]
+
+
+class PhotoRenameRequest(BaseModel):
+    target_filename: str = Field(min_length=1, max_length=255)
+    expected_sha256: str | None = None
+    reason: str = Field(default="人工重新命名", max_length=100)
 
 
 def _item_detail(conn: sqlite3.Connection, item_id: int) -> dict[str, object]:
@@ -383,6 +398,60 @@ def create_app() -> FastAPI:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
             return _item_detail(conn, item_id)
 
+    @app.post("/api/photos/{photo_id}/rename/preview")
+    def preview_existing_photo_rename(
+        photo_id: int, payload: PhotoRenameRequest
+    ) -> dict[str, object]:
+        with database() as conn:
+            root = conn.execute(
+                "SELECT i.root_id FROM photo p JOIN item i ON i.id=p.item_id WHERE p.id=?",
+                (photo_id,),
+            ).fetchone()
+            if root is None:
+                raise HTTPException(status_code=404, detail="找不到指定照片")
+            if scan_job_status(int(root["root_id"]))["state"] == "running":
+                raise HTTPException(
+                    status_code=409, detail="掃描進行中，請等待完成或先取消掃描再改名"
+                )
+            try:
+                return preview_photo_rename(conn, photo_id, payload.target_filename)
+            except OrganizerConflict as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            except OrganizerError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/photos/{photo_id}/rename")
+    def execute_existing_photo_rename(
+        photo_id: int, payload: PhotoRenameRequest
+    ) -> dict[str, object]:
+        if not payload.expected_sha256:
+            raise HTTPException(status_code=400, detail="缺少預覽時的 SHA-256，請先預覽再改名")
+        with database() as conn:
+            root = conn.execute(
+                "SELECT i.root_id FROM photo p JOIN item i ON i.id=p.item_id WHERE p.id=?",
+                (photo_id,),
+            ).fetchone()
+            if root is None:
+                raise HTTPException(status_code=404, detail="找不到指定照片")
+            if scan_job_status(int(root["root_id"]))["state"] == "running":
+                raise HTTPException(
+                    status_code=409, detail="掃描進行中，請等待完成或先取消掃描再改名"
+                )
+            try:
+                result = rename_existing_photo(
+                    conn,
+                    photo_id,
+                    payload.target_filename,
+                    expected_sha256=payload.expected_sha256,
+                    reason=payload.reason,
+                )
+                result["item"] = _item_detail(conn, int(result["item_id"]))
+                return result
+            except OrganizerConflict as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            except OrganizerError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     @app.post("/api/items/{item_id}/slots/{slot}/reorder")
     def adjust_photo_order(item_id: int, slot: str, payload: ReorderPhotos) -> dict[str, object]:
         with database() as conn:
@@ -507,6 +576,7 @@ def create_app() -> FastAPI:
                 source_type="xlsx",
                 rows=rows,
                 source_bytes=data,
+                source_filename=file.filename,
             )
             return next(row for row in list_ledgers(conn) if row["id"] == ledger_id)
 
@@ -523,8 +593,33 @@ def create_app() -> FastAPI:
                 source_type="text",
                 rows=rows,
                 source_bytes=payload.text.encode("utf-8"),
+                source_text=payload.text,
             )
             return next(row for row in list_ledgers(conn) if row["id"] == ledger_id)
+
+    @app.get("/api/ledgers/{ledger_id}")
+    def ledger_detail(ledger_id: int) -> dict[str, object]:
+        with database() as conn:
+            try:
+                return get_ledger_detail(conn, ledger_id)
+            except ReconcileError as exc:
+                raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.put("/api/ledgers/{ledger_id}")
+    def update_ledger_name(ledger_id: int, payload: LedgerRename) -> dict[str, object]:
+        with database() as conn:
+            try:
+                return rename_ledger(conn, ledger_id, payload.name)
+            except ReconcileError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.delete("/api/ledgers/{ledger_id}")
+    def remove_ledger(ledger_id: int) -> dict[str, object]:
+        with database() as conn:
+            try:
+                return delete_ledger(conn, ledger_id)
+            except ReconcileError as exc:
+                raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     @app.get("/api/aliases")
     def aliases() -> list[dict[str, object]]:

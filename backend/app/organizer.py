@@ -9,10 +9,20 @@ from collections import defaultdict
 from contextlib import suppress
 from pathlib import Path
 
-from .scanner import refresh_item_index
+from .scanner import _slot_for, _status_for, refresh_item_index
+from .settings import custom_slots_for
 from .storage import sha256_file
 
 VARIANT_CHARACTERS = {"徳": "德"}
+WINDOWS_INVALID_FILENAME_CHARS = set('<>:"/\\|?*')
+WINDOWS_RESERVED_NAMES = {
+    "CON",
+    "PRN",
+    "AUX",
+    "NUL",
+    *(f"COM{index}" for index in range(1, 10)),
+    *(f"LPT{index}" for index in range(1, 10)),
+}
 
 
 class OrganizerError(ValueError):
@@ -449,6 +459,210 @@ def _record_rename(
             (source_relative, target_relative, digest, reason),
         )
     return int(cursor.lastrowid)
+
+
+def _photo_row_for_rename(conn: sqlite3.Connection, photo_id: int) -> sqlite3.Row:
+    row = conn.execute(
+        """
+        SELECT p.id, p.item_id, p.filename, p.relative_path, p.extension, p.sha256,
+               p.cloud_placeholder, i.root_id, i.relative_path AS item_relative_path,
+               c.code AS category_code
+        FROM photo AS p
+        JOIN item AS i ON i.id=p.item_id
+        JOIN category AS c ON c.id=i.category_id
+        WHERE p.id=?
+        """,
+        (photo_id,),
+    ).fetchone()
+    if row is None:
+        raise OrganizerError("找不到指定照片")
+    return row
+
+
+def _validated_photo_target_name(source_name: str, requested: str) -> str:
+    if requested != requested.strip():
+        raise OrganizerError("檔名不可包含前後空白")
+    if not requested or requested in {".", ".."}:
+        raise OrganizerError("新檔名不可為空")
+    if "/" in requested or "\\" in requested or Path(requested).name != requested:
+        raise OrganizerError("只允許修改檔名，不可包含資料夾路徑")
+    if any(char in WINDOWS_INVALID_FILENAME_CHARS or ord(char) < 32 for char in requested):
+        raise OrganizerError("檔名包含 Windows 不允許的字元")
+    if requested.endswith((".", " ")):
+        raise OrganizerError("Windows 檔名不可用句點或空白結尾")
+
+    source_suffix = Path(source_name).suffix
+    requested_path = Path(requested)
+    requested_suffix = requested_path.suffix
+    if requested_suffix and requested_suffix.casefold() != source_suffix.casefold():
+        raise OrganizerError("重新命名不可變更圖片副檔名")
+    stem = requested_path.stem if requested_suffix else requested
+    if not stem:
+        raise OrganizerError("檔名主體不可為空")
+    if stem.upper() in WINDOWS_RESERVED_NAMES:
+        raise OrganizerError("此名稱是 Windows 保留檔名")
+    target = f"{stem}{source_suffix}"
+    if target == source_name:
+        raise OrganizerError("新檔名與目前檔名相同")
+    return target
+
+
+def preview_photo_rename(
+    conn: sqlite3.Connection, photo_id: int, target_filename: str
+) -> dict[str, object]:
+    row = _photo_row_for_rename(conn, photo_id)
+    root = _root_path(conn, int(row["root_id"]))
+    target_name = _validated_photo_target_name(str(row["filename"]), target_filename)
+    source_relative = str(row["relative_path"])
+    target_relative = Path(source_relative).with_name(target_name).as_posix()
+    source = _safe_path(root, source_relative)
+    target = _safe_file_path_preserve_name(root, target_relative)
+    blocked_reason: str | None = None
+    digest: str | None = None
+
+    if bool(row["cloud_placeholder"]):
+        blocked_reason = "照片仍是雲端未下載佔位檔，請先讓檔案可離線使用"
+    elif not source.is_file() or source.is_symlink():
+        blocked_reason = "來源照片不存在或不是一般檔案"
+    elif target.exists() and not _same_existing_file(source, target):
+        blocked_reason = "目標檔名已存在，不會覆蓋"
+    else:
+        digest = sha256_file(source)
+        with conn:
+            conn.execute("UPDATE photo SET sha256=? WHERE id=?", (digest, photo_id))
+
+    return {
+        "photo_id": photo_id,
+        "item_id": int(row["item_id"]),
+        "root_id": int(row["root_id"]),
+        "source_name": row["filename"],
+        "target_name": target_name,
+        "source_relative": source_relative,
+        "target_relative": target_relative,
+        "sha256": digest,
+        "safe": blocked_reason is None,
+        "blocked_reason": blocked_reason,
+    }
+
+
+def _update_photo_after_rename(
+    conn: sqlite3.Connection,
+    *,
+    photo_id: int,
+    item_id: int,
+    target: Path,
+    target_relative: str,
+    digest: str,
+) -> None:
+    row = conn.execute(
+        """
+        SELECT c.code AS category_code
+        FROM item AS i JOIN category AS c ON c.id=i.category_id
+        WHERE i.id=?
+        """,
+        (item_id,),
+    ).fetchone()
+    if row is None:
+        raise OrganizerError("找不到照片所屬設備")
+    info = target.stat(follow_symlinks=False)
+    category_code = str(row["category_code"])
+    custom_slots = custom_slots_for(conn, category_code)
+    slot = _slot_for(category_code, target.name, custom_slots)
+    with conn:
+        conn.execute(
+            """
+            UPDATE photo
+            SET filename=?, relative_path=?, extension=?, slot=?, size_bytes=?, mtime_ns=?,
+                sha256=?, cloud_placeholder=0
+            WHERE id=?
+            """,
+            (
+                target.name,
+                target_relative,
+                target.suffix.casefold(),
+                slot,
+                info.st_size,
+                info.st_mtime_ns,
+                digest,
+                photo_id,
+            ),
+        )
+        filenames = [
+            str(photo["filename"])
+            for photo in conn.execute("SELECT filename FROM photo WHERE item_id=?", (item_id,))
+        ]
+        conn.execute(
+            "UPDATE item SET status=?, photo_count=? WHERE id=?",
+            (_status_for(category_code, filenames), len(filenames), item_id),
+        )
+
+
+def rename_existing_photo(
+    conn: sqlite3.Connection,
+    photo_id: int,
+    target_filename: str,
+    *,
+    expected_sha256: str,
+    reason: str = "人工重新命名",
+) -> dict[str, object]:
+    preview = preview_photo_rename(conn, photo_id, target_filename)
+    if not preview["safe"]:
+        raise OrganizerConflict(str(preview["blocked_reason"] or "此照片不可安全改名"))
+    digest = str(preview["sha256"] or "")
+    if not expected_sha256 or expected_sha256 != digest:
+        raise OrganizerConflict("照片內容已變更，請重新預覽後再改名")
+
+    root = _root_path(conn, int(preview["root_id"]))
+    source_relative = str(preview["source_relative"])
+    target_relative = str(preview["target_relative"])
+    source = _safe_path(root, source_relative)
+    target = _safe_file_path_preserve_name(root, target_relative)
+    if source.parent != target.parent:
+        raise OrganizerError("只允許在同一設備資料夾內重新命名")
+    if sha256_file(source) != digest:
+        raise OrganizerConflict("來源照片內容已變更，請重新預覽")
+
+    item_id = int(preview["item_id"])
+    _rename_no_overwrite(source, target)
+    try:
+        if sha256_file(target) != digest:
+            raise OrganizerError("改名後 SHA-256 驗證失敗")
+        _update_photo_after_rename(
+            conn,
+            photo_id=photo_id,
+            item_id=item_id,
+            target=target,
+            target_relative=target_relative,
+            digest=digest,
+        )
+        log_id = _record_rename(
+            conn,
+            root_id=int(preview["root_id"]),
+            source_relative=source_relative,
+            target_relative=target_relative,
+            digest=digest,
+            reason=reason.strip() or "人工重新命名",
+        )
+    except Exception as exc:
+        if target.is_file() and not source.exists():
+            _rename_no_overwrite(target, source)
+        with suppress(Exception):
+            refresh_item_index(conn, item_id, {source.name: digest})
+        if isinstance(exc, OrganizerError):
+            raise
+        raise OrganizerError(f"改名後續處理失敗：{exc}") from exc
+
+    return {
+        "photo_id": photo_id,
+        "item_id": item_id,
+        "root_id": int(preview["root_id"]),
+        "rename_log_id": log_id,
+        "source_relative": source_relative,
+        "target_relative": target_relative,
+        "source_name": preview["source_name"],
+        "target_name": preview["target_name"],
+        "sha256": digest,
+    }
 
 
 def execute_renames(

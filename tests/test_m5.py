@@ -42,10 +42,10 @@ def add_root(conn, root: Path, *, cloud: bool = True) -> int:
     return int(cursor.lastrowid)
 
 
-def test_schema_v6_and_placeholder_flag(db_path: Path) -> None:
+def test_current_schema_and_placeholder_flag(db_path: Path) -> None:
     conn = connect(db_path)
     try:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION == 6
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION == 7
         tables = {
             row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
         }

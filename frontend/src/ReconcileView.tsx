@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { api } from './api'
 import { filterReconcileRows } from './reconcile'
+import { LedgerManager } from './LedgerManager'
 import type { AliasRecord, LedgerRecord, ReconcileResult, RootRecord } from './types'
 
 const STATUS_LABELS: Record<string, string> = {
@@ -50,10 +51,14 @@ export function ReconcileView({ roots, defaultRootId }: Props) {
     setRootId((current) => current ?? defaultRootId ?? roots[0]?.id ?? null)
   }, [defaultRootId, roots])
 
-  async function refreshLedgers() {
+  async function refreshLedgers(preferredId?: number | null) {
     const next = await api.ledgers()
     setLedgers(next)
-    setLedgerId((current) => current ?? next[0]?.id ?? null)
+    setLedgerId((current) => {
+      if (preferredId !== undefined && preferredId !== null && next.some((row) => row.id === preferredId)) return preferredId
+      if (current !== null && next.some((row) => row.id === current)) return current
+      return next[0]?.id ?? null
+    })
   }
 
   async function refreshAliases() {
@@ -198,6 +203,14 @@ export function ReconcileView({ roots, defaultRootId }: Props) {
         </div>
         <p className="help-text">預設跨所有月份尋找相同編號；只有填入月份/批次時才限制單一批次。</p>
       </section>
+
+      <LedgerManager
+        ledgers={ledgers}
+        selectedId={ledgerId}
+        onSelect={(id) => { setLedgerId(id); setResult(null) }}
+        onChanged={async (preferredId) => { await refreshLedgers(preferredId); setResult(null) }}
+        onError={setError}
+      />
 
       <section className="reconcile-import-grid">
         <section className="panel-card">

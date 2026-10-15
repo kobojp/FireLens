@@ -104,7 +104,31 @@ export type LedgerRecord = {
   source_type: 'xlsx' | 'text'
   imported_at: string
   source_sha256: string | null
+  source_filename: string | null
   row_count: number
+}
+
+export type LedgerRowRecord = {
+  id: number
+  row_no: number
+  section: string
+  device_no: string
+  specification: string
+  last_replacement_date: string
+  raw_json: string
+}
+
+export type LedgerDetail = LedgerRecord & {
+  source_text: string | null
+  rows: LedgerRowRecord[]
+}
+
+export type LedgerDeleteResult = {
+  deleted: boolean
+  ledger_id: number
+  name: string
+  row_count: number
+  reshoot_marks_deleted: number
 }
 
 export type AliasRecord = {
@@ -268,6 +292,32 @@ export type RenameHistoryRecord = {
   target_path: string
   sha256: string | null
   reverted_at: string | null
+}
+
+export type PhotoRenamePreview = {
+  photo_id: number
+  item_id: number
+  root_id: number
+  source_name: string
+  target_name: string
+  source_relative: string
+  target_relative: string
+  sha256: string | null
+  safe: boolean
+  blocked_reason: string | null
+}
+
+export type PhotoRenameResult = {
+  photo_id: number
+  item_id: number
+  root_id: number
+  rename_log_id: number
+  source_relative: string
+  target_relative: string
+  source_name: string
+  target_name: string
+  sha256: string
+  item: ItemDetail
 }
 
 

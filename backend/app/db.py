@@ -7,7 +7,7 @@ from pathlib import Path
 
 from .config import get_database_path
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 MIGRATION_1 = """
 CREATE TABLE IF NOT EXISTS category (
@@ -198,6 +198,16 @@ def _migrate_6(conn: sqlite3.Connection) -> None:
         conn.execute("PRAGMA user_version = 6")
 
 
+def _migrate_7(conn: sqlite3.Connection) -> None:
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(ledger)")}
+    with conn:
+        if "source_text" not in columns:
+            conn.execute("ALTER TABLE ledger ADD COLUMN source_text TEXT")
+        if "source_filename" not in columns:
+            conn.execute("ALTER TABLE ledger ADD COLUMN source_filename TEXT")
+        conn.execute("PRAGMA user_version = 7")
+
+
 CATEGORY_SEED = (
     (
         "extinguisher",
@@ -278,6 +288,10 @@ def initialize_database(db_path: Path | None = None) -> Path:
         if current_version < 6:
             _migrate_6(conn)
             current_version = 6
+
+        if current_version < 7:
+            _migrate_7(conn)
+            current_version = 7
 
         with conn:
             conn.executemany(

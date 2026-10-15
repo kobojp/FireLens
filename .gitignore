@@ -39,6 +39,9 @@ desktop.ini
 # Site-specific validation records
 /docs/
 
+# Graphify local knowledge graph contains machine-specific absolute paths
+/graphify-out/
+
 # Release binaries belong in GitHub Releases, not Git history
 *.exe
 *.zip

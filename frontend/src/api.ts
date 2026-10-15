@@ -7,9 +7,13 @@ import type {
   PhotoRecord,
   RenameExecutionResult,
   RenameHistoryRecord,
+  PhotoRenamePreview,
+  PhotoRenameResult,
   RenamePreview,
   AliasRecord,
   LedgerRecord,
+  LedgerDetail,
+  LedgerDeleteResult,
   ReconcileResult,
   RootRecord,
   ScanJobStatus,
@@ -116,6 +120,24 @@ export const api = {
     })
   },
   deletePhoto: (photoId: number) => request<ItemDetail>(`/api/photos/${photoId}`, { method: 'DELETE' }),
+  previewPhotoRename: (photoId: number, targetFilename: string, reason = '人工重新命名') => request<PhotoRenamePreview>(
+    `/api/photos/${photoId}/rename/preview`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target_filename: targetFilename, reason }),
+    },
+  ),
+  renamePhoto: (
+    photoId: number, targetFilename: string, expectedSha256: string, reason = '人工重新命名',
+  ) => request<PhotoRenameResult>(`/api/photos/${photoId}/rename`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      target_filename: targetFilename,
+      expected_sha256: expectedSha256,
+      reason,
+    }),
+  }),
   reorderPhotos: (itemId: number, slot: string, photoIds: number[]) => request<ItemDetail>(`/api/items/${itemId}/slots/${encodeURIComponent(slot)}/reorder`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -123,6 +145,13 @@ export const api = {
   }),
 
   ledgers: () => request<LedgerRecord[]>('/api/ledgers'),
+  ledger: (ledgerId: number) => request<LedgerDetail>(`/api/ledgers/${ledgerId}`),
+  renameLedger: (ledgerId: number, name: string) => request<LedgerDetail>(`/api/ledgers/${ledgerId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  }),
+  deleteLedger: (ledgerId: number) => request<LedgerDeleteResult>(`/api/ledgers/${ledgerId}`, { method: 'DELETE' }),
   importExcelLedger: (file: File) => {
     const form = new FormData()
     form.append('file', file)

@@ -286,14 +286,17 @@ def restore_backup(
                 continue
             cursor = conn.execute(
                 """
-                INSERT INTO ledger(name, source_type, imported_at, source_sha256)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO ledger(
+                    name, source_type, imported_at, source_sha256, source_text, source_filename
+                ) VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 (
                     str(ledger.get("name") or "還原清冊"),
                     str(ledger.get("source_type") or "backup"),
                     str(ledger.get("imported_at") or datetime.now(UTC).isoformat()),
                     sha,
+                    ledger.get("source_text"),
+                    ledger.get("source_filename"),
                 ),
             )
             new_id = int(cursor.lastrowid)

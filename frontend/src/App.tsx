@@ -14,6 +14,7 @@ import type {
   CategoryDefinition,
   ItemDetail,
   ItemFolderCreate,
+  PhotoRenamePreview,
   PhotoRecord,
   RootRecord,
   RootStatus,
@@ -27,6 +28,14 @@ import type {
 import './styles.css'
 
 const ACCEPTED_IMAGES = '.jpg,.jpeg,.png,.heic,.heif,image/jpeg,image/png,image/heic,image/heif'
+const INTERNAL_PHOTO_DRAG_TYPE = 'application/x-firelens-photo-id'
+
+type RenameDialogState = {
+  photo: PhotoRecord
+  targetFilename: string
+  reason: string
+  preview: PhotoRenamePreview | null
+}
 
 function PhotoTile({
   photo,
@@ -35,6 +44,7 @@ function PhotoTile({
   isLast,
   onPreview,
   onReplace,
+  onRename,
   onDelete,
   onMoveLeft,
   onMoveRight,
@@ -45,6 +55,7 @@ function PhotoTile({
   isLast?: boolean
   onPreview: (photo: PhotoRecord) => void
   onReplace: (slot: string, photoId: number, file: File) => void
+  onRename?: (photo: PhotoRecord) => void
   onDelete?: (photo: PhotoRecord) => void
   onMoveLeft?: (photoId: number) => void
   onMoveRight?: (photoId: number) => void
@@ -81,6 +92,9 @@ function PhotoTile({
               }}
             />
           </label>
+          {onRename && (
+            <button type="button" className="secondary-button" onClick={() => onRename(photo)}>重新命名</button>
+          )}
           {onDelete && (
             <button type="button" className="danger-button" onClick={() => onDelete(photo)}>刪除</button>
           )}
@@ -99,6 +113,8 @@ function SlotCard({
   onReplace,
   onDelete,
   onReorder,
+  onAssignExisting,
+  onRename,
   onError,
 }: {
   item: ItemDetail
@@ -109,14 +125,23 @@ function SlotCard({
   onReplace: (slot: string, photoId: number, file: File) => void
   onDelete: (photo: PhotoRecord) => void
   onReorder: (slot: string, photoIds: number[]) => void
+  onAssignExisting: (slot: string, photoId: number) => void
+  onRename: (photo: PhotoRecord) => void
   onError: (message: string) => void
 }) {
   const photos = photosForSlot(item, slot)
   const canAdd = slotAllowsAdditional(item, slot)
+  const [dragActive, setDragActive] = useState(false)
 
   function acceptDrop(event: React.DragEvent<HTMLElement>) {
     event.preventDefault()
+    setDragActive(false)
     if (disabled) return
+    const existingPhotoId = Number(event.dataTransfer.getData(INTERNAL_PHOTO_DRAG_TYPE))
+    if (Number.isInteger(existingPhotoId) && existingPhotoId > 0) {
+      onAssignExisting(slot, existingPhotoId)
+      return
+    }
     const file = event.dataTransfer.files?.[0]
     if (!file) return
     if (!canAdd) {
@@ -150,8 +175,10 @@ function SlotCard({
 
   return (
     <section
-      className={`slot-card ${photos.length ? 'filled' : 'empty'}`}
-      onDragOver={(event) => event.preventDefault()}
+      className={`slot-card ${photos.length ? 'filled' : 'empty'} ${dragActive ? 'drag-target' : ''}`}
+      onDragEnter={(event) => { event.preventDefault(); if (!disabled) setDragActive(true) }}
+      onDragOver={(event) => { event.preventDefault(); if (!disabled) setDragActive(true) }}
+      onDragLeave={() => setDragActive(false)}
       onDrop={acceptDrop}
       aria-label={`${slot}照片槽位`}
     >
@@ -190,6 +217,7 @@ function SlotCard({
               isLast={index === photos.length - 1}
               onPreview={onPreview}
               onReplace={onReplace}
+              onRename={onRename}
               onDelete={onDelete}
               onMoveLeft={photos.length > 1 ? moveLeft : undefined}
               onMoveRight={photos.length > 1 ? moveRight : undefined}
@@ -227,6 +255,10 @@ export default function App() {
   })
   const [preview, setPreview] = useState<PhotoRecord | null>(null)
   const [photoToDelete, setPhotoToDelete] = useState<PhotoRecord | null>(null)
+  const [renameDialog, setRenameDialog] = useState<RenameDialogState | null>(null)
+  const [lastRename, setLastRename] = useState<{
+    logId: number; itemId: number; rootId: number; source: string; target: string
+  } | null>(null)
   const [folderToDelete, setFolderToDelete] = useState<ItemDetail | null>(null)
   const [folderDeleteInput, setFolderDeleteInput] = useState('')
   const [zoom, setZoom] = useState(1)
@@ -615,6 +647,115 @@ export default function App() {
     }
   }
 
+  function openManualRename(photo: PhotoRecord) {
+    if (scanRunning) {
+      setError('掃描進行中，請等待完成或先取消掃描再重新命名照片。')
+      return
+    }
+    if (rootStatusInfo?.connected === false) {
+      setError('照片根目錄目前離線，無法重新命名既有照片。')
+      return
+    }
+    setRenameDialog({
+      photo,
+      targetFilename: photo.filename,
+      reason: '人工重新命名',
+      preview: null,
+    })
+  }
+
+  async function preparePhotoRename(photo: PhotoRecord, targetFilename: string, reason: string) {
+    if (scanRunning) {
+      setError('掃描進行中，請等待完成或先取消掃描再重新命名照片。')
+      return
+    }
+    if (rootStatusInfo?.connected === false) {
+      setError('照片根目錄目前離線，無法重新命名既有照片。')
+      return
+    }
+    setBusy(true)
+    setError('')
+    try {
+      const next = await api.previewPhotoRename(photo.id, targetFilename, reason)
+      setRenameDialog({
+        photo,
+        targetFilename: next.target_name,
+        reason,
+        preview: next,
+      })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '無法預覽照片改名')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function assignExistingToSlot(slot: string, photoId: number) {
+    const photo = item?.photos.find((candidate) => candidate.id === photoId)
+    if (!photo) {
+      setError('找不到拖曳的照片，請重新整理後再試。')
+      return
+    }
+    void preparePhotoRename(photo, `${slot}${photo.extension}`, `拖曳歸槽：${slot}`)
+  }
+
+  async function confirmPhotoRename() {
+    const current = renameDialog
+    if (!current?.preview?.safe || !current.preview.sha256 || rootId === null) return
+    if (scanRunning) {
+      setError('掃描進行中，請等待完成或先取消掃描再重新命名照片。')
+      return
+    }
+    setBusy(true)
+    setError('')
+    try {
+      const result = await api.renamePhoto(
+        current.photo.id,
+        current.preview.target_name,
+        current.preview.sha256,
+        current.reason,
+      )
+      setItem(result.item)
+      await Promise.all([refreshTree(rootId), refreshCacheState(rootId)])
+      setLastRename({
+        logId: result.rename_log_id,
+        itemId: result.item_id,
+        rootId: result.root_id,
+        source: result.source_name,
+        target: result.target_name,
+      })
+      setCacheMessage(`已重新命名：${result.source_name} → ${result.target_name}`)
+      setRenameDialog(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '照片重新命名失敗')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function undoLastPhotoRename() {
+    if (!lastRename) return
+    if (scanRunning) {
+      setError('掃描進行中，請等待完成或先取消掃描再復原改名。')
+      return
+    }
+    setBusy(true)
+    setError('')
+    try {
+      await api.undoRename(lastRename.rootId, lastRename.logId)
+      if (item?.id === lastRename.itemId) setItem(await api.item(lastRename.itemId))
+      if (rootId === lastRename.rootId) {
+        await Promise.all([refreshTree(rootId), refreshCacheState(rootId)])
+      }
+      setCacheMessage(`已復原：${lastRename.target} → ${lastRename.source}`)
+      setLastRename(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '復原照片改名失敗')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function createNumberFolder() {
     if (rootId === null) return
     if (scanRunning) {
@@ -710,7 +851,7 @@ export default function App() {
       <header className="topbar">
         <div>
           <strong>FireLens</strong>
-          <span>照片管理、核對與離線工作 · v{appInfo?.version ?? '1.3.0'}</span>
+          <span>照片管理、核對與離線工作 · v{appInfo?.version ?? '1.4.0'}</span>
         </div>
         <div className="root-controls">
           <label htmlFor="root-select">根目錄</label>
@@ -852,6 +993,12 @@ export default function App() {
 
       {error && <div className="error-banner" role="alert">{error}</div>}
       {cacheMessage && <div className="success-banner" role="status">{cacheMessage}</div>}
+      {lastRename && (
+        <div className="success-banner rename-undo-banner" role="status">
+          <span>最近改名：{lastRename.source} → {lastRename.target}</span>
+          <button type="button" onClick={() => void undoLastPhotoRename()} disabled={busy || scanRunning}>復原</button>
+        </div>
+      )}
 
       <section className="workspace">
         <aside className="panel tree-panel" aria-label="照片資料夾樹">
@@ -887,6 +1034,8 @@ export default function App() {
                     onReplace={(targetSlot, photoId, file) => void upload(targetSlot, file, photoId)}
                     onDelete={(photo) => setPhotoToDelete(photo)}
                     onReorder={(targetSlot, photoIds) => void reorderSlotPhotos(targetSlot, photoIds)}
+                    onAssignExisting={assignExistingToSlot}
+                    onRename={openManualRename}
                     onError={setError}
                   />
                 ))}
@@ -894,12 +1043,36 @@ export default function App() {
               {extras.length > 0 && (
                 <section className="unmapped-section">
                   <h3>未對應／舊制照片 <span>{extras.length}</span></h3>
+                  <p className="unmapped-help">可把照片直接拖到上方槽位，FireLens 會先顯示「原檔名 → 新檔名」確認，不會覆蓋既有照片。</p>
                   <div className="unmapped-list">
                     {extras.map((photo) => (
-                      <button key={photo.id} type="button" onClick={() => openPreview(photo)} className="unmapped-photo">
-                        <img src={api.photoUrl(photo)} alt="" loading="lazy" />
-                        <span>{photo.filename}</span>
-                      </button>
+                      <article
+                        key={photo.id}
+                        className="unmapped-photo-card"
+                        draggable={!busy && !scanRunning && rootStatusInfo?.connected !== false && !photo.cloud_placeholder}
+                        onDragStart={(event) => {
+                          event.dataTransfer.setData(INTERNAL_PHOTO_DRAG_TYPE, String(photo.id))
+                          event.dataTransfer.effectAllowed = 'move'
+                        }}
+                      >
+                        <button type="button" onClick={() => openPreview(photo)} className="unmapped-photo">
+                          <img src={api.photoUrl(photo)} alt={photo.filename} loading="lazy" />
+                          <span>{photo.filename}</span>
+                        </button>
+                        <div className="unmapped-actions">
+                          <button type="button" onClick={() => openManualRename(photo)} disabled={busy || scanRunning}>重新命名</button>
+                          {item.slots.map((slot) => (
+                            <button
+                              key={slot}
+                              type="button"
+                              onClick={() => void preparePhotoRename(photo, `${slot}${photo.extension}`, `快速歸槽：${slot}`)}
+                              disabled={busy || scanRunning || rootStatusInfo?.connected === false || Boolean(photo.cloud_placeholder)}
+                            >
+                              設為{slot}
+                            </button>
+                          ))}
+                        </div>
+                      </article>
                     ))}
                   </div>
                 </section>
@@ -954,6 +1127,71 @@ export default function App() {
             </div>
             <div className="preview-canvas">
               <img src={api.photoUrl(preview)} alt={preview.filename} style={{ transform: `scale(${zoom})` }} />
+            </div>
+          </section>
+        </div>
+      )}
+
+      {renameDialog && (
+        <div className="preview-backdrop" onMouseDown={() => !busy && setRenameDialog(null)}>
+          <section className="rename-dialog" role="dialog" aria-modal="true" aria-label={`重新命名 ${renameDialog.photo.filename}`} onMouseDown={(event) => event.stopPropagation()}>
+            <div className="prompt-header">重新命名照片</div>
+            <div className="prompt-body rename-dialog-body">
+              <p>來源：<strong>{renameDialog.photo.filename}</strong></p>
+              <label>新檔名
+                <input
+                  value={renameDialog.targetFilename}
+                  onChange={(event) => setRenameDialog((current) => current ? {
+                    ...current,
+                    targetFilename: event.target.value,
+                    preview: null,
+                    reason: current.reason.startsWith('拖曳歸槽') || current.reason.startsWith('快速歸槽')
+                      ? '人工重新命名'
+                      : current.reason,
+                  } : current)}
+                  disabled={busy}
+                />
+              </label>
+              <div className="rename-quick-actions">
+                {item?.slots.map((slot) => (
+                  <button
+                    key={slot}
+                    type="button"
+                    onClick={() => void preparePhotoRename(
+                      renameDialog.photo,
+                      `${slot}${renameDialog.photo.extension}`,
+                      `快速歸槽：${slot}`,
+                    )}
+                    disabled={busy || scanRunning}
+                  >
+                    設為{slot}
+                  </button>
+                ))}
+              </div>
+              {renameDialog.preview && (
+                <div className={`rename-preview-box ${renameDialog.preview.safe ? 'safe' : 'blocked'}`}>
+                  <b>{renameDialog.preview.source_name} → {renameDialog.preview.target_name}</b>
+                  <span>{renameDialog.preview.safe ? '✓ 可安全改名；檔案內容不會重新編碼。' : `無法改名：${renameDialog.preview.blocked_reason}`}</span>
+                </div>
+              )}
+            </div>
+            <div className="prompt-footer">
+              <button type="button" onClick={() => setRenameDialog(null)} disabled={busy}>取消</button>
+              <button
+                type="button"
+                onClick={() => void preparePhotoRename(renameDialog.photo, renameDialog.targetFilename, renameDialog.reason)}
+                disabled={busy || scanRunning || !renameDialog.targetFilename.trim()}
+              >
+                預覽改名
+              </button>
+              <button
+                type="button"
+                className="primary-button"
+                onClick={() => void confirmPhotoRename()}
+                disabled={busy || !renameDialog.preview?.safe || !renameDialog.preview.sha256}
+              >
+                確認改名
+              </button>
             </div>
           </section>
         </div>

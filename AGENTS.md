@@ -94,6 +94,9 @@ TASKS.md            需求與里程碑
 - 依 EXIF 方向校正，不做不必要的畫質破壞。
 - 撞名不得覆蓋，只允許加序號或取消。
 - 匯入與改名必須寫 `audit_log`。
+- 既有照片人工改名／拖曳歸槽只允許同一設備資料夾內 rename，不重新編碼、不複製影像；必須先預覽 `原檔名 → 新檔名` 並以 SHA-256 驗證內容未變。
+- 既有照片 rename 的新檔名只允許安全 basename，不得包含路徑、Windows 禁用字元／保留名稱或變更圖片副檔名；目標已存在時一律阻擋，不得覆蓋。
+- 既有照片 rename 必須寫入 `rename_log` 與 `audit_log` 並可安全復原；根目錄離線、照片為雲端未下載佔位檔或掃描進行中時不得執行 rename。
 
 ## SQLite
 
@@ -101,6 +104,8 @@ TASKS.md            需求與里程碑
 - schema 只做增量、可重複執行 migration。
 - schema 更新前建立 SQLite backup 快照。
 - 重要資料流程測試使用真實 SQLite，不用 mock 取代資料庫行為。
+- 清冊是受保護持久資料：文字貼上需保存完整原始文字；Excel 至少保存來源檔名、SHA-256 與解析列。清冊 schema 只能增量 migration，不得為新增欄位重建 `ledger`／`ledger_row`。
+- 刪除清冊只允許刪除該清冊與其 `ledger_row`／`reshoot_mark` 關聯資料，不得影響照片、根目錄或其他清冊；重新命名清冊必須保留原 `ledger_id` 與解析列。
 
 ## 桌面與服務安全
 
@@ -125,7 +130,7 @@ TASKS.md            需求與里程碑
 4. 迭代先跑最小測試；里程碑完成前跑 Ruff、pytest、Vitest、TypeScript／frontend build。
 5. UI 變更要實際啟動並視覺驗證。
 6. 影響桌面版、更新器或打包流程時，必須測試打包後 EXE。
-7. 完成程式修改後依全域規則重建 graphify 圖。
+7. 完成程式修改後依全域規則重建 graphify 圖。目前安裝的 Graphify CLI 沒有公開 `build/rebuild` 子命令；使用安裝套件的 `graphify.watch._rebuild_code(Path.cwd())` 對專案根目錄重建，並確認 `graphify-out/graph.json` 與 `graphify-out/GRAPH_REPORT.md` 都成功更新。Graphify 產物會包含本機絕對路徑，因此 `graphify-out/` 固定只留在本機並由 `.gitignore` 排除，禁止提交 Git。不得把重建失敗當成完成。
 8. 未閱讀實際驗證輸出、且未同步完成 `AGENTS.md`／`TASKS.md` 前，不宣稱完成。
 
 ## M0 特別規則

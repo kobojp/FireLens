@@ -240,7 +240,7 @@ def test_auto_scan_and_new_item_panel_settings_persist(db_path: Path) -> None:
     assert persisted["new_item_panel_open"] is False
 
 
-def test_v5_to_v6_migration_backs_up_before_adding_incremental_scan_column(
+def test_v5_to_current_migration_backs_up_before_adding_incremental_scan_column(
     tmp_path: Path,
 ) -> None:
     db_path = tmp_path / "legacy" / "firelens.sqlite3"
@@ -274,6 +274,13 @@ def test_v5_to_v6_migration_backs_up_before_adding_incremental_scan_column(
                 value_json TEXT NOT NULL,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
+            CREATE TABLE ledger (
+                id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                source_type TEXT NOT NULL,
+                imported_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                source_sha256 TEXT
+            );
             INSERT INTO setting(key, value_json) VALUES ('theme', '"dark"');
             PRAGMA user_version = 5;
             """
@@ -295,4 +302,4 @@ def test_v5_to_v6_migration_backs_up_before_adding_incremental_scan_column(
     assert backup.is_file()
     assert "dir_mtime_ns" in columns
     assert theme == '"dark"'
-    assert version == 6
+    assert version == 7

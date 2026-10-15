@@ -179,6 +179,8 @@ def import_ledger(
     source_type: str,
     rows: list[dict[str, str]],
     source_bytes: bytes | None = None,
+    source_text: str | None = None,
+    source_filename: str | None = None,
 ) -> int:
     if source_type not in {"xlsx", "text"}:
         raise ReconcileError("不支援的清冊來源類型")
@@ -187,8 +189,17 @@ def import_ledger(
     source_sha256 = hashlib.sha256(source_bytes).hexdigest() if source_bytes is not None else None
     with conn:
         cursor = conn.execute(
-            "INSERT INTO ledger(name, source_type, source_sha256) VALUES (?, ?, ?)",
-            (name.strip() or "未命名清冊", source_type, source_sha256),
+            """
+            INSERT INTO ledger(name, source_type, source_sha256, source_text, source_filename)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                name.strip() or "未命名清冊",
+                source_type,
+                source_sha256,
+                source_text if source_type == "text" else None,
+                source_filename.strip() if source_filename else None,
+            ),
         )
         ledger_id = int(cursor.lastrowid)
         conn.executemany(
@@ -220,7 +231,7 @@ def list_ledgers(conn: sqlite3.Connection) -> list[dict[str, object]]:
         for row in conn.execute(
             """
             SELECT l.id, l.name, l.source_type, l.imported_at, l.source_sha256,
-                   COUNT(r.id) AS row_count
+                   l.source_filename, COUNT(r.id) AS row_count
             FROM ledger AS l
             LEFT JOIN ledger_row AS r ON r.ledger_id = l.id
             GROUP BY l.id
@@ -228,6 +239,93 @@ def list_ledgers(conn: sqlite3.Connection) -> list[dict[str, object]]:
             """
         )
     ]
+
+
+def get_ledger_detail(conn: sqlite3.Connection, ledger_id: int) -> dict[str, object]:
+    row = conn.execute(
+        """
+        SELECT id, name, source_type, imported_at, source_sha256, source_text, source_filename
+        FROM ledger WHERE id=?
+        """,
+        (ledger_id,),
+    ).fetchone()
+    if row is None:
+        raise ReconcileError("找不到指定清冊")
+    result = dict(row)
+    result["rows"] = [
+        dict(item)
+        for item in conn.execute(
+            """
+            SELECT id, row_no, section, device_no, specification, last_replacement_date, raw_json
+            FROM ledger_row WHERE ledger_id=? ORDER BY row_no
+            """,
+            (ledger_id,),
+        )
+    ]
+    result["row_count"] = len(result["rows"])
+    return result
+
+
+def rename_ledger(conn: sqlite3.Connection, ledger_id: int, name: str) -> dict[str, object]:
+    new_name = name.strip()
+    if not new_name:
+        raise ReconcileError("清冊名稱不可為空")
+    if len(new_name) > 200:
+        raise ReconcileError("清冊名稱過長")
+    current = conn.execute("SELECT name FROM ledger WHERE id=?", (ledger_id,)).fetchone()
+    if current is None:
+        raise ReconcileError("找不到指定清冊")
+    with conn:
+        conn.execute("UPDATE ledger SET name=? WHERE id=?", (new_name, ledger_id))
+        conn.execute(
+            "INSERT INTO audit_log(action, detail_json) VALUES ('rename_ledger', ?)",
+            (
+                json.dumps(
+                    {"ledger_id": ledger_id, "old_name": current["name"], "new_name": new_name},
+                    ensure_ascii=False,
+                ),
+            ),
+        )
+    return get_ledger_detail(conn, ledger_id)
+
+
+def delete_ledger(conn: sqlite3.Connection, ledger_id: int) -> dict[str, object]:
+    current = conn.execute("SELECT id, name FROM ledger WHERE id=?", (ledger_id,)).fetchone()
+    if current is None:
+        raise ReconcileError("找不到指定清冊")
+    row_count = int(
+        conn.execute("SELECT COUNT(*) FROM ledger_row WHERE ledger_id=?", (ledger_id,)).fetchone()[
+            0
+        ]
+    )
+    reshoot_count = int(
+        conn.execute(
+            "SELECT COUNT(*) FROM reshoot_mark WHERE ledger_id=?", (ledger_id,)
+        ).fetchone()[0]
+    )
+    with conn:
+        conn.execute("DELETE FROM ledger WHERE id=?", (ledger_id,))
+        conn.execute(
+            "INSERT INTO audit_log(action, detail_json) VALUES ('delete_ledger', ?)",
+            (
+                json.dumps(
+                    {
+                        "ledger_id": ledger_id,
+                        "name": current["name"],
+                        "row_count": row_count,
+                        "reshoot_marks_deleted": reshoot_count,
+                    },
+                    ensure_ascii=False,
+                ),
+            ),
+        )
+    return {
+        "deleted": True,
+        "ledger_id": ledger_id,
+        "name": current["name"],
+        "row_count": row_count,
+        "reshoot_marks_deleted": reshoot_count,
+    }
 
 
 def seed_default_aliases(conn: sqlite3.Connection) -> None:
