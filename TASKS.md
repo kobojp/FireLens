@@ -1,6 +1,6 @@
 # 滅火器燈具照片管理系統 任務文件
 
-狀態：**M0～M14 功能開發完成**。目前版本 v1.6.0；本版本尚未正式 Release。歷史 v1.5.0 已由使用者實機測試確認 OK 並正式發布至 GitHub Release。
+狀態：**M0～M14 功能開發完成**。目前版本 v1.6.0；v1.6.0 已正式發布至 GitHub Release。歷史 v1.5.0 已由使用者實機測試確認 OK 並正式發布至 GitHub Release。
 M14 開發版本：v1.6.0。
 
 ## 1. 目標
@@ -389,7 +389,8 @@ M14 開發版本：v1.6.0。
 
 驗收標準：使用者從「發現新版」開始只需按一次「下載並安裝」，等待自動安全驗證；全部通過後只再確認一次重新啟動，即可完成更新。任何驗證失敗或使用者取消都不得破壞目前可用版本或使用者資料。
 
-- 驗收：完整 Windows build 通過版本一致性、Ruff format/check、pytest **90 passed**、Vitest **31 passed**、TypeScript/Vite、PyInstaller 與打包後 `FireLens.exe --self-test`；`packaging/update_e2e.py` 實際驗證 EXE 替換／重新啟動、失敗回滾，且 SQLite DB 與 `.firelens-installed` SHA-256 均保持不變；Inno Setup 6.7.3 成功產生 `FireLens-1.6.0-setup.exe`；打包版 UI 隔離資料目錄啟動 smoke 通過；Graphify 已重建為 **569 nodes / 1231 edges / 47 communities**。本版本尚未建立 Git Tag 或 GitHub Release。
+- 驗收：完整 Windows build 通過版本一致性、Ruff format/check、pytest **90 passed**、Vitest **31 passed**、TypeScript/Vite、PyInstaller 與打包後 `FireLens.exe --self-test`；`packaging/update_e2e.py` 實際驗證 EXE 替換／重新啟動、失敗回滾，且 SQLite DB 與 `.firelens-installed` SHA-256 均保持不變；當時使用 Inno Setup 6.7.3 成功產生 `FireLens-1.6.0-setup.exe`；打包版 UI 隔離資料目錄啟動 smoke 通過；Graphify 已重建為 **569 nodes / 1231 edges / 47 communities**。
+- Release：`v1.6.0` 已由 GitHub Actions run `39513769728` 正式建立，Tag 指向 `cb88036863ec6f8a6db796cd341619d3b8bc8db9`；Release 資產包含 `FireLens-1.6.0-setup.exe`、`FireLens-1.6.0-windows-x64.exe`、`SHA256SUMS.txt`、`update-manifest.json`、`update-manifest.sig`，Release build／版本一致性／manifest 簽章／資產上傳均成功。
 
 ## 11. 完成條件
 
