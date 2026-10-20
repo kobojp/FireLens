@@ -100,12 +100,26 @@ TASKS.md            需求與里程碑
 
 ## SQLite
 
-- DB 放在 `%LOCALAPPDATA%\<應用名>\`，不可依附 EXE。
+- Windows 正式安裝版的 DB 必須放在安裝目錄下的 `data\firelens.sqlite3`；預設安裝路徑為 `%LOCALAPPDATA%\Programs\FireLens`，因此一般使用者可直接寫入。原始碼開發／測試仍可使用 `FIRELENS_DATA_DIR` 隔離資料。
+- 不得只因 `sys.frozen` 或 EXE 所在位置就判定為正式安裝版；必須存在由安裝精靈建立的 `.firelens-installed` 標記。從沒有安裝精靈的歷史 v1.4.0 單一 EXE 線上更新到 v1.5.0 時，若沒有標記，必須繼續使用舊 `%LOCALAPPDATA%\FireLens\firelens.sqlite3`，直到使用者真正執行 setup，避免在下載／桌面等可攜 EXE 目錄旁建立正式 DB。
+- 從舊版 `%LOCALAPPDATA%\FireLens\firelens.sqlite3` 搬遷到安裝目錄時，只能做安全 SQLite snapshot/copy；新 DB 通過 `PRAGMA quick_check` 後才切換，舊 DB 必須保留，不得自動刪除，搬遷失敗不得破壞原資料。
 - schema 只做增量、可重複執行 migration。
 - schema 更新前建立 SQLite backup 快照。
 - 重要資料流程測試使用真實 SQLite，不用 mock 取代資料庫行為。
 - 清冊是受保護持久資料：文字貼上需保存完整原始文字；Excel 至少保存來源檔名、SHA-256 與解析列。清冊 schema 只能增量 migration，不得為新增欄位重建 `ledger`／`ledger_row`。
 - 刪除清冊只允許刪除該清冊與其 `ledger_row`／`reshoot_mark` 關聯資料，不得影響照片、根目錄或其他清冊；重新命名清冊必須保留原 `ledger_id` 與解析列。
+
+## 清冊核對規則
+
+- **設備編號是照片核對的主鍵與唯一必要欄位**。`棟別樓層` 只用於顯示、分組、篩選與人工辨識，屬選填輔助資訊；不得把 `棟別樓層` 是否存在或是否完全一致變成能否核對照片的必要條件。
+- 舊資料庫欄位 `section` 可為相容性保留，但新 UI 一律顯示為「棟別樓層」；不得只為改欄位名稱破壞性重建 `ledger`／`ledger_row`。
+- 新清冊流程不再要求或顯示「型式規格」「上次更換日」；既有清冊已保存的舊欄位與 `raw_json` 必須保留相容，不得因新流程而刪除歷史資料。
+- 文字貼上至少支援：單欄「一行一個完整設備編號」，以及 Tab 分隔雙欄「棟別樓層 + 完整設備編號」。Excel 至少支援同樣的單欄／雙欄資料，並相容有標題與無標題格式。
+- Excel 標題需相容「棟別樓層／區段」與「設備編號／編號／滅火器編號」等既有名稱；其他多餘欄位不得阻擋匯入。沒有棟別樓層時仍必須可正常分析與核對。
+- 匯入前可做安全正規化：移除前後空白、整理 Tab／多餘空白、英文字母大小寫正規化；不得擅自改寫設備編號的實質內容、補零、猜樓層或由代碼猜完整棟別名稱。
+- 同一清冊的重複設備編號必須在正式匯入前提示；棟別樓層與設備編號看似不一致時只做非阻擋警告，由使用者判斷，不得自行修正或拒絕核對。
+- 核對結果至少區分「完整」「缺部分照片」「完全無照片」「找不到設備資料夾」「有未對應／舊制照片」，並支援依棟別樓層與缺失類型篩選，以及匯出缺失清單。
+- 清冊名稱可依年月／類別提出預填建議，但使用者可修改；第一次使用清冊功能需提供短引導，且之後必須能再次開啟「查看範例／使用教學」。
 
 ## 桌面與服務安全
 
@@ -130,8 +144,10 @@ TASKS.md            需求與里程碑
 4. 迭代先跑最小測試；里程碑完成前跑 Ruff、pytest、Vitest、TypeScript／frontend build。
 5. UI 變更要實際啟動並視覺驗證。
 6. 影響桌面版、更新器或打包流程時，必須測試打包後 EXE。
-7. 完成程式修改後依全域規則重建 graphify 圖。目前安裝的 Graphify CLI 沒有公開 `build/rebuild` 子命令；使用安裝套件的 `graphify.watch._rebuild_code(Path.cwd())` 對專案根目錄重建，並確認 `graphify-out/graph.json` 與 `graphify-out/GRAPH_REPORT.md` 都成功更新。Graphify 產物會包含本機絕對路徑，因此 `graphify-out/` 固定只留在本機並由 `.gitignore` 排除，禁止提交 Git。不得把重建失敗當成完成。
-8. 未閱讀實際驗證輸出、且未同步完成 `AGENTS.md`／`TASKS.md` 前，不宣稱完成。
+7. 正式 Windows build 必須同時產生 Inno Setup 安裝精靈 `FireLens-<版本>-setup.exe`；安裝器預設採每使用者安裝、不要求系統管理員權限，建立開始功能表捷徑，桌面捷徑為可選，安裝／升級不得刪除 `{app}\data` 使用者資料。安裝精靈的系統頁面、按鈕與 FireLens 自訂提示都必須完整使用繁體中文；所需 Inno Setup 繁中語言資源應隨專案受版本控制，不得依賴開發電腦是否剛好安裝額外語言檔。
+8. 打包後 `FireLens.exe --self-test` 必須強制使用臨時 `FIRELENS_DATA_DIR`，並以可等待 GUI subsystem 程序的方式（例如 `Start-Process -Wait -PassThru`）取得真正 exit code；不得因 raw EXE／安裝版判定差異而讀寫使用者真正的 LocalAppData 或 `{app}\data` DB，也不得在 EXE 尚未結束時誤判 self-test 通過。
+9. 完成程式修改後依全域規則重建 graphify 圖。目前安裝的 Graphify CLI 沒有公開 `build/rebuild` 子命令；使用安裝套件的 `graphify.watch._rebuild_code(Path.cwd())` 對專案根目錄重建，並確認 `graphify-out/graph.json` 與 `graphify-out/GRAPH_REPORT.md` 都成功更新。Graphify 產物會包含本機絕對路徑，因此 `graphify-out/` 固定只留在本機並由 `.gitignore` 排除，禁止提交 Git。不得把重建失敗當成完成。
+10. 未閱讀實際驗證輸出、且未同步完成 `AGENTS.md`／`TASKS.md` 前，不宣稱完成。
 
 ## M0 特別規則
 

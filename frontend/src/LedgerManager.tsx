@@ -136,9 +136,9 @@ export function LedgerManager({ ledgers, selectedId, onSelect, onChanged, onErro
           {view === 'parsed' ? (
             <div className="ledger-table-wrap">
               <table className="ledger-table">
-                <thead><tr><th>#</th><th>區段</th><th>設備名稱</th><th>型式規格</th><th>上次更換日</th></tr></thead>
+                <thead><tr><th>#</th><th>棟別樓層</th><th>設備編號</th></tr></thead>
                 <tbody>{detail.rows.map((row) => (
-                  <tr key={row.id}><td>{row.row_no}</td><td>{row.section || '—'}</td><td>{row.device_no}</td><td>{row.specification || '—'}</td><td>{row.last_replacement_date || '—'}</td></tr>
+                  <tr key={row.id}><td>{row.row_no}</td><td>{row.section || '—'}</td><td>{row.device_no}</td></tr>
                 ))}</tbody>
               </table>
             </div>

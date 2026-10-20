@@ -16,6 +16,26 @@ FireLens 是一套以 Windows 桌面環境為主的消防設備照片管理工�
 - Windows pywebview / WebView2 桌面介面
 - PyInstaller x64 打包
 
+## 清冊核對
+
+清冊核對只把「完整設備編號」當成必要主鍵；「棟別樓層」是方便閱讀、分組與篩選的選填資訊，不影響是否能找到照片。最簡單的文字清冊可以直接一行一個編號：
+
+```text
+動-01-15
+致-B1-67
+中-B2-05
+```
+
+也可以直接從 Excel 複製兩欄貼上：
+
+```text
+致德樓8F	致-08-19
+致德樓B1F	致-B1-67
+中正樓B2F	中-B2-05
+```
+
+Excel 支援有標題或無標題的一欄／兩欄資料；有標題時可使用「棟別樓層／區段」與「設備編號／編號／滅火器編號」，其餘多餘欄位會忽略。文字與 Excel 都會先顯示解析預覽、重複編號與無法辨識資料，再由使用者確認儲存。舊清冊既有的型式規格、上次更換日與原始資料仍保留相容，但新核對流程不再要求這些欄位。
+
 ## 技術棧
 
 - Python 3.12
@@ -71,7 +91,15 @@ npm run build
 .\packaging\build.ps1
 ```
 
-建置腳本會依序執行前端測試、TypeScript、Ruff、pytest、Vite build、PyInstaller 與 EXE self-test。
+建置腳本會依序執行前端測試、TypeScript、Ruff、pytest、Vite build、PyInstaller、EXE self-test，最後使用 Inno Setup 產生 Windows 安裝精靈。
+
+## Windows 安裝
+
+FireLens v1.5.0 提供完整繁體中文 Inno Setup 安裝精靈 `FireLens-<版本>-setup.exe`。繁體中文語言資源隨 repository 一起版本控制，不依賴開發機另外安裝語言檔。預設採每使用者安裝，不需要系統管理員權限，路徑為 `%LOCALAPPDATA%\\Programs\\FireLens`；安裝精靈可變更目的地、建立開始功能表捷徑，桌面捷徑為可選。
+
+正式安裝版資料庫位於 `{安裝路徑}\\data\\firelens.sqlite3`。若舊版資料庫仍位於 `%LOCALAPPDATA%\\FireLens\\firelens.sqlite3`，且新安裝位置尚無資料庫，首次啟動會以 SQLite snapshot 安全複製並通過 `PRAGMA quick_check` 後才使用新位置；舊資料庫不會自動刪除。測試與更新器 self-test 使用 `FIRELENS_DATA_DIR` 時仍完全隔離，不會碰正式資料。
+
+從歷史 v1.4.0 單一 EXE 使用內建線上更新升到 v1.5.0 時，更新器仍可照原流程安全替換 raw EXE；因為舊版沒有安裝精靈標記，更新後會先繼續使用 `%LOCALAPPDATA%\\FireLens\\firelens.sqlite3`，不會把目前 EXE 所在的下載／桌面資料夾誤認為正式安裝位置。之後執行 v1.5.0 setup 完成正式安裝時，才會把舊 DB 安全搬遷到 `{安裝路徑}\\data`。
 
 ## 資料安全
 
@@ -85,13 +113,14 @@ Windows 可執行檔請從 GitHub Releases 下載。Release binary 不直接提�
 GitHub Actions 會監聽 `v*` 標籤。建立正式版本前，`packaging/check_version_consistency.py` 會核對應用程式、套件、前端、TASKS 與發版文件的版本一致性；任一處不一致就停止 build／Release。確認通過後再推送 Tag：
 
 ```powershell
-git tag v1.4.0
-git push origin v1.4.0
+git tag v1.5.0
+git push origin v1.5.0
 ```
 
 工作流程會在 `windows-latest` 上自動執行完整測試與 PyInstaller 打包、執行 `FireLens.exe --self-test`，接著建立 GitHub Release 並上傳：
 
 - `FireLens-<版本>-windows-x64.exe`
+- `FireLens-<版本>-setup.exe`
 - `SHA256SUMS.txt`
 
 如果 Tag 或任何受管版本來源不一致，Release 會直接停止，不會發布錯誤版本。

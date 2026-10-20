@@ -140,6 +140,21 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .file-drop.compact { min-height: 90px; display: grid; place-content: center; text-align: center; border: 2px dashed #d7dadf; border-radius: 8px; color: #656a71; cursor: pointer; }
 .file-drop.compact input { max-width: 240px; margin-top: 8px; }
 .reconcile-import-grid small { color: #858a91; }
+.reconcile-tutorial { display: grid; gap: 12px; }
+.reconcile-tutorial ol { margin: 0; padding-left: 24px; display: grid; gap: 6px; color: #555b62; }
+.tutorial-examples { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.tutorial-examples > div { padding: 10px; border: 1px solid #e1e3e6; border-radius: 8px; background: #fafbfc; }
+.tutorial-examples pre { margin: 6px 0 0; white-space: pre-wrap; font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.tutorial-actions, .preview-actions { display: flex; justify-content: flex-end; align-items: center; gap: 10px; }
+.tutorial-actions label { margin-right: auto; display: flex; align-items: center; gap: 6px; }
+.text-button { border: 0; background: transparent; color: #b34526; font-weight: 750; cursor: pointer; }
+.import-preview { display: grid; gap: 10px; }
+.preview-stats { display: flex; gap: 8px; flex-wrap: wrap; }
+.preview-stats span { padding: 7px 10px; border: 1px solid #dfe2e5; border-radius: 7px; background: #fafbfc; }
+.preview-invalid { background: #fff1f0; }
+.preview-warning { background: #fff8e8; }
+.preview-actions button { min-height: 36px; padding: 0 13px; border: 1px solid #cfd3d8; border-radius: 6px; font-weight: 750; }
+.missing-only-check { align-self: end; min-height: 36px; display: flex !important; grid-auto-flow: column; justify-content: start; align-items: center; gap: 6px !important; }
 .ledger-manager { display: grid; gap: 12px; }
 .ledger-list { display: grid; gap: 7px; }
 .ledger-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 12px; border: 1px solid #e1e3e6; border-radius: 8px; background: #fafbfc; }
@@ -294,6 +309,8 @@ html[data-theme="dark"] .slot-card, html[data-theme="dark"] .photo-tile { backgr
 html[data-theme="dark"] .slot-card.filled { background: #25292f; }
 html[data-theme="dark"] .item-info, html[data-theme="dark"] .scan-summary { background: #30353b; }
 html[data-theme="dark"] .ledger-row, html[data-theme="dark"] .ledger-raw, html[data-theme="dark"] .ledger-source-meta, html[data-theme="dark"] .unmapped-photo-card { background: #292d33; color: #e7e9ec; border-color: #41464e; }
+html[data-theme="dark"] .tutorial-examples > div, html[data-theme="dark"] .preview-stats span { background: #292d33; border-color: #41464e; }
+html[data-theme="dark"] .reconcile-tutorial ol { color: #d4d8dd; }
 html[data-theme="dark"] .ledger-row.selected { background: #493027; border-color: #8e5a48; }
 html[data-theme="dark"] .rename-dialog, html[data-theme="dark"] .prompt-dialog { background: #25292f; color: #e7e9ec; }
 html[data-theme="dark"] .rename-dialog .prompt-header, html[data-theme="dark"] .rename-dialog .prompt-footer, html[data-theme="dark"] .prompt-dialog .prompt-header, html[data-theme="dark"] .prompt-dialog .prompt-footer { background: #30353b; border-color: #454a52; color: #e7e9ec; }
@@ -304,6 +321,8 @@ html[data-theme="dark"] .rename-dialog .prompt-body, html[data-theme="dark"] .pr
   html:not([data-theme]) .mode-tabs, html:not([data-theme]) .settings-page, html:not([data-theme]) .reconcile-page, html:not([data-theme]) .organizer-page { background: #1e2126; }
   html:not([data-theme]) .panel, html:not([data-theme]) .panel-card, html:not([data-theme]) .root-add, html:not([data-theme]) .mode-tabs button.active { background: #25292f; color: #e7e9ec; border-color: #3b4048; }
   html:not([data-theme]) .ledger-row, html:not([data-theme]) .ledger-raw, html:not([data-theme]) .ledger-source-meta, html:not([data-theme]) .unmapped-photo-card { background: #292d33; color: #e7e9ec; border-color: #41464e; }
+  html:not([data-theme]) .tutorial-examples > div, html:not([data-theme]) .preview-stats span { background: #292d33; border-color: #41464e; }
+  html:not([data-theme]) .reconcile-tutorial ol { color: #d4d8dd; }
   html:not([data-theme]) .ledger-row.selected { background: #493027; border-color: #8e5a48; }
   html:not([data-theme]) .rename-dialog, html:not([data-theme]) .prompt-dialog { background: #25292f; color: #e7e9ec; }
   html:not([data-theme]) .rename-dialog .prompt-header, html:not([data-theme]) .rename-dialog .prompt-footer, html:not([data-theme]) .prompt-dialog .prompt-header, html:not([data-theme]) .prompt-dialog .prompt-footer { background: #30353b; border-color: #454a52; color: #e7e9ec; }

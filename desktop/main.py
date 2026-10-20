@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import argparse
 import http.cookiejar
+import json
 import os
 import sys
 import urllib.request
+from pathlib import Path
 
-from backend.app.config import get_app_data_dir
+from backend.app.config import get_app_data_dir, get_install_dir
 from backend.app.db import initialize_database
 from backend.app.logging_config import configure_logging, get_logger
 from desktop.server import start_server
@@ -15,7 +17,24 @@ from desktop.version import __version__
 
 
 def self_test() -> int:
-    initialize_database()
+    database_path = initialize_database()
+    report_path = os.environ.get("FIRELENS_SELFTEST_REPORT")
+    if report_path:
+        install_dir = get_install_dir()
+        Path(report_path).write_text(
+            json.dumps(
+                {
+                    "sys_executable": str(Path(sys.executable).resolve()),
+                    "frozen": bool(getattr(sys, "frozen", False)),
+                    "install_dir": str(install_dir) if install_dir is not None else None,
+                    "database_path": str(database_path),
+                    "app_data_dir": str(get_app_data_dir()),
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
     os.environ["FIRELENS_DESKTOP_SECURE"] = "1"
     handle = start_server()
     try:

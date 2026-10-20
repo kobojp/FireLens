@@ -13,7 +13,11 @@ from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
 
-REQUIRED_HEADERS = ("區段", "設備名稱", "型式規格", "上次更換日")
+SECTION_HEADERS = ("棟別樓層", "區段")
+DEVICE_HEADERS = ("設備編號", "編號", "滅火器編號", "設備名稱")
+SPECIFICATION_HEADERS = ("型式規格",)
+LAST_REPLACEMENT_HEADERS = ("上次更換日",)
+DEVICE_NO_RE = re.compile(r"^[^\s,]+(?:-[^\s,]+)+$")
 REQUIRED_SLOTS = ("編號", "藥劑", "完成")
 SPECIAL_PERIODS = {
     "5P 二氧化碳滅火器",
@@ -40,6 +44,13 @@ STATUS_LABELS = {
     "legacy": "舊制／待確認",
     "special": "特例",
 }
+CLASSIFICATION_LABELS = {
+    "complete": "完整",
+    "partial_missing": "缺部分照片",
+    "no_photos": "完全無照片",
+    "no_folder": "找不到設備資料夾",
+    "unmapped_legacy": "有未對應／舊制照片",
+}
 CATEGORY_LABELS = {"extinguisher": "滅火器", "box": "放置盒", "lamp": "燈具"}
 
 
@@ -51,6 +62,23 @@ def _text(value: object) -> str:
     if value is None:
         return ""
     return str(value).strip()
+
+
+def _normalized_text(value: object) -> str:
+    if value is None:
+        return ""
+    normalized = unicodedata.normalize("NFKC", str(value)).replace("\ufeff", "")
+    return re.sub(r"\s+", " ", normalized).strip()
+
+
+def normalize_device_no(value: object) -> str:
+    normalized = _normalized_text(value).upper()
+    normalized = re.sub(r"\s*-\s*", "-", normalized)
+    return normalized
+
+
+def normalize_section(value: object) -> str:
+    return _normalized_text(value)
 
 
 def _date_text(value: object) -> str:
@@ -67,14 +95,129 @@ def _row(
     section: object, device: object, specification: object, replaced: object
 ) -> dict[str, str]:
     return {
-        "section": _text(section),
-        "device_no": _text(device),
+        "section": normalize_section(section),
+        "device_no": normalize_device_no(device),
         "specification": _text(specification),
         "last_replacement_date": _date_text(replaced),
     }
 
 
-def parse_excel_bytes(data: bytes) -> list[dict[str, str]]:
+def _header_index(values: list[str], aliases: tuple[str, ...]) -> int | None:
+    for alias in aliases:
+        if alias in values:
+            return values.index(alias)
+    return None
+
+
+def _section_device_warning(section: str, device_no: str) -> str | None:
+    if not section or "-" not in device_no:
+        return None
+    prefix = device_no.split("-", 1)[0]
+    compact = re.sub(r"\s+", "", unicodedata.normalize("NFKC", section)).upper()
+    if prefix and prefix in compact:
+        return None
+    chinese_ordinals = {"一": "第一", "二": "第二", "三": "第三", "四": "第四"}
+    if prefix in chinese_ordinals and compact.startswith(chinese_ordinals[prefix]):
+        return None
+    return "棟別樓層與設備編號前綴看似不一致，請人工確認"
+
+
+def _analyze_table(raw_rows: list[list[object]]) -> dict[str, object]:
+    material = [row for row in raw_rows if any(_normalized_text(value) for value in row)]
+    if not material:
+        raise ReconcileError("清冊沒有資料")
+
+    first = [_normalized_text(value) for value in material[0]]
+    device_header_index = _header_index(first, DEVICE_HEADERS)
+    has_header = device_header_index is not None
+    section_header_index = _header_index(first, SECTION_HEADERS) if has_header else None
+    specification_header_index = _header_index(first, SPECIFICATION_HEADERS) if has_header else None
+    replaced_header_index = _header_index(first, LAST_REPLACEMENT_HEADERS) if has_header else None
+    body = material[1:] if has_header else material
+    row_offset = 2 if has_header else 1
+
+    parsed_rows: list[dict[str, str]] = []
+    preview_rows: list[dict[str, object]] = []
+    for offset, values in enumerate(body):
+        normalized_values = [_normalized_text(value) for value in values]
+        if has_header:
+            assert device_header_index is not None
+            device_value = values[device_header_index] if device_header_index < len(values) else ""
+            section_value = (
+                values[section_header_index]
+                if section_header_index is not None and section_header_index < len(values)
+                else ""
+            )
+            specification = (
+                values[specification_header_index]
+                if specification_header_index is not None
+                and specification_header_index < len(values)
+                else ""
+            )
+            replaced = (
+                values[replaced_header_index]
+                if replaced_header_index is not None and replaced_header_index < len(values)
+                else ""
+            )
+        elif len(normalized_values) <= 1:
+            section_value = ""
+            device_value = values[0] if values else ""
+            specification = ""
+            replaced = ""
+        else:
+            section_value = values[0]
+            device_value = values[1]
+            specification = values[2] if len(values) > 2 else ""
+            replaced = values[3] if len(values) > 3 else ""
+
+        row = _row(section_value, device_value, specification, replaced)
+        valid = bool(row["device_no"]) and bool(DEVICE_NO_RE.fullmatch(row["device_no"]))
+        error = None if valid else "設備編號格式無法辨識"
+        warnings: list[str] = []
+        if valid and (warning := _section_device_warning(row["section"], row["device_no"])):
+            warnings.append(warning)
+        preview_rows.append(
+            {
+                "source_row": row_offset + offset,
+                "section": row["section"],
+                "device_no": row["device_no"],
+                "valid": valid,
+                "duplicate": False,
+                "warnings": warnings,
+                "error": error,
+            }
+        )
+        if valid:
+            parsed_rows.append(row)
+
+    counts = Counter(row["device_no"] for row in parsed_rows)
+    duplicate_count = 0
+    for row in preview_rows:
+        if row["valid"] and counts[str(row["device_no"])] > 1:
+            row["duplicate"] = True
+            duplicate_count += 1
+            row["warnings"] = [*row["warnings"], "同一清冊內有重複設備編號"]
+
+    valid_count = sum(bool(row["valid"]) for row in preview_rows)
+    invalid_count = len(preview_rows) - valid_count
+    if not parsed_rows:
+        raise ReconcileError("清冊找不到可辨識的設備編號")
+    return {
+        "has_header": has_header,
+        "total_rows": len(preview_rows),
+        "valid_count": valid_count,
+        "duplicate_count": duplicate_count,
+        "invalid_count": invalid_count,
+        "rows": preview_rows,
+        "parsed_rows": parsed_rows,
+    }
+
+
+def _public_preview(result: dict[str, object]) -> dict[str, object]:
+    return {key: value for key, value in result.items() if key != "parsed_rows"}
+
+
+def _excel_analysis(data: bytes) -> dict[str, object]:
     if not data:
         raise ReconcileError("Excel 檔案是空的")
     try:
@@ -84,42 +227,21 @@ def parse_excel_bytes(data: bytes) -> list[dict[str, str]]:
 
     try:
         sheet = workbook.active
-        iterator = sheet.iter_rows(values_only=True)
-        header = next(iterator, None)
-        if header is None:
-            raise ReconcileError("Excel 沒有資料")
-        header_map = {_text(value): index for index, value in enumerate(header)}
-        missing = [name for name in REQUIRED_HEADERS if name not in header_map]
-        if missing:
-            raise ReconcileError(f"Excel 缺少欄位：{'、'.join(missing)}")
-
-        rows: list[dict[str, str]] = []
-        for values in iterator:
-            device = (
-                values[header_map["設備名稱"]] if header_map["設備名稱"] < len(values) else None
-            )
-            if not _text(device):
-                continue
-            rows.append(
-                _row(
-                    values[header_map["區段"]] if header_map["區段"] < len(values) else None,
-                    device,
-                    values[header_map["型式規格"]]
-                    if header_map["型式規格"] < len(values)
-                    else None,
-                    values[header_map["上次更換日"]]
-                    if header_map["上次更換日"] < len(values)
-                    else None,
-                )
-            )
-        if not rows:
-            raise ReconcileError("Excel 找不到有效設備資料")
-        return rows
+        return _analyze_table([list(values) for values in sheet.iter_rows(values_only=True)])
     finally:
         workbook.close()
 
 
-def parse_text_rows(text: str) -> list[dict[str, str]]:
+def parse_excel_bytes(data: bytes) -> list[dict[str, str]]:
+    result = _excel_analysis(data)
+    return list(result["parsed_rows"])  # type: ignore[arg-type]
+
+
+def preview_excel_bytes(data: bytes) -> dict[str, object]:
+    return _public_preview(_excel_analysis(data))
+
+
+def _text_analysis(text: str) -> dict[str, object]:
     lines = [line.strip("\ufeff\r") for line in text.splitlines() if line.strip()]
     if not lines:
         raise ReconcileError("貼上的清冊文字是空的")
@@ -128,48 +250,16 @@ def parse_text_rows(text: str) -> list[dict[str, str]]:
     parsed = list(csv.reader(lines, delimiter=delimiter))
     if len(parsed[0]) == 1 and delimiter == ",":
         parsed = [re.split(r"\s{2,}", line.strip()) for line in lines]
+    return _analyze_table([list(values) for values in parsed])
 
-    first = [_text(value) for value in parsed[0]]
-    has_header = "設備名稱" in first
-    rows: list[dict[str, str]] = []
-    if has_header:
-        header_map = {name: index for index, name in enumerate(first)}
-        if "設備名稱" not in header_map:
-            raise ReconcileError("文字清冊缺少設備名稱欄位")
-        body = parsed[1:]
-        for values in body:
-            device_index = header_map["設備名稱"]
-            device = values[device_index] if device_index < len(values) else ""
-            if not _text(device):
-                continue
-            rows.append(
-                _row(
-                    values[header_map["區段"]]
-                    if "區段" in header_map and header_map["區段"] < len(values)
-                    else "",
-                    device,
-                    values[header_map["型式規格"]]
-                    if "型式規格" in header_map and header_map["型式規格"] < len(values)
-                    else "",
-                    values[header_map["上次更換日"]]
-                    if "上次更換日" in header_map and header_map["上次更換日"] < len(values)
-                    else "",
-                )
-            )
-    else:
-        for values in parsed:
-            values = [_text(value) for value in values]
-            if not values:
-                continue
-            if len(values) == 1:
-                rows.append(_row("", values[0], "", ""))
-            else:
-                padded = (values + ["", "", "", ""])[:4]
-                rows.append(_row(*padded))
 
-    if not rows:
-        raise ReconcileError("文字清冊找不到有效設備資料")
-    return rows
+def parse_text_rows(text: str) -> list[dict[str, str]]:
+    result = _text_analysis(text)
+    return list(result["parsed_rows"])  # type: ignore[arg-type]
+
+
+def preview_text_rows(text: str) -> dict[str, object]:
+    return _public_preview(_text_analysis(text))
 
 
 def import_ledger(
@@ -478,6 +568,7 @@ def _item_payload(conn: sqlite3.Connection, item: sqlite3.Row) -> dict[str, obje
         )
     )
     slots = {row["slot"] for row in photos if row["slot"]}
+    unmapped_count = sum(row["slot"] is None for row in photos)
     missing_slots = [slot for slot in REQUIRED_SLOTS if slot not in slots]
     suggestions = [
         {"filename": row["filename"], "suggestion": suggestion}
@@ -505,6 +596,7 @@ def _item_payload(conn: sqlite3.Connection, item: sqlite3.Row) -> dict[str, obje
         "photo_count": item["photo_count"],
         "missing_slots": missing_slots,
         "naming_suggestions": suggestions,
+        "unmapped_count": unmapped_count,
         "status": status,
     }
 
@@ -520,6 +612,7 @@ def _slot_only_payload(conn: sqlite3.Connection, item: sqlite3.Row) -> dict[str,
         )
     )
     required_slots = tuple(json.loads(item["slots_json"]))
+    unmapped_count = sum(row["slot"] is None for row in photos)
     present_slots = {row["slot"] for row in photos if row["slot"]}
     missing_slots = [slot for slot in required_slots if slot not in present_slots]
     if item["period"] in SPECIAL_PERIODS:
@@ -551,8 +644,24 @@ def _slot_only_payload(conn: sqlite3.Connection, item: sqlite3.Row) -> dict[str,
         "photo_count": item["photo_count"],
         "missing_slots": missing_slots,
         "naming_suggestions": [],
+        "unmapped_count": unmapped_count,
         "status": status,
     }
+
+
+def _result_classification(row: dict[str, object]) -> str:
+    status = str(row.get("status", ""))
+    found = row.get("found", [])
+    has_unmapped = any(int(item.get("unmapped_count", 0)) > 0 for item in found)  # type: ignore[union-attr]
+    if status in {"complete", "special"} and not has_unmapped:
+        return "complete"
+    if status in {"legacy", "invalid_naming"} or has_unmapped:
+        return "unmapped_legacy"
+    if status == "empty_folder":
+        return "no_photos"
+    if status in {"no_folder", "near_number", "extra_folder"}:
+        return "no_folder"
+    return "partial_missing"
 
 
 def set_reshoot_mark(
@@ -673,6 +782,7 @@ def build_reconciliation(
             base["naming_suggestions"] = payload["naming_suggestions"]
             actual_building = normalize_building(matches[0]["building"], aliases)
             base["building_match"] = not expected_building or expected_building == actual_building
+        base["classification"] = _result_classification(base)
         rows.append(base)
 
     ledger_set = set(ledger_ids)
@@ -682,24 +792,24 @@ def build_reconciliation(
         for item in code_items:
             payload = _item_payload(conn, item)
             is_special = item["period"] in SPECIAL_PERIODS
-            rows.append(
-                {
-                    "kind": "special" if is_special else "extra",
-                    "category": "extinguisher",
-                    "row_no": None,
-                    "section": "",
-                    "expected_building": "",
-                    "device_no": code,
-                    "specification": "",
-                    "last_replacement_date": "",
-                    "status": "special" if is_special else "extra_folder",
-                    "found": [payload],
-                    "missing_slots": [] if is_special else payload["missing_slots"],
-                    "naming_suggestions": ([] if is_special else payload["naming_suggestions"]),
-                    "near_candidates": [],
-                    "marked_reshot": ("extinguisher", code) in marked_pairs,
-                }
-            )
+            extra_row: dict[str, object] = {
+                "kind": "special" if is_special else "extra",
+                "category": "extinguisher",
+                "row_no": None,
+                "section": "",
+                "expected_building": "",
+                "device_no": code,
+                "specification": "",
+                "last_replacement_date": "",
+                "status": "special" if is_special else "extra_folder",
+                "found": [payload],
+                "missing_slots": [] if is_special else payload["missing_slots"],
+                "naming_suggestions": ([] if is_special else payload["naming_suggestions"]),
+                "near_candidates": [],
+                "marked_reshot": ("extinguisher", code) in marked_pairs,
+            }
+            extra_row["classification"] = _result_classification(extra_row)
+            rows.append(extra_row)
 
     slot_query = """
         SELECT i.id, i.code, i.year, i.period, i.building, i.relative_path,
@@ -715,34 +825,35 @@ def build_reconciliation(
         slot_params.append(period)
     for slot_item in conn.execute(slot_query, slot_params):
         payload = _slot_only_payload(conn, slot_item)
-        rows.append(
-            {
-                "kind": "slot_only",
-                "category": slot_item["category_code"],
-                "row_no": None,
-                "section": slot_item["building"],
-                "expected_building": normalize_building(slot_item["building"], aliases),
-                "device_no": slot_item["code"],
-                "specification": slot_item["category_name"],
-                "last_replacement_date": "",
-                "status": payload["status"],
-                "found": [payload],
-                "missing_slots": payload["missing_slots"],
-                "naming_suggestions": [],
-                "near_candidates": [],
-                "marked_reshot": (slot_item["category_code"], slot_item["code"]) in marked_pairs,
-            }
-        )
+        slot_row: dict[str, object] = {
+            "kind": "slot_only",
+            "category": slot_item["category_code"],
+            "row_no": None,
+            "section": slot_item["building"],
+            "expected_building": normalize_building(slot_item["building"], aliases),
+            "device_no": slot_item["code"],
+            "specification": slot_item["category_name"],
+            "last_replacement_date": "",
+            "status": payload["status"],
+            "found": [payload],
+            "missing_slots": payload["missing_slots"],
+            "naming_suggestions": [],
+            "near_candidates": [],
+            "marked_reshot": (slot_item["category_code"], slot_item["code"]) in marked_pairs,
+        }
+        slot_row["classification"] = _result_classification(slot_row)
+        rows.append(slot_row)
 
     ledger_result_rows = [row for row in rows if row["kind"] == "ledger"]
     counts = Counter(str(row["status"]) for row in rows)
-    complete_count = sum(row["status"] == "complete" for row in ledger_result_rows)
+    classification_counts = Counter(str(row["classification"]) for row in ledger_result_rows)
+    complete_count = sum(row["classification"] == "complete" for row in ledger_result_rows)
     total = len(ledger_result_rows)
     progress_acc: dict[str, Counter[str]] = defaultdict(Counter)
     for row in ledger_result_rows:
-        building = str(row["expected_building"] or row["section"] or "未分類")
+        building = str(row["section"] or "未提供棟別樓層")
         progress_acc[building]["total"] += 1
-        if row["status"] == "complete":
+        if row["classification"] == "complete":
             progress_acc[building]["complete"] += 1
     building_progress = [
         {
@@ -764,6 +875,7 @@ def build_reconciliation(
         "complete": complete_count,
         "completion_rate": round(complete_count * 100 / total, 1) if total else 0.0,
         "counts": dict(sorted(counts.items())),
+        "classification_counts": dict(sorted(classification_counts.items())),
         "building_progress": building_progress,
         "rows": rows,
     }
@@ -773,7 +885,7 @@ def reshoot_rows(result: dict[str, object]) -> list[dict[str, object]]:
     return [
         row
         for row in result["rows"]  # type: ignore[index]
-        if row["status"] not in {"complete", "legacy", "special"}
+        if row.get("classification") != "complete" and row.get("kind") != "special"
     ]
 
 
@@ -781,8 +893,10 @@ def reshoot_text(result: dict[str, object]) -> str:
     lines: list[str] = []
     for row in reshoot_rows(result):
         missing = "、".join(row.get("missing_slots", []))
-        status_label = STATUS_LABELS.get(str(row["status"]), str(row["status"]))
-        detail = f"缺：{missing}" if missing else status_label
+        classification_label = CLASSIFICATION_LABELS.get(
+            str(row.get("classification", "")), str(row.get("classification", ""))
+        )
+        detail = f"缺：{missing}" if missing else classification_label
         category = CATEGORY_LABELS.get(str(row.get("category", "")), str(row.get("category", "")))
         lines.append(f"{category}\t{row['device_no']}\t{row.get('section', '')}\t{detail}")
     return "\n".join(lines)
@@ -793,9 +907,9 @@ def export_reconciliation(result: dict[str, object], file_format: str) -> tuple[
     headers = [
         "類別",
         "設備編號",
-        "區段",
-        "狀態",
-        "缺少槽位",
+        "棟別樓層",
+        "核對分類",
+        "缺少照片／狀態",
         "找到月份",
         "找到棟別",
         "相對路徑",
@@ -813,8 +927,11 @@ def export_reconciliation(result: dict[str, object], file_format: str) -> tuple[
                 CATEGORY_LABELS.get(str(row.get("category", "")), str(row.get("category", ""))),
                 str(row.get("device_no", "")),
                 str(row.get("section", "")),
-                STATUS_LABELS.get(str(row.get("status", "")), str(row.get("status", ""))),
-                "、".join(row.get("missing_slots", [])),
+                CLASSIFICATION_LABELS.get(
+                    str(row.get("classification", "")), str(row.get("classification", ""))
+                ),
+                "、".join(row.get("missing_slots", []))
+                or STATUS_LABELS.get(str(row.get("status", "")), str(row.get("status", ""))),
                 found_periods,
                 found_buildings,
                 paths,

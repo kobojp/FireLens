@@ -24,6 +24,7 @@ from .config import (
     get_backup_dir,
     get_cache_dir,
     get_database_path,
+    get_install_dir,
     get_log_dir,
     get_offline_dir,
     get_thumbnail_dir,
@@ -85,6 +86,7 @@ def app_info() -> dict[str, object]:
     return {
         "version": __version__,
         "schema_version": SCHEMA_VERSION,
+        "install_dir": str(get_install_dir()) if get_install_dir() is not None else None,
         "data_dir": str(get_app_data_dir()),
         "database_path": str(get_database_path()),
         "cache_dir": str(get_cache_dir()),

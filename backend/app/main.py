@@ -52,6 +52,8 @@ from .reconcile import (
     list_ledgers,
     parse_excel_bytes,
     parse_text_rows,
+    preview_excel_bytes,
+    preview_text_rows,
     rename_ledger,
     reshoot_text,
     save_alias,
@@ -580,6 +582,18 @@ def create_app() -> FastAPI:
             )
             return next(row for row in list_ledgers(conn) if row["id"] == ledger_id)
 
+    @app.post("/api/ledgers/excel/preview")
+    async def preview_excel_ledger(
+        file: Annotated[UploadFile, File()],
+    ) -> dict[str, object]:
+        data = await file.read()
+        try:
+            preview = preview_excel_bytes(data)
+        except ReconcileError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        preview["source_filename"] = file.filename
+        return preview
+
     @app.post("/api/ledgers/text", status_code=201)
     def import_text_ledger(payload: LedgerTextImport) -> dict[str, object]:
         try:
@@ -596,6 +610,13 @@ def create_app() -> FastAPI:
                 source_text=payload.text,
             )
             return next(row for row in list_ledgers(conn) if row["id"] == ledger_id)
+
+    @app.post("/api/ledgers/text/preview")
+    def preview_text_ledger(payload: LedgerTextImport) -> dict[str, object]:
+        try:
+            return preview_text_rows(payload.text)
+        except ReconcileError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.get("/api/ledgers/{ledger_id}")
     def ledger_detail(ledger_id: int) -> dict[str, object]:

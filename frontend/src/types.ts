@@ -131,6 +131,26 @@ export type LedgerDeleteResult = {
   reshoot_marks_deleted: number
 }
 
+export type LedgerImportPreviewRow = {
+  source_row: number
+  section: string
+  device_no: string
+  valid: boolean
+  duplicate: boolean
+  warnings: string[]
+  error: string | null
+}
+
+export type LedgerImportPreview = {
+  has_header: boolean
+  total_rows: number
+  valid_count: number
+  duplicate_count: number
+  invalid_count: number
+  source_filename?: string | null
+  rows: LedgerImportPreviewRow[]
+}
+
 export type AliasRecord = {
   id: number
   alias_type: string
@@ -148,6 +168,7 @@ export type ReconcileFound = {
   photo_count: number
   missing_slots: string[]
   naming_suggestions: { filename: string; suggestion: string }[]
+  unmapped_count?: number
   status: string
 }
 
@@ -161,6 +182,7 @@ export type ReconcileRow = {
   specification: string
   last_replacement_date: string
   status: string
+  classification: 'complete' | 'partial_missing' | 'no_photos' | 'no_folder' | 'unmapped_legacy'
   found: ReconcileFound[]
   missing_slots: string[]
   naming_suggestions: { filename: string; suggestion: string }[]
@@ -178,6 +200,7 @@ export type ReconcileResult = {
   complete: number
   completion_rate: number
   counts: Record<string, number>
+  classification_counts: Record<string, number>
   building_progress: { building: string; total: number; complete: number; rate: number }[]
   rows: ReconcileRow[]
   reshoot_text: string

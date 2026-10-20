@@ -14,6 +14,7 @@ import type {
   LedgerRecord,
   LedgerDetail,
   LedgerDeleteResult,
+  LedgerImportPreview,
   ReconcileResult,
   RootRecord,
   ScanJobStatus,
@@ -152,11 +153,24 @@ export const api = {
     body: JSON.stringify({ name }),
   }),
   deleteLedger: (ledgerId: number) => request<LedgerDeleteResult>(`/api/ledgers/${ledgerId}`, { method: 'DELETE' }),
-  importExcelLedger: (file: File) => {
+  previewExcelLedger: (file: File) => {
     const form = new FormData()
     form.append('file', file)
-    return request<LedgerRecord>('/api/ledgers/excel', { method: 'POST', body: form })
+    return request<LedgerImportPreview>('/api/ledgers/excel/preview', { method: 'POST', body: form })
   },
+  importExcelLedger: (file: File, name?: string) => {
+    const form = new FormData()
+    form.append('file', file)
+    const params = new URLSearchParams()
+    if (name?.trim()) params.set('name', name.trim())
+    const suffix = params.size ? `?${params.toString()}` : ''
+    return request<LedgerRecord>(`/api/ledgers/excel${suffix}`, { method: 'POST', body: form })
+  },
+  previewTextLedger: (name: string, text: string) => request<LedgerImportPreview>('/api/ledgers/text/preview', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, text }),
+  }),
   importTextLedger: (name: string, text: string) => request<LedgerRecord>('/api/ledgers/text', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

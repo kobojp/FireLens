@@ -1,6 +1,6 @@
 # 滅火器燈具照片管理系統 任務文件
 
-狀態：**M0～M11 功能開發完成**。目前版本 v1.4.0；M10 清冊管理與 M11 既有照片拖曳歸槽／重新命名已完成實作、合成資料端到端驗證與 Windows x64 EXE build／self-test。正式 GitHub Release 尚待本輪發佈流程完成。
+狀態：**M0～M13 功能開發完成**。目前版本 v1.5.0；使用者已完成實機測試並確認 OK，本輪開始執行正式 GitHub Release。
 
 ## 1. 目標
 
@@ -79,7 +79,7 @@
 - 每次匯入與改名寫入稽核紀錄（時間、來源、目標、雜湊），作為還原依據。
 - Google Drive 串流佔位檔不讀取內容，標示「雲端未下載」。
 - 辨識被改名的照片以 SHA-256 為準；多個候選時略過並回報，不猜測。
-- 資料庫位於 `%LOCALAPPDATA%\<應用名>\`，與程式分離；schema 變更採增量、可重複執行。
+- Windows 正式安裝版資料庫位於 `{安裝路徑}\data\firelens.sqlite3`；預設安裝在 `%LOCALAPPDATA%\Programs\FireLens`。舊版 `%LOCALAPPDATA%\FireLens\firelens.sqlite3` 首次啟動時安全複製搬遷並保留原檔；schema 變更仍採增量、可重複執行。
 - 內部服務僅綁定 loopback 隨機埠，保留 session cookie、Host、Origin 檢查。
 - 不提交現場照片、案件資料、機器路徑、憑證或私鑰。
 
@@ -286,6 +286,76 @@
 - [x] 測試：正常歸槽、手動改名、目標撞名、非法檔名、復原、SHA 不符、Drive 離線等案例；只使用合成／副本資料
 - 驗收：合成設備資料夾已驗證 `46459.jpg → 完成.jpg`，磁碟內容 SHA-256 不變且原 photo id 直接更新到「完成」槽位；`rename_log`／`audit_log` 有紀錄並可復原。撞名、非法路徑／Windows 禁用名稱、變更副檔名、預覽後 SHA 改變、雲端未下載、根目錄離線與掃描中均會阻擋。1440×900 Chrome DevTools 合成資料 E2E 已實際完成「設為完成 → 預覽 `46459.jpg → 完成.jpg` → 確認改名 → 復原」，且頁面水平寬度 `scrollWidth=clientWidth=1407`。
 
+### M12 Windows 安裝精靈與資料庫安裝路徑整合（2026-10-20 完成）
+背景：目前只有單一 `FireLens.exe` 與 PowerShell 複製式安裝腳本，缺少一般使用者熟悉的安裝精靈；資料庫則位於 `%LOCALAPPDATA%\FireLens`，使用者希望正式安裝後資料庫跟安裝路徑放在一起。
+
+需求：
+- 新增 Windows 安裝精靈，可選安裝位置、建立開始功能表捷徑，桌面捷徑為可選，安裝完成可直接啟動 FireLens。
+- 預設採每使用者安裝到 `%LOCALAPPDATA%\Programs\FireLens`，不要求系統管理員權限；正式資料庫放在 `{app}\data\firelens.sqlite3`。
+- 使用者自訂安裝位置時，資料庫仍跟隨該安裝目錄的 `data` 子資料夾；更新 FireLens EXE 不得覆蓋或刪除資料庫。
+- 歷史 v1.4.0 單一 EXE 沒有安裝精靈標記；其內建 updater 仍可直接更新 raw EXE 到 v1.5.0，但更新後不得把舊 EXE 所在資料夾誤認為正式安裝位置。只有 Inno Setup 建立 `.firelens-installed` 標記後才啟用 `{app}\data` DB；未正式安裝前繼續使用舊 LocalAppData DB。
+- v1.4.0 舊版若在 `%LOCALAPPDATA%\FireLens\firelens.sqlite3` 有既有資料，v1.5.0 首次啟動且新位置尚無 DB 時，自動以 SQLite backup API 複製到新位置並執行 `PRAGMA quick_check`；成功後使用新 DB，但保留舊 DB 作為回復來源。
+- 若搬遷失敗，新位置不得留下半成品 DB，舊 DB 保持不變並顯示明確繁體中文錯誤。
+- `FIRELENS_DATA_DIR` 測試／self-test 隔離機制優先權最高，不得因安裝路徑功能而寫入正式資料庫。
+- GitHub Release 除既有 raw EXE、SHA256、manifest、signature 外，再發布 `FireLens-<版本>-setup.exe`；線上更新仍更新既有 EXE，不動 `data`。
+
+任務：
+- [x] `config.py`：正式 packaged Windows 版將 DB 定位到 `{exe_dir}\data\firelens.sqlite3`，保留 `FIRELENS_DATA_DIR` override
+- [x] `db.py`：安全搬遷舊版 LocalAppData DB，來源保留、quick_check 驗證、失敗回滾
+- [x] Inno Setup：新增現代安裝精靈，應用名稱／捷徑／自訂提示採繁體中文友善文字；開始功能表捷徑、可選桌面捷徑、每使用者預設安裝
+- [x] build：Windows 正式 build 同時產生 EXE 與 setup.exe，任一失敗都不得宣稱完成
+- [x] GitHub Actions：正式 Release 上傳 setup.exe，SHA256SUMS 同時涵蓋 raw EXE 與 setup.exe
+- [x] app info／文件：能辨識安裝目錄與實際 DB 路徑，README 說明新安裝與舊資料搬遷
+- [x] 測試：安裝 DB 路徑、override、舊 DB 搬遷、既有新 DB 不被舊 DB 覆寫、installer 規格
+- [x] 歷史 v1.4.0 相容更新：未帶 installer marker 的 frozen/raw EXE 保持舊 LocalAppData DB；setup 安裝後才切換 `{app}\data` 並搬遷
+- [x] build 安全：打包後 EXE self-test 強制使用臨時 `FIRELENS_DATA_DIR`，並等待 GUI EXE 真正結束後檢查 exit code；不得碰正式 LocalAppData／安裝目錄 DB
+- 驗收：當時使用 Inno Setup 6.7.3 實際編譯 `FireLens-1.5.0-setup.exe`；完整 build 通過版本一致性、Ruff format/check、pytest 73 passed、Vitest 26 passed、TypeScript/Vite、PyInstaller 與等待 GUI 程序真正結束的 `FireLens.exe --self-test`。隔離相容驗證已確認歷史 v1.4.0-style raw EXE 無 installer marker 時 `install_dir=null` 且仍使用舊 `%LOCALAPPDATA%\FireLens\firelens.sqlite3`；執行 setup 後才切換 `{app}\data\firelens.sqlite3`，`PRAGMA quick_check=ok`、舊資料內容完整搬遷且原 DB 保留；解除安裝後 EXE 移除但 DB 保留。Graphify 已重建為 511 nodes / 1129 edges / 43 communities。
+
+### M13 清冊簡化核對、匯入引導與完整繁中安裝精靈（2026-10-20 完成）
+
+背景：現場真正需要的是「給 FireLens 一批應該存在照片的設備編號，系統直接告訴使用者哪些有、哪些沒有、缺哪一張」。現有清冊流程仍帶有「區段、型式規格、上次更換日」等不必要欄位，且安裝精靈的 Inno Setup 系統頁面仍未完整繁體中文化。
+
+定案輸入格式：
+- 最簡單的文字貼上可只有一欄完整設備編號，例如 `動-01-15`、`致-B1-67`、`中-B2-05`；沒有棟別樓層仍必須能完整分析與核對。
+- 文字貼上也支援 Excel 複製出的 Tab 雙欄，例如 `致德樓8F<TAB>致-08-19`、`致德樓B1F<TAB>致-B1-67`、`中正樓B2F<TAB>中-B2-05`。
+- Excel 的主要正式格式為「棟別樓層 + 完整設備編號」兩欄，例如 `致德樓8F | 致-08-19`；支援有標題與無標題。`棟別樓層` 選填，`設備編號` 必要。
+- 有標題時需相容：`棟別樓層`／`區段`，以及 `設備編號`／`編號`／`滅火器編號`。Excel 其他欄位存在時可忽略，不得因多餘欄位匯入失敗。
+- 不做「棟別樓層 + 尾碼」自動組合設備編號；第二欄本身就是完整設備編號。也不得由 `致-08-19` 擅自猜成「致德樓8F」。
+
+清冊與核對規格：
+- 設備編號是唯一必要的核對主鍵；棟別樓層只做顯示、分組、篩選與人工辨識，不能成為核對必要條件。
+- UI 將「區段」改顯示為「棟別樓層」；資料庫既有 `section` 欄位可相容保留，不做破壞性改名。
+- 新流程移除「型式規格」「上次更換日」的輸入、表格與核對用途；舊清冊已保存資料仍保留，不刪歷史欄位／`raw_json`。
+- 文字與 Excel 匯入都先做預覽，至少顯示：總筆數、有效筆數、重複筆數、無法辨識筆數，再由使用者確認儲存。
+- 安全輸入容錯：去前後空白、整理 Tab／多空白、英文字母大小寫正規化；不得擅自補零、改設備編號內容或猜測樓名。
+- 同一清冊重複設備編號需明確標示；棟別樓層與設備編號前綴看似不一致時顯示非阻擋警告，不自動修正。
+- 核對結果至少分類為「完整」「缺部分照片」「完全無照片」「找不到設備資料夾」「有未對應／舊制照片」。
+- 支援一鍵只看缺失項目，並可依「棟別樓層」及缺少的槽位（例如缺完成、缺藥劑）篩選。
+- 可匯出缺失清單，至少包含：設備編號、棟別樓層、缺少照片／狀態，方便交給同事補拍。
+- 建立清冊時依年月／類別預填名稱建議，例如 `2026/10 滅火器清冊`，但允許使用者自由修改。
+- 保留 M10 已完成的原始貼上內容、清冊重新開啟／重新命名／刪除／既有清冊核對能力。
+
+引導與安裝：
+- 第一次進入清冊核對時提供短版引導：①準備一行一個設備編號或雙欄資料 → ②貼上或匯入 Excel → ③確認解析預覽 → ④儲存並開始核對。
+- 清冊頁永久提供「查看範例／使用教學」，範例同時展示單欄設備編號與「棟別樓層 + 設備編號」雙欄格式；可提供「下次不再自動顯示」。
+- Inno Setup 安裝精靈需完整繁體中文化，包含歡迎頁、安裝位置、其他工作、上一頁／下一步／取消、準備安裝、安裝進度與完成頁；繁中語言資源納入 repository，不依賴開發機另外安裝 `ChineseTraditional.isl`。
+
+任務：
+- [x] 後端文字解析：單欄設備編號、Tab 雙欄棟別樓層＋設備編號、輸入正規化與錯誤列資訊
+- [x] Excel 匯入：支援有／無標題、一欄／兩欄、欄名別名與忽略多餘欄位
+- [x] 清冊資料相容：新流程以設備編號為主鍵、棟別樓層選填，舊 `section/specification/last_replacement_date/raw_json` 不破壞
+- [x] 匯入預覽：有效／重複／無法辨識統計、重複列標示與棟別樓層不一致非阻擋警告
+- [x] 清冊 UI：將「區段」顯示改為「棟別樓層」，移除新流程的「型式規格」「上次更換日」
+- [x] 核對結果：新增完整／缺部分照片／完全無照片／找不到設備資料夾／未對應舊制照片分類
+- [x] 核對篩選：只看缺失、依棟別樓層、依缺少槽位篩選
+- [x] 匯出：產生缺失清單（設備編號、棟別樓層、缺少照片／狀態）
+- [x] 清冊名稱建議：依年月／類別預填但可修改
+- [x] 引導教學：首次短引導、下次不再自動顯示、永久「查看範例／使用教學」入口
+- [x] Installer：將 Inno Setup 系統頁面與自訂提示完整繁體中文化，繁中語言資源隨專案版本控制
+- [x] 測試：單欄／雙欄貼上、Excel 有／無標題、無棟別樓層、重複編號、前後空白、B1/B2、棟別樓層警告、舊清冊相容、核對分類／篩選／匯出與繁中 installer
+- [x] 最終驗收：版本一致性、Ruff、pytest、Vitest、TypeScript/Vite、Windows EXE self-test、完整繁中 setup build、合成資料 E2E 與 Graphify 全部通過後才可標記 M13 完成
+- 驗收：完整 Windows build 通過版本一致性、Ruff format/check、pytest 82 passed、Vitest 27 passed、TypeScript/Vite、PyInstaller 與等待 GUI 程序結束的 `FireLens.exe --self-test`。當時使用 Inno Setup 6.7.3，並以 repository 內 `packaging/lang/ChineseTraditional.isl` 成功產生完整繁中 setup，無缺漏語系 fallback 警告。1407×804 Chrome 合成資料 E2E 已實際完成「雙欄貼上 → 解析預覽 → 儲存並開始核對 → 分類結果 → 缺完成篩選」，顯示 4 筆中 2 筆完整、1 筆缺部分照片、1 筆找不到資料夾，且瀏覽器 console/network 無 FireLens 4xx/5xx 或 failed request。Graphify 已重建為 530 nodes / 1164 edges / 42 communities。
+
 ## 11. 完成條件
 
 - 使用者要求的流程可從介面完整操作。
@@ -296,4 +366,5 @@
 - `packaging/check_version_consistency.py` 必須通過；目前版本、前端 fallback、套件版本、TASKS 狀態與 README 發版範例不得互相矛盾。
 - 每輪開發完成後同步檢查 `AGENTS.md` 與更新 `TASKS.md`；若專案規則、架構、安全、測試、打包或發佈流程有變動，必須同步修正 `AGENTS.md`。
 - 已完成任務必須在本文件標記為 `[x]` 並記錄必要的驗收結果；後續開發只從尚未完成的 `[ ]` 項目繼續，不得重複實作已完成或已取消的工作。
-- 本輪 v1.4.0 最終本機驗收：`packaging/check_version_consistency.py` 通過；Ruff format/check 通過；pytest 65 passed；Vitest 26 passed；TypeScript 與 Vite build 通過；PyInstaller Windows x64 打包與 `FireLens.exe --self-test` 通過。Graphify 已重建為 497 nodes / 1109 edges / 41 communities。
+- 歷史 v1.4.0 當時最終本機驗收：`packaging/check_version_consistency.py` 通過；Ruff format/check 通過；pytest 65 passed；Vitest 26 passed；TypeScript 與 Vite build 通過；PyInstaller Windows x64 打包與 `FireLens.exe --self-test` 通過。Graphify 已重建為 497 nodes / 1109 edges / 41 communities。
+- 本輪 v1.5.0 最終本機驗收：`packaging/check_version_consistency.py`、Ruff format/check、pytest 82 passed、Vitest 27 passed、TypeScript/Vite、PyInstaller、等待 GUI 程序完成並檢查真實 exit code 的 `FireLens.exe --self-test`、完整繁中 Inno Setup setup.exe build、歷史 v1.4.0 raw EXE 相容路徑、隔離安裝／資料庫搬遷／解除安裝保留 DB、M13 合成資料 E2E 與 Graphify 530 nodes / 1164 edges / 42 communities 均已通過。

@@ -43,6 +43,10 @@ jobs:
         with:
           enable-cache: true
 
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
       - name: Resolve and validate release version
         id: version
         shell: pwsh
@@ -71,6 +75,7 @@ jobs:
           "tag=$tag" >> $env:GITHUB_OUTPUT
           "version=$appVersion" >> $env:GITHUB_OUTPUT
           "asset=FireLens-$appVersion-windows-x64.exe" >> $env:GITHUB_OUTPUT
+          "setup_asset=FireLens-$appVersion-setup.exe" >> $env:GITHUB_OUTPUT
 
       - name: Validate project version consistency
         shell: pwsh
@@ -86,9 +91,15 @@ jobs:
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Force release | Out-Null
           $asset = '${{ steps.version.outputs.asset }}'
+          $setupAsset = '${{ steps.version.outputs.setup_asset }}'
           Copy-Item 'dist\FireLens.exe' "release\$asset"
-          $hash = (Get-FileHash "release\$asset" -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$hash  $asset" | Set-Content 'release\SHA256SUMS.txt' -Encoding ascii
+          Copy-Item "dist\installer\$setupAsset" "release\$setupAsset"
+          $exeHash = (Get-FileHash "release\$asset" -Algorithm SHA256).Hash.ToLowerInvariant()
+          $setupHash = (Get-FileHash "release\$setupAsset" -Algorithm SHA256).Hash.ToLowerInvariant()
+          @(
+            "$exeHash  $asset",
+            "$setupHash  $setupAsset"
+          ) | Set-Content 'release\SHA256SUMS.txt' -Encoding ascii
           Get-ChildItem release | Format-Table Name, Length
           Get-Content 'release\SHA256SUMS.txt'
 
@@ -109,6 +120,7 @@ jobs:
           name: FireLens-${{ steps.version.outputs.version }}-windows-x64
           path: |
             release/${{ steps.version.outputs.asset }}
+            release/${{ steps.version.outputs.setup_asset }}
             release/SHA256SUMS.txt
             release/update-manifest.json
             release/update-manifest.sig
@@ -123,6 +135,7 @@ jobs:
         run: |
           gh release create '${{ steps.version.outputs.tag }}' `
             'release\${{ steps.version.outputs.asset }}' `
+            'release\${{ steps.version.outputs.setup_asset }}' `
             'release\SHA256SUMS.txt' `
             'release\update-manifest.json' `
             'release\update-manifest.sig' `

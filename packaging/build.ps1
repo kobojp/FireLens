@@ -33,7 +33,21 @@ Invoke-NativeChecked 'uv.exe' @('run', '--locked', 'python', 'packaging/generate
 Invoke-NativeChecked 'uv.exe' @('run', '--locked', 'pyinstaller', '--clean', '--noconfirm', 'packaging/firelens.spec')
 $Exe = Join-Path $Root 'dist\FireLens.exe'
 if (-not (Test-Path $Exe)) { throw 'PyInstaller 未產生 FireLens.exe' }
-& $Exe --self-test
-if ($LASTEXITCODE -ne 0) { throw "打包後 self-test 失敗：$LASTEXITCODE" }
+$SelfTestDir = Join-Path ([System.IO.Path]::GetTempPath()) ("FireLens-build-selftest-" + [guid]::NewGuid().ToString('N'))
+$HadDataDir = Test-Path Env:FIRELENS_DATA_DIR
+$PreviousDataDir = $env:FIRELENS_DATA_DIR
+try {
+  New-Item -ItemType Directory -Force -Path $SelfTestDir | Out-Null
+  $env:FIRELENS_DATA_DIR = $SelfTestDir
+  $SelfTestProcess = Start-Process -FilePath $Exe -ArgumentList '--self-test' -Wait -PassThru
+  if ($SelfTestProcess.ExitCode -ne 0) { throw "打包後 self-test 失敗：$($SelfTestProcess.ExitCode)" }
+}
+finally {
+  if ($HadDataDir) { $env:FIRELENS_DATA_DIR = $PreviousDataDir }
+  else { Remove-Item Env:FIRELENS_DATA_DIR -ErrorAction SilentlyContinue }
+  Remove-Item -LiteralPath $SelfTestDir -Recurse -Force -ErrorAction SilentlyContinue
+}
 Get-FileHash $Exe -Algorithm SHA256 | Format-List
+& (Join-Path $PSScriptRoot 'build-installer.ps1') -SourceExe $Exe
+if ($LASTEXITCODE -ne 0) { throw "安裝精靈建置失敗：$LASTEXITCODE" }
 Write-Host "Build OK: $Exe"

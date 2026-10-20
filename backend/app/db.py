@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import os
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-from .config import get_database_path
+from .config import get_database_path, get_legacy_database_path
 
 SCHEMA_VERSION = 7
 
@@ -244,8 +245,44 @@ def _backup_before_upgrade(path: Path, current_version: int) -> None:
             source.close()
 
 
+def _migrate_legacy_database_if_needed(path: Path) -> None:
+    if path.exists():
+        return
+    source = get_legacy_database_path()
+    if source is None or not source.is_file() or source.resolve() == path.resolve():
+        return
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".migrating")
+    temporary.unlink(missing_ok=True)
+    source_conn: sqlite3.Connection | None = None
+    destination: sqlite3.Connection | None = None
+    try:
+        source_uri = f"{source.resolve().as_uri()}?mode=ro"
+        source_conn = sqlite3.connect(source_uri, uri=True)
+        destination = sqlite3.connect(temporary)
+        source_conn.backup(destination)
+        result = destination.execute("PRAGMA quick_check").fetchone()
+        if result is None or result[0] != "ok":
+            raise RuntimeError("SQLite quick_check 未通過")
+        destination.close()
+        destination = None
+        source_conn.close()
+        source_conn = None
+        os.replace(temporary, path)
+    except Exception as exc:
+        if destination is not None:
+            destination.close()
+        if source_conn is not None:
+            source_conn.close()
+        temporary.unlink(missing_ok=True)
+        raise RuntimeError(f"舊版 FireLens 資料庫搬遷失敗，原資料仍保留在 {source}：{exc}") from exc
+
+
 def initialize_database(db_path: Path | None = None) -> Path:
     path = db_path or get_database_path()
+    if db_path is None:
+        _migrate_legacy_database_if_needed(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = connect(path)
     try:
