@@ -1,6 +1,6 @@
 # 滅火器燈具照片管理系統 任務文件
 
-狀態：**M0～M13 功能開發完成**。目前版本 v1.5.0；使用者已完成實機測試並確認 OK，本輪開始執行正式 GitHub Release。
+狀態：**M0～M13 功能開發完成**。目前版本 v1.5.0；使用者實機測試確認 OK，v1.5.0 已正式發布至 GitHub Release。
 
 ## 1. 目標
 
@@ -355,6 +355,7 @@
 - [x] 測試：單欄／雙欄貼上、Excel 有／無標題、無棟別樓層、重複編號、前後空白、B1/B2、棟別樓層警告、舊清冊相容、核對分類／篩選／匯出與繁中 installer
 - [x] 最終驗收：版本一致性、Ruff、pytest、Vitest、TypeScript/Vite、Windows EXE self-test、完整繁中 setup build、合成資料 E2E 與 Graphify 全部通過後才可標記 M13 完成
 - 驗收：完整 Windows build 通過版本一致性、Ruff format/check、pytest 82 passed、Vitest 27 passed、TypeScript/Vite、PyInstaller 與等待 GUI 程序結束的 `FireLens.exe --self-test`。當時使用 Inno Setup 6.7.3，並以 repository 內 `packaging/lang/ChineseTraditional.isl` 成功產生完整繁中 setup，無缺漏語系 fallback 警告。1407×804 Chrome 合成資料 E2E 已實際完成「雙欄貼上 → 解析預覽 → 儲存並開始核對 → 分類結果 → 缺完成篩選」，顯示 4 筆中 2 筆完整、1 筆缺部分照片、1 筆找不到資料夾，且瀏覽器 console/network 無 FireLens 4xx/5xx 或 failed request。Graphify 已重建為 530 nodes / 1164 edges / 42 communities。
+- Release：`v1.5.0` 已由 GitHub Actions run `39444235196` 正式建立，Release 資產包含 `FireLens-1.5.0-setup.exe`、`FireLens-1.5.0-windows-x64.exe`、`SHA256SUMS.txt`、`update-manifest.json`、`update-manifest.sig`；Release build／版本一致性／manifest 簽章／資產上傳步驟均成功。
 
 ## 11. 完成條件
 
