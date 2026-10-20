@@ -428,6 +428,30 @@ export type UpdateStatus = {
   asset_url?: string
 }
 
+export type UpdatePreparationPhase =
+  | 'idle'
+  | 'verifying_signature'
+  | 'verifying_manifest'
+  | 'downloading'
+  | 'verifying_sha256'
+  | 'self_test'
+  | 'ready'
+  | 'installing'
+  | 'error'
+
+export type UpdatePreparationStatus = {
+  phase: UpdatePreparationPhase
+  version: string | null
+  message: string
+  bytes_downloaded: number
+  bytes_total: number | null
+  percent: number | null
+  error: string | null
+  ready: boolean
+  running: boolean
+  update: UpdateStatus | null
+}
+
 export type UpdateInstallResult = {
   scheduled: boolean
   version: string

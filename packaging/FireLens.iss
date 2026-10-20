@@ -1,5 +1,5 @@
 #ifndef AppVersion
-  #error AppVersion is required, for example /DAppVersion=1.5.0
+  #error AppVersion is required, for example /DAppVersion=1.6.0
 #endif
 
 #ifndef SourceExe

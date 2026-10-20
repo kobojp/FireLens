@@ -11,6 +11,7 @@ import sys
 import tempfile
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse
@@ -45,6 +46,19 @@ _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 class UpdateError(RuntimeError):
     pass
+
+
+UpdateProgressCallback = Callable[[str, int, int | None], None]
+
+
+def _notify_progress(
+    callback: UpdateProgressCallback | None,
+    phase: str,
+    completed: int = 0,
+    total: int | None = None,
+) -> None:
+    if callback is not None:
+        callback(phase, completed, total)
 
 
 @dataclass(frozen=True)
@@ -250,12 +264,18 @@ def check_for_update(current_version: str = __version__) -> dict[str, object]:
     }
 
 
-def _download_asset(url: str, target: Path, manifest: ReleaseManifest) -> None:
+def _download_asset(
+    url: str,
+    target: Path,
+    manifest: ReleaseManifest,
+    progress: UpdateProgressCallback | None = None,
+) -> None:
     _validate_https_url(url)
     target.parent.mkdir(parents=True, exist_ok=True)
     part = target.with_suffix(target.suffix + ".part")
     digest = hashlib.sha256()
     total = 0
+    _notify_progress(progress, "downloading", 0, manifest.size)
     try:
         with (
             urllib.request.urlopen(_request(url), timeout=60) as response,
@@ -271,8 +291,10 @@ def _download_asset(url: str, target: Path, manifest: ReleaseManifest) -> None:
                     raise UpdateError("下載的更新檔大小超過 manifest")
                 digest.update(chunk)
                 output.write(chunk)
+                _notify_progress(progress, "downloading", total, manifest.size)
         if total != manifest.size:
             raise UpdateError("下載的更新檔大小與 manifest 不一致")
+        _notify_progress(progress, "verifying_sha256", total, manifest.size)
         if digest.hexdigest() != manifest.sha256:
             raise UpdateError("下載的更新檔 SHA-256 驗證失敗")
         os.replace(part, target)
@@ -304,8 +326,13 @@ def _self_test_exe(path: Path) -> None:
         raise UpdateError(f"新版 EXE 自我測試失敗：exit code {result.returncode}")
 
 
-def download_update(expected_version: str | None = None) -> dict[str, object]:
+def download_update(
+    expected_version: str | None = None,
+    progress: UpdateProgressCallback | None = None,
+) -> dict[str, object]:
+    _notify_progress(progress, "verifying_signature")
     manifest, assets, release, manifest_bytes, signature_bytes = _verified_latest_release()
+    _notify_progress(progress, "verifying_manifest", 0, manifest.size)
     if expected_version and manifest.version != expected_version:
         raise UpdateError("檢查後最新版本已變更，請重新檢查更新")
     if _semver(manifest.version) <= _semver(__version__):
@@ -315,10 +342,14 @@ def download_update(expected_version: str | None = None) -> dict[str, object]:
     version_dir.mkdir(parents=True, exist_ok=True)
     target = _staged_exe(manifest)
     if not _staged_is_valid(manifest):
-        _download_asset(assets[manifest.asset], target, manifest)
-        _self_test_exe(target)
+        _download_asset(assets[manifest.asset], target, manifest, progress)
+    else:
+        _notify_progress(progress, "verifying_sha256", manifest.size, manifest.size)
+    _notify_progress(progress, "self_test", manifest.size, manifest.size)
+    _self_test_exe(target)
     (version_dir / MANIFEST_NAME).write_bytes(manifest_bytes)
     (version_dir / SIGNATURE_NAME).write_bytes(signature_bytes)
+    _notify_progress(progress, "ready", manifest.size, manifest.size)
 
     capability = update_capability()
     return {
@@ -341,7 +372,10 @@ _APPLY_SCRIPT = r"""param(
     [string]$CurrentExe,
     [string]$NewExe,
     [string]$BackupExe,
-    [string]$LogFile
+    [string]$LogFile,
+    [string]$LaunchArgument = '',
+    [string]$RollbackLaunchArgument = '',
+    [int]$HealthCheckSeconds = 10
 )
 $ErrorActionPreference = 'Stop'
 function Write-UpdateLog([string]$Message) {
@@ -354,8 +388,13 @@ try {
     Start-Sleep -Milliseconds 500
     Copy-Item -LiteralPath $NewExe -Destination $CurrentExe -Force
     Write-UpdateLog 'new executable installed'
-    $new = Start-Process -FilePath $CurrentExe -PassThru
-    Start-Sleep -Seconds 10
+    if ($LaunchArgument) {
+        $new = Start-Process -FilePath $CurrentExe -ArgumentList $LaunchArgument -PassThru
+    }
+    else {
+        $new = Start-Process -FilePath $CurrentExe -PassThru
+    }
+    Start-Sleep -Seconds $HealthCheckSeconds
     if ($new.HasExited -and $new.ExitCode -ne 0) {
         throw "new FireLens exited early with code $($new.ExitCode)"
     }
@@ -365,7 +404,15 @@ catch {
     Write-UpdateLog "update failed: $($_.Exception.Message)"
     try {
         Copy-Item -LiteralPath $BackupExe -Destination $CurrentExe -Force
-        Start-Process -FilePath $CurrentExe | Out-Null
+        if ($RollbackLaunchArgument) {
+            Start-Process `
+                -FilePath $CurrentExe `
+                -ArgumentList $RollbackLaunchArgument `
+                -Wait | Out-Null
+        }
+        else {
+            Start-Process -FilePath $CurrentExe | Out-Null
+        }
         Write-UpdateLog 'rollback completed'
     }
     catch {

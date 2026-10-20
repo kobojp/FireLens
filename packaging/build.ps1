@@ -48,6 +48,7 @@ finally {
   Remove-Item -LiteralPath $SelfTestDir -Recurse -Force -ErrorAction SilentlyContinue
 }
 Get-FileHash $Exe -Algorithm SHA256 | Format-List
+Invoke-NativeChecked 'uv.exe' @('run', '--locked', 'python', 'packaging/update_e2e.py', '--exe', $Exe)
 & (Join-Path $PSScriptRoot 'build-installer.ps1') -SourceExe $Exe
 if ($LASTEXITCODE -ne 0) { throw "安裝精靈建置失敗：$LASTEXITCODE" }
 Write-Host "Build OK: $Exe"

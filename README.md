@@ -95,7 +95,7 @@ npm run build
 
 ## Windows 安裝
 
-FireLens v1.5.0 提供完整繁體中文 Inno Setup 安裝精靈 `FireLens-<版本>-setup.exe`。繁體中文語言資源隨 repository 一起版本控制，不依賴開發機另外安裝語言檔。預設採每使用者安裝，不需要系統管理員權限，路徑為 `%LOCALAPPDATA%\\Programs\\FireLens`；安裝精靈可變更目的地、建立開始功能表捷徑，桌面捷徑為可選。
+FireLens v1.5.0 起支援完整繁體中文 Inno Setup 安裝精靈 `FireLens-<版本>-setup.exe`。繁體中文語言資源隨 repository 一起版本控制，不依賴開發機另外安裝語言檔。預設採每使用者安裝，不需要系統管理員權限，路徑為 `%LOCALAPPDATA%\\Programs\\FireLens`；安裝精靈可變更目的地、建立開始功能表捷徑，桌面捷徑為可選。
 
 正式安裝版資料庫位於 `{安裝路徑}\\data\\firelens.sqlite3`。若舊版資料庫仍位於 `%LOCALAPPDATA%\\FireLens\\firelens.sqlite3`，且新安裝位置尚無資料庫，首次啟動會以 SQLite snapshot 安全複製並通過 `PRAGMA quick_check` 後才使用新位置；舊資料庫不會自動刪除。測試與更新器 self-test 使用 `FIRELENS_DATA_DIR` 時仍完全隔離，不會碰正式資料。
 
@@ -113,8 +113,8 @@ Windows 可執行檔請從 GitHub Releases 下載。Release binary 不直接提�
 GitHub Actions 會監聽 `v*` 標籤。建立正式版本前，`packaging/check_version_consistency.py` 會核對應用程式、套件、前端、TASKS 與發版文件的版本一致性；任一處不一致就停止 build／Release。確認通過後再推送 Tag：
 
 ```powershell
-git tag v1.5.0
-git push origin v1.5.0
+git tag v1.6.0
+git push origin v1.6.0
 ```
 
 工作流程會在 `windows-latest` 上自動執行完整測試與 PyInstaller 打包、執行 `FireLens.exe --self-test`，接著建立 GitHub Release 並上傳：
@@ -134,6 +134,8 @@ FireLens v1.2.0 起內建 Windows 線上更新器。設定頁可手動檢查 Git
 - EXE 檔名、版本、檔案大小與 SHA-256 必須完全符合已簽章 manifest
 - 下載完成後先使用獨立暫存資料目錄執行新版 `--self-test`
 - 安裝前備份目前 EXE；新版啟動失敗時更新程序會嘗試自動回滾
+
+FireLens v1.6.0 起支援一鍵式安全更新：檢查到新版後只需按「下載並安裝」，程式會自動完成下載與上述安全驗證；全部通過後才會再詢問一次是否關閉、替換 EXE 並重新啟動。取消最終確認不會替換目前版本，已驗證的更新可在本次程式執行期間直接繼續安裝。
 
 GitHub Actions 的簽章私鑰只可存放在 repository Actions Secret：
 

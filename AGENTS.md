@@ -127,6 +127,8 @@ TASKS.md            需求與里程碑
 - 保留 session cookie、Host、Origin 檢查。
 - 單人單機，不設計 Drive 多人同步衝突機制。
 - 錯誤訊息使用繁體中文；日誌寫 `%LOCALAPPDATA%\<應用名>\logs\`。
+- 線上更新 UI 可以簡化成一鍵流程，但不得降低安全鏈：正式 Release 必須通過 Ed25519 manifest 簽章、版本／檔名／大小、SHA-256 與下載後 EXE self-test；真正替換 EXE 前 `schedule_install` 還必須再次驗證本機 manifest 簽章、檔案 SHA-256 與 EXE self-test。
+- 更新下載／驗證同時間只允許一個工作；任一階段失敗或使用者取消最終確認時不得關閉或替換目前 EXE。正式安裝版線上更新不得修改 `{app}\data`、`.firelens-installed` 或安裝資訊；沒有 installer marker 的 portable/raw EXE 仍維持既有 LocalAppData DB 相容路徑。
 
 ## UI / UX
 

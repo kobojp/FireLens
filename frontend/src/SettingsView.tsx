@@ -1,10 +1,19 @@
 import { useEffect, useMemo, useState } from 'react'
 import { api } from './api'
+import {
+  preparedForVersion,
+  UPDATE_POLL_INTERVAL_MS,
+  updateActionLabel,
+  updateFailureMessage,
+  updatePhaseLabel,
+  updateProgressText,
+} from './updateFlow'
 import type {
   AppInfo,
   AppSettings,
   CategoryDefinition,
   RootRecord,
+  UpdatePreparationStatus,
   UpdateStatus,
 } from './types'
 
@@ -40,6 +49,7 @@ export function SettingsView({
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null)
+  const [updateProgress, setUpdateProgress] = useState<UpdatePreparationStatus | null>(null)
   const [updateBusy, setUpdateBusy] = useState(false)
 
   useEffect(() => setDraft(settings), [settings])
@@ -115,33 +125,67 @@ export function SettingsView({
     try {
       const status = await api.checkUpdate()
       setUpdateStatus(status)
+      if (!status.available) setUpdateProgress(null)
       setMessage(status.available ? `發現新版 FireLens v${status.latest_version}` : '目前已是最新版本。')
     } catch (err) {
       setError(err instanceof Error ? err.message : '檢查更新失敗')
     } finally { setUpdateBusy(false) }
   }
 
-  async function downloadUpdate() {
-    if (!updateStatus?.available) return
+  async function installVerifiedUpdate(version: string) {
     setUpdateBusy(true); setError(''); setMessage('')
+    setUpdateProgress((current) => current ? {
+      ...current,
+      phase: 'installing',
+      message: '正在安裝更新並重新啟動 FireLens…',
+      ready: false,
+      running: false,
+      error: null,
+    } : current)
     try {
-      const status = await api.downloadUpdate(updateStatus.latest_version)
-      setUpdateStatus(status)
-      setMessage(`v${status.latest_version} 已下載、驗證簽章與 SHA-256，並通過 EXE self-test。`)
+      await api.installUpdate(version)
+      setMessage('更新已排程，FireLens 即將關閉、更新並重新啟動。')
     } catch (err) {
-      setError(err instanceof Error ? err.message : '下載更新失敗')
-    } finally { setUpdateBusy(false) }
+      const latestProgress = await api.updateProgress().catch(() => null)
+      if (latestProgress) setUpdateProgress(latestProgress)
+      setError(err instanceof Error ? err.message : '安裝更新失敗')
+      setUpdateBusy(false)
+    }
   }
 
-  async function installUpdate() {
-    if (!updateStatus?.downloaded || !updateStatus.installable) return
-    if (!window.confirm(`確定安裝 FireLens v${updateStatus.latest_version}？程式會自動關閉、更新並重新啟動。`)) return
+  async function downloadAndInstallUpdate() {
+    if (!updateStatus?.available || !updateStatus.installable || updateBusy) return
+    const version = updateStatus.latest_version
     setUpdateBusy(true); setError(''); setMessage('')
     try {
-      await api.installUpdate(updateStatus.latest_version)
-      setMessage('更新已排程，FireLens 即將關閉並重新啟動。')
+      let progress = updateProgress
+      if (!preparedForVersion(progress, version)) {
+        progress = await api.prepareUpdate(version)
+        setUpdateProgress(progress)
+        while (!progress.ready && progress.phase !== 'error') {
+          await new Promise((resolve) => window.setTimeout(resolve, UPDATE_POLL_INTERVAL_MS))
+          progress = await api.updateProgress()
+          setUpdateProgress(progress)
+        }
+      }
+
+      if (!progress || progress.phase === 'error') {
+        throw new Error(progress ? updateFailureMessage(progress) : '更新準備失敗，請重試')
+      }
+      if (progress.update) setUpdateStatus(progress.update)
+
+      setMessage(`v${version} 已完成簽章、SHA-256 與 EXE self-test 安全驗證。`)
+      const confirmed = window.confirm(
+        `更新已驗證完成，FireLens 將關閉並更新到 v${version}，完成後自動重新啟動。確定繼續？`,
+      )
+      if (!confirmed) {
+        setMessage(`已取消安裝 v${version}；已驗證更新仍保留，可稍後繼續安裝。`)
+        setUpdateBusy(false)
+        return
+      }
+      await installVerifiedUpdate(version)
     } catch (err) {
-      setError(err instanceof Error ? err.message : '安裝更新失敗')
+      setError(err instanceof Error ? err.message : '下載並安裝更新失敗')
       setUpdateBusy(false)
     }
   }
@@ -279,18 +323,30 @@ export function SettingsView({
           <button type="button" className="secondary-button" disabled={updateBusy || !appInfo.online_update_enabled} onClick={() => void checkUpdate()}>
             {updateBusy ? '處理中…' : '檢查更新'}
           </button>
-          {updateStatus?.available && !updateStatus.downloaded && (
-            <button type="button" className="primary-button" disabled={updateBusy} onClick={() => void downloadUpdate()}>
-              下載並驗證 v{updateStatus.latest_version}
-            </button>
-          )}
-          {updateStatus?.available && updateStatus.downloaded && (
-            <button type="button" className="primary-button" disabled={updateBusy || !updateStatus.installable} onClick={() => void installUpdate()}>
-              安裝並重新啟動 v{updateStatus.latest_version}
+          {updateStatus?.available && (
+            <button
+              type="button"
+              className="primary-button"
+              disabled={updateBusy || !updateStatus.installable}
+              onClick={() => void downloadAndInstallUpdate()}
+            >
+              {updateBusy && updateProgress
+                ? updatePhaseLabel(updateProgress.phase)
+                : updateActionLabel(updateProgress, updateStatus.latest_version)}
             </button>
           )}
         </div>
         {!appInfo.online_update_enabled && <p className="help-text">{appInfo.online_update_reason}</p>}
+        {updateStatus?.available && !updateStatus.installable && <p className="help-text">{updateStatus.install_reason}</p>}
+        {updateProgress && updateProgress.phase !== 'idle' && <div className="update-progress" role="status" aria-live="polite">
+          <div className="settings-row">
+            <b>{updatePhaseLabel(updateProgress.phase)}</b>
+            <span>{updateProgressText(updateProgress)}</span>
+          </div>
+          {updateProgress.phase === 'downloading' && updateProgress.percent !== null && (
+            <progress value={updateProgress.percent} max={100} aria-label="更新下載進度" />
+          )}
+        </div>}
         {updateStatus && <div className="settings-list">
           <div className="settings-row">
             <b>{updateStatus.available ? `有新版 v${updateStatus.latest_version}` : `最新版本 v${updateStatus.latest_version}`}</b>

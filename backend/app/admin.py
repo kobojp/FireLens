@@ -38,8 +38,10 @@ from .settings import (
     update_category_aliases,
     update_root_settings,
 )
+from .update_jobs import UpdateJobBusy, UpdatePreparationManager
 
 router = APIRouter(prefix="/api")
+update_preparation = UpdatePreparationManager()
 
 
 class SettingsUpdate(BaseModel):
@@ -121,12 +123,28 @@ def download_update_package(payload: UpdateVersionRequest) -> dict[str, object]:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.post("/update/prepare")
+def prepare_update_package(payload: UpdateVersionRequest) -> dict[str, object]:
+    try:
+        return update_preparation.start(payload.version)
+    except UpdateJobBusy as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except UpdateError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/update/progress")
+def update_progress() -> dict[str, object]:
+    return update_preparation.status()
+
+
 @router.post("/update/install")
 def install_update_package(payload: UpdateVersionRequest) -> dict[str, object]:
     try:
         result = schedule_install(payload.version)
     except UpdateError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    update_preparation.mark_installing(payload.version)
 
     # Give the HTTP response enough time to reach the WebView, then release the
     # current EXE so the detached updater can replace it safely.

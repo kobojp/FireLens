@@ -1,6 +1,7 @@
 # 滅火器燈具照片管理系統 任務文件
 
-狀態：**M0～M13 功能開發完成**。目前版本 v1.5.0；使用者實機測試確認 OK，v1.5.0 已正式發布至 GitHub Release。
+狀態：**M0～M14 功能開發完成**。目前版本 v1.6.0；本版本尚未正式 Release。歷史 v1.5.0 已由使用者實機測試確認 OK 並正式發布至 GitHub Release。
+M14 開發版本：v1.6.0。
 
 ## 1. 目標
 
@@ -357,6 +358,39 @@
 - 驗收：完整 Windows build 通過版本一致性、Ruff format/check、pytest 82 passed、Vitest 27 passed、TypeScript/Vite、PyInstaller 與等待 GUI 程序結束的 `FireLens.exe --self-test`。當時使用 Inno Setup 6.7.3，並以 repository 內 `packaging/lang/ChineseTraditional.isl` 成功產生完整繁中 setup，無缺漏語系 fallback 警告。1407×804 Chrome 合成資料 E2E 已實際完成「雙欄貼上 → 解析預覽 → 儲存並開始核對 → 分類結果 → 缺完成篩選」，顯示 4 筆中 2 筆完整、1 筆缺部分照片、1 筆找不到資料夾，且瀏覽器 console/network 無 FireLens 4xx/5xx 或 failed request。Graphify 已重建為 530 nodes / 1164 edges / 42 communities。
 - Release：`v1.5.0` 已由 GitHub Actions run `39444235196` 正式建立，Release 資產包含 `FireLens-1.5.0-setup.exe`、`FireLens-1.5.0-windows-x64.exe`、`SHA256SUMS.txt`、`update-manifest.json`、`update-manifest.sig`；Release build／版本一致性／manifest 簽章／資產上傳步驟均成功。
 
+### M14 一鍵式安全線上更新（v1.6.0）
+
+背景：目前線上更新需要依序按「檢查更新」→「下載並驗證」→「安裝並重新啟動」。安全驗證流程已完整，但一般使用者操作步驟偏多。新版保留既有 Ed25519／SHA-256／EXE self-test 安全鏈，只簡化使用者操作，不降低任何驗證強度。
+
+需求：
+- 「檢查更新」仍保留；沒有新版時顯示「目前已是最新版本」。檢查到新版後，主要操作改為單一按鈕「下載並安裝 vX.Y.Z」。
+- 使用者按一次「下載並安裝」後，FireLens 自動依序完成：下載 Release EXE → 驗證 Ed25519 manifest 簽章 → 核對版本／檔名／檔案大小／SHA-256 → 執行下載後 EXE self-test。
+- 上述所有安全檢查成功後，才顯示一次最終確認：「更新已驗證完成，FireLens 將關閉並更新到 vX.Y.Z，完成後自動重新啟動。」使用者確認後才真正替換目前 EXE。
+- 使用者取消最終確認時不得關閉程式或替換 EXE；已下載且驗證成功的更新檔可保留供本次程式執行期間再次安裝，不必強迫重新下載。
+- 任一階段失敗時立即停止，不得進入安裝／替換流程；現有版本必須保持可正常啟動，並提供繁體中文的失敗階段、原因與「重試」入口。
+- 更新過程顯示明確狀態，例如「下載中」「驗證簽章」「核對 SHA-256」「執行新版自我測試」「等待確認」「正在安裝並重新啟動」；能取得下載大小時顯示下載進度。
+- 更新進行中禁止重複觸發第二個下載／安裝工作；按鈕需停用並顯示目前處理階段，避免併發更新造成暫存檔或 updater 衝突。
+- 正式安裝版仍只替換 `{app}\FireLens.exe`；不得修改、刪除或搬移 `{app}\data\firelens.sqlite3`、其他 `{app}\data` 使用者資料、`.firelens-installed` 或安裝精靈資訊。
+- 歷史 portable/raw EXE 與正式 Inno Setup 安裝版都要維持可更新；不得因 installer marker、DB 位置或 EXE 所在目錄不同而破壞既有相容更新路徑。
+- 保留既有回滾／失敗保護：新版 EXE 啟動或替換驗證失敗時，舊版必須可恢復，不得留下半套更新狀態。
+- 「查看 Release」連結保留，讓使用者仍可人工查看 GitHub Release；自動更新只接受既有內建公鑰驗證通過的正式 Release。
+
+任務：
+- [x] 前端：將新版可用時的兩段式「下載並驗證」＋「安裝並重新啟動」整合為單一「下載並安裝 vX.Y.Z」操作流程
+- [x] 前端：新增更新狀態機與進度顯示，避免重複點擊／併發更新，錯誤訊息全部使用繁體中文
+- [x] 前端：所有安全驗證完成後才顯示一次最終重新啟動確認；取消確認不得安裝或關閉 FireLens
+- [x] 後端／updater：確認現有 download／schedule install 流程可安全串接；已驗證更新可於本次執行期間再次安裝，且安裝前仍再次驗證簽章、SHA-256 與 EXE self-test
+- [x] 安全：確認任何下載、簽章、SHA-256、版本、檔名、大小或 EXE self-test 失敗，都不會替換目前版本，並可安全重試
+- [x] 安裝版相容：驗證 `{app}\data`、`.firelens-installed` 與既有安裝資訊不受線上 EXE 更新影響
+- [x] portable 相容：驗證沒有 installer marker 的 raw EXE 仍沿用既有 LocalAppData DB 邏輯並可完成一鍵更新
+- [x] 測試：補齊 frontend 狀態流程、取消、重試、重複點擊、各驗證階段失敗、安裝版／portable 更新路徑測試
+- [x] 打包驗收：以隔離暫存環境模擬「舊版 packaged EXE → 新版 EXE」完整更新與重新啟動，確認失敗回滾與資料庫內容／SHA 不變
+- [x] 最終驗收：版本一致性、Ruff、pytest、Vitest、TypeScript/Vite、Windows EXE self-test、setup build、更新 E2E、實際打包 UI 啟動 smoke 與 Graphify 全部通過
+
+驗收標準：使用者從「發現新版」開始只需按一次「下載並安裝」，等待自動安全驗證；全部通過後只再確認一次重新啟動，即可完成更新。任何驗證失敗或使用者取消都不得破壞目前可用版本或使用者資料。
+
+- 驗收：完整 Windows build 通過版本一致性、Ruff format/check、pytest **90 passed**、Vitest **31 passed**、TypeScript/Vite、PyInstaller 與打包後 `FireLens.exe --self-test`；`packaging/update_e2e.py` 實際驗證 EXE 替換／重新啟動、失敗回滾，且 SQLite DB 與 `.firelens-installed` SHA-256 均保持不變；Inno Setup 6.7.3 成功產生 `FireLens-1.6.0-setup.exe`；打包版 UI 隔離資料目錄啟動 smoke 通過；Graphify 已重建為 **569 nodes / 1231 edges / 47 communities**。本版本尚未建立 Git Tag 或 GitHub Release。
+
 ## 11. 完成條件
 
 - 使用者要求的流程可從介面完整操作。
@@ -368,4 +402,4 @@
 - 每輪開發完成後同步檢查 `AGENTS.md` 與更新 `TASKS.md`；若專案規則、架構、安全、測試、打包或發佈流程有變動，必須同步修正 `AGENTS.md`。
 - 已完成任務必須在本文件標記為 `[x]` 並記錄必要的驗收結果；後續開發只從尚未完成的 `[ ]` 項目繼續，不得重複實作已完成或已取消的工作。
 - 歷史 v1.4.0 當時最終本機驗收：`packaging/check_version_consistency.py` 通過；Ruff format/check 通過；pytest 65 passed；Vitest 26 passed；TypeScript 與 Vite build 通過；PyInstaller Windows x64 打包與 `FireLens.exe --self-test` 通過。Graphify 已重建為 497 nodes / 1109 edges / 41 communities。
-- 本輪 v1.5.0 最終本機驗收：`packaging/check_version_consistency.py`、Ruff format/check、pytest 82 passed、Vitest 27 passed、TypeScript/Vite、PyInstaller、等待 GUI 程序完成並檢查真實 exit code 的 `FireLens.exe --self-test`、完整繁中 Inno Setup setup.exe build、歷史 v1.4.0 raw EXE 相容路徑、隔離安裝／資料庫搬遷／解除安裝保留 DB、M13 合成資料 E2E 與 Graphify 530 nodes / 1164 edges / 42 communities 均已通過。
+- 歷史 v1.5.0 當時最終本機驗收：`packaging/check_version_consistency.py`、Ruff format/check、pytest 82 passed、Vitest 27 passed、TypeScript/Vite、PyInstaller、等待 GUI 程序完成並檢查真實 exit code 的 `FireLens.exe --self-test`、完整繁中 Inno Setup setup.exe build、歷史 v1.4.0 raw EXE 相容路徑、隔離安裝／資料庫搬遷／解除安裝保留 DB、M13 合成資料 E2E 與 Graphify 530 nodes / 1164 edges / 42 communities 均已通過。

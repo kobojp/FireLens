@@ -26,6 +26,7 @@ import type {
   AppSettings,
   AppInfo,
   BackupRestoreResult,
+  UpdatePreparationStatus,
   UpdateStatus,
   UpdateInstallResult,
 } from './types'
@@ -59,6 +60,10 @@ export const api = {
   downloadUpdate: (version: string) => request<UpdateStatus>('/api/update/download', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ version }),
   }),
+  prepareUpdate: (version: string) => request<UpdatePreparationStatus>('/api/update/prepare', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ version }),
+  }),
+  updateProgress: () => request<UpdatePreparationStatus>('/api/update/progress'),
   installUpdate: (version: string) => request<UpdateInstallResult>('/api/update/install', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ version }),
   }),

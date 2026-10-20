@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import backend.app.config as config
+import desktop.update as update
 from backend.app.config import DB_FILENAME, get_database_path
 from backend.app.db import connect, initialize_database
 
@@ -59,6 +60,24 @@ def test_installer_marker_enables_install_directory_database(monkeypatch, tmp_pa
 
     assert config.get_install_dir() == install_dir
     assert get_database_path() == install_dir / "data" / DB_FILENAME
+
+
+def test_portable_raw_exe_remains_online_update_installable(monkeypatch, tmp_path: Path) -> None:
+    portable_dir = tmp_path / "downloads"
+    portable_dir.mkdir()
+    local_app_data = tmp_path / "localappdata"
+    monkeypatch.delenv("FIRELENS_DATA_DIR", raising=False)
+    monkeypatch.delenv("FIRELENS_INSTALL_DIR", raising=False)
+    monkeypatch.setenv("LOCALAPPDATA", str(local_app_data))
+    monkeypatch.setattr(config.os, "name", "nt")
+    monkeypatch.setattr(config.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(config.sys, "executable", str(portable_dir / "FireLens.exe"))
+    monkeypatch.setattr(update.os, "name", "nt")
+    monkeypatch.setattr(update.sys, "frozen", True, raising=False)
+
+    assert config.get_install_dir() is None
+    assert get_database_path() == local_app_data / "FireLens" / DB_FILENAME
+    assert update.update_capability()["installable"] is True
 
 
 def test_legacy_database_is_copied_safely_on_first_installed_launch(
