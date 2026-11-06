@@ -8,7 +8,7 @@ from pathlib import Path
 
 from .config import get_database_path, get_legacy_database_path
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 MIGRATION_1 = """
 CREATE TABLE IF NOT EXISTS category (
@@ -209,6 +209,39 @@ def _migrate_7(conn: sqlite3.Connection) -> None:
         conn.execute("PRAGMA user_version = 7")
 
 
+MIGRATION_8 = """
+CREATE TABLE IF NOT EXISTS issue_label (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0, 1)),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS item_issue (
+    root_id INTEGER NOT NULL REFERENCES root(id) ON DELETE CASCADE,
+    item_relative_path TEXT NOT NULL,
+    category_code TEXT NOT NULL,
+    device_code TEXT NOT NULL,
+    label_id INTEGER NOT NULL REFERENCES issue_label(id),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (root_id, item_relative_path)
+);
+CREATE INDEX IF NOT EXISTS idx_item_issue_label ON item_issue(label_id, root_id);
+"""
+
+
+def _migrate_8(conn: sqlite3.Connection) -> None:
+    with conn:
+        conn.executescript(MIGRATION_8)
+        for order, name in enumerate(("瓶身超過10年", "無法辨識", "壓力錶故障")):
+            conn.execute(
+                "INSERT OR IGNORE INTO issue_label(name, sort_order) VALUES (?, ?)",
+                (name, order),
+            )
+        conn.execute("PRAGMA user_version = 8")
+
+
 CATEGORY_SEED = (
     (
         "extinguisher",
@@ -329,6 +362,10 @@ def initialize_database(db_path: Path | None = None) -> Path:
         if current_version < 7:
             _migrate_7(conn)
             current_version = 7
+
+        if current_version < 8:
+            _migrate_8(conn)
+            current_version = 8
 
         with conn:
             conn.executemany(

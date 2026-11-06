@@ -1,5 +1,6 @@
 param(
   [string]$SourceExe = (Join-Path (Split-Path -Parent $PSScriptRoot) 'dist\FireLens.exe'),
+  [string]$SourceUpdater = (Join-Path (Split-Path -Parent $PSScriptRoot) 'dist\FireLensUpdater.exe'),
   [string]$OutputDir = (Join-Path (Split-Path -Parent $PSScriptRoot) 'dist\installer')
 )
 
@@ -7,6 +8,7 @@ $ErrorActionPreference = 'Stop'
 $Root = Split-Path -Parent $PSScriptRoot
 if ($env:OS -ne 'Windows_NT') { throw 'FireLens 安裝精靈只能在 Windows 上建置。' }
 if (-not (Test-Path -LiteralPath $SourceExe)) { throw "找不到 FireLens.exe：$SourceExe" }
+if (-not (Test-Path -LiteralPath $SourceUpdater)) { throw "找不到 FireLensUpdater.exe：$SourceUpdater" }
 
 $VersionText = Get-Content (Join-Path $Root 'desktop\version.py') -Raw
 if ($VersionText -notmatch '__version__\s*=\s*"([^"]+)"') { throw '無法讀取 FireLens 版本。' }
@@ -28,7 +30,7 @@ if (-not $Iscc) {
 
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 $Iss = Join-Path $PSScriptRoot 'FireLens.iss'
-& $Iscc "/DAppVersion=$Version" "/DSourceExe=$SourceExe" "/O$OutputDir" $Iss
+& $Iscc "/DAppVersion=$Version" "/DSourceExe=$SourceExe" "/DSourceUpdater=$SourceUpdater" "/O$OutputDir" $Iss
 if ($LASTEXITCODE -ne 0) { throw "Inno Setup 編譯失敗，exit code: $LASTEXITCODE" }
 
 $Setup = Join-Path $OutputDir "FireLens-$Version-setup.exe"

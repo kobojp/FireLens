@@ -10,6 +10,9 @@ FireLens 是一套以 Windows 桌面環境為主的消防設備照片管理工�
 - 滅火器槽位：`編號`、`藥劑`、`完成`
 - 放置盒／燈具槽位：`前`、`中`、`後`
 - Excel／文字清冊核對與補拍清單
+- 清冊核對結果可一鍵匯出缺失 CSV／Excel（桌面版直接儲存至下載資料夾並顯示檔案位置）
+- 照片牆設備資料夾安全更名，原位修改資料夾名稱而不變更照片內容
+- 設備異常單選標記（瓶身超過10年、無法辨識、壓力錶故障等）、自訂異常分類與獨立「統計」分頁
 - 髒檔名、近似編號、重複照片與異體字檢查
 - 批次改名預覽、執行與還原紀錄
 - SQLite 本機索引、縮圖快取與離線工作區
@@ -35,6 +38,10 @@ FireLens 是一套以 Windows 桌面環境為主的消防設備照片管理工�
 ```
 
 Excel 支援有標題或無標題的一欄／兩欄資料；有標題時可使用「棟別樓層／區段」與「設備編號／編號／滅火器編號」，其餘多餘欄位會忽略。文字與 Excel 都會先顯示解析預覽、重複編號與無法辨識資料，再由使用者確認儲存。舊清冊既有的型式規格、上次更換日與原始資料仍保留相容，但新核對流程不再要求這些欄位。
+
+Windows 桌面版「匯出缺失 CSV／Excel」會直接在使用者的 `Downloads/FireLens` 資料夾建立不覆寫的檔案，並在頁面顯示完整路徑與儲存結果；若無寫入權限會明確顯示失敗原因。匯出的是**整份清冊核對結果中的缺失項目**，不受目前畫面篩選影響；瀏覽器用的 GET 下載路由仍保留。測試時可使用 `FIRELENS_EXPORT_DIR` 指定隔離的暫存匯出目錄。
+
+照片瀏覽的設備編號右側提供「更改名稱」，更名只影響當前設備的實體資料夾及索引，不會修改照片內容或舊清冊編號；離線、掃描中、雲端未下載照片及同名衝突會阻擋操作。「設備異常」則只能為每台設備選**一項或無異常**，分類可在「統計」頁建立、更名、排序或停用，重新掃描不會清除紀錄。統計清單可回到對應設備照片牆，不提供「已改善」流程。
 
 ## 技術棧
 
@@ -91,7 +98,7 @@ npm run build
 .\packaging\build.ps1
 ```
 
-建置腳本會依序執行前端測試、TypeScript、Ruff、pytest、Vite build、PyInstaller、EXE self-test，最後使用 Inno Setup 產生 Windows 安裝精靈。
+建置腳本會依序執行前端測試、TypeScript、Ruff、pytest、Vite build、獨立 updater 與主程式 PyInstaller、EXE self-test、Inno Setup，最後由打包後 `FireLens.exe` 本身執行 portable／installer／rollback 故障注入的線上更新 E2E；任何一段失敗都會讓正式 Release gate 失敗。
 
 ## Windows 安裝
 
@@ -113,8 +120,8 @@ Windows 可執行檔請從 GitHub Releases 下載。Release binary 不直接提�
 GitHub Actions 會監聽 `v*` 標籤。建立正式版本前，`packaging/check_version_consistency.py` 會核對應用程式、套件、前端、TASKS 與發版文件的版本一致性；任一處不一致就停止 build／Release。確認通過後再推送 Tag：
 
 ```powershell
-git tag v1.6.0
-git push origin v1.6.0
+git tag v1.7.0
+git push origin v1.7.0
 ```
 
 工作流程會在 `windows-latest` 上自動執行完整測試與 PyInstaller 打包、執行 `FireLens.exe --self-test`，接著建立 GitHub Release 並上傳：
@@ -136,6 +143,10 @@ FireLens v1.2.0 起內建 Windows 線上更新器。設定頁可手動檢查 Git
 - 安裝前備份目前 EXE；新版啟動失敗時更新程序會嘗試自動回滾
 
 FireLens v1.6.0 起支援一鍵式安全更新：檢查到新版後只需按「下載並安裝」，程式會自動完成下載與上述安全驗證；全部通過後才會再詢問一次是否關閉、替換 EXE 並重新啟動。取消最終確認不會替換目前版本，已驗證的更新可在本次程式執行期間直接繼續安裝。
+
+FireLens v1.6.1 起改用獨立 `FireLensUpdater.exe` 交易式更新：主程式會先取得 updater 的 transaction-bound `ready` 握手，確認更新器已真正啟動後才允許 FireLens 關閉；updater 等舊 EXE 解鎖、重新核對 SHA-256、備份並替換，再啟動新版。新版必須等 FastAPI／桌面視窗完成可用啟動、DOM ready 後回報 `healthy`，更新才算成功；新版 crash、`healthy` timeout 或替換失敗會自動嘗試 rollback 並重新啟動舊版。正式安裝版的 helper 由 setup 部署；portable/raw EXE 則從主 EXE 內嵌的受信任 payload 解出，並核對 build 時固定的 helper SHA-256。
+
+若使用歷史 v1.5.0／v1.6.0 自動更新時發生「FireLens 關閉後沒有重新啟動，手動開啟仍是舊版」，請直接下載**最新版本的 `FireLens-<版本>-setup.exe` 覆蓋安裝**。不需要解除安裝、不需要刪除資料庫，也不要刪 `{app}\\data`；安裝／升級流程會保留 `{app}\\data\\firelens.sqlite3` 與使用者資料。
 
 GitHub Actions 的簽章私鑰只可存放在 repository Actions Secret：
 

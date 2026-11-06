@@ -1,9 +1,13 @@
 #ifndef AppVersion
-  #error AppVersion is required, for example /DAppVersion=1.6.0
+  #error AppVersion is required, for example /DAppVersion=1.6.1
 #endif
 
 #ifndef SourceExe
   #error SourceExe is required
+#endif
+
+#ifndef SourceUpdater
+  #error SourceUpdater is required
 #endif
 
 #define AppName "FireLens"
@@ -47,6 +51,7 @@ Name: "{app}\data"
 
 [Files]
 Source: "{#SourceExe}"; DestDir: "{app}"; DestName: "{#AppExeName}"; Flags: ignoreversion
+Source: "{#SourceUpdater}"; DestDir: "{app}"; DestName: "FireLensUpdater.exe"; Flags: ignoreversion
 Source: "install.marker"; DestDir: "{app}"; DestName: ".firelens-installed"; Flags: ignoreversion
 
 [Icons]

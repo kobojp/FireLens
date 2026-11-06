@@ -80,6 +80,8 @@ export function ReconcileView({ roots, defaultRootId }: Props) {
   const [aliasTarget, setAliasTarget] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [exporting, setExporting] = useState<'csv' | 'xlsx' | null>(null)
+  const [exportMessage, setExportMessage] = useState('')
 
   useEffect(() => {
     setRootId((current) => current ?? defaultRootId ?? roots[0]?.id ?? null)
@@ -221,6 +223,24 @@ export function ReconcileView({ roots, defaultRootId }: Props) {
       await navigator.clipboard.writeText(result.reshoot_text)
     } catch {
       setError('無法寫入剪貼簿，請確認瀏覽器權限')
+    }
+  }
+
+  async function saveMissingExport(format: 'csv' | 'xlsx') {
+    if (!result || exporting) return
+    setError('')
+    setExportMessage('')
+    setExporting(format)
+    try {
+      const saved = await api.saveReconcileExport(
+        result.root_id, result.ledger_id, format, result.period ?? undefined,
+      )
+      if (!saved.saved || saved.size === 0) throw new Error('匯出未產生有效檔案')
+      setExportMessage(`已儲存 ${saved.filename}（${saved.size} bytes），位置：${saved.path}`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '匯出失敗，請重新操作')
+    } finally {
+      setExporting(null)
     }
   }
 
@@ -436,9 +456,14 @@ export function ReconcileView({ roots, defaultRootId }: Props) {
               <span>{filteredRows.length} 筆結果</span>
               <button type="button" onClick={() => void copyReshoot()}>複製補拍清單</button>
               <button type="button" onClick={() => window.print()}>列印</button>
-              <a className="download-button" href={api.reconcileExportUrl(result.root_id, result.ledger_id, 'csv', result.period ?? undefined)}>匯出缺失 CSV</a>
-              <a className="download-button" href={api.reconcileExportUrl(result.root_id, result.ledger_id, 'xlsx', result.period ?? undefined)}>匯出缺失 Excel</a>
+              <button type="button" className="download-button" disabled={exporting !== null} onClick={() => void saveMissingExport('csv')}>
+                {exporting === 'csv' ? '正在匯出 CSV…' : '匯出缺失 CSV'}
+              </button>
+              <button type="button" className="download-button" disabled={exporting !== null} onClick={() => void saveMissingExport('xlsx')}>
+                {exporting === 'xlsx' ? '正在匯出 Excel…' : '匯出缺失 Excel'}
+              </button>
             </div>
+            {exportMessage && <p className="stats-message export-success" role="status">{exportMessage}</p>}
             <div className="result-table-wrap">
               <table className="result-table">
                 <thead><tr><th>類別</th><th>設備編號</th><th>棟別樓層</th><th>核對結果</th><th>缺少照片</th><th>找到月份</th><th>實際棟別</th><th>提示</th><th>補拍</th></tr></thead>

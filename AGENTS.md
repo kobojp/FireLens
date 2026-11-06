@@ -39,7 +39,7 @@ FireLens 是 Windows 桌面照片管理工具，用來管理滅火器、放置�
 2. 不得對真實資料改名、搬移、刪除、覆蓋、格式轉換、寫入中繼資料，或做任何會改變內容／mtime 的操作。
 3. 寫入、匯入、改名、還原測試一律先複製最小必要資料到暫存／合成目錄，只操作副本。
 4. 掃描功能必須唯讀；產品內批次改名必須有預覽、逐筆勾選、衝突阻擋與還原紀錄。
-5. 不得刪除或重建受保護資料表：`ledger`、`ledger_row`、`alias_map`、`rename_log`、`audit_log`、`setting`、`category`、`reshoot_mark`、`offline_import_queue`，除非使用者明確要求並確認備份。
+5. 不得刪除或重建受保護資料表：`ledger`、`ledger_row`、`alias_map`、`rename_log`、`audit_log`、`setting`、`category`、`reshoot_mark`、`offline_import_queue`、`issue_label`、`item_issue`，除非使用者明確要求並確認備份。
 6. `item`、`photo` 是可重建索引；磁碟是照片狀態唯一真相來源。
 7. Google Drive 串流佔位檔不可強制讀取／下載；應標記「雲端未下載」。
 8. 寫入 Drive 必須採原子寫入：暫存檔 → rename → SHA-256 驗證；失敗不得顯示成功。
@@ -97,6 +97,7 @@ TASKS.md            需求與里程碑
 - 既有照片人工改名／拖曳歸槽只允許同一設備資料夾內 rename，不重新編碼、不複製影像；必須先預覽 `原檔名 → 新檔名` 並以 SHA-256 驗證內容未變。
 - 既有照片 rename 的新檔名只允許安全 basename，不得包含路徑、Windows 禁用字元／保留名稱或變更圖片副檔名；目標已存在時一律阻擋，不得覆蓋。
 - 既有照片 rename 必須寫入 `rename_log` 與 `audit_log` 並可安全復原；根目錄離線、照片為雲端未下載佔位檔或掃描進行中時不得執行 rename。
+- 設備資料夾更名只能於同一父資料夾內更改安全 basename；必須先預覽並由使用者確認，不得覆蓋同名目標或重編碼照片。需同步 `item`、`photo` 及 `item_issue` 路徑並記錄 `audit_log`，失敗時盡可能回滾磁碟與索引。Google Drive 已連線且無未下載佔位照片時可以更名；離線、掃描中、佔位照片、符號連結／reparse point 或待同步離線匯入時應阻擋。
 
 ## SQLite
 
@@ -107,6 +108,7 @@ TASKS.md            需求與里程碑
 - schema 更新前建立 SQLite backup 快照。
 - 重要資料流程測試使用真實 SQLite，不用 mock 取代資料庫行為。
 - 清冊是受保護持久資料：文字貼上需保存完整原始文字；Excel 至少保存來源檔名、SHA-256 與解析列。清冊 schema 只能增量 migration，不得為新增欄位重建 `ledger`／`ledger_row`。
+- 設備異常分類字典 `issue_label` 與當前異常 `item_issue` 是獨立持久資料，不能混入 `reshoot_mark` 或只依賴掃描可能重建的 `item.id`。一台設備在某根目錄／相對路徑下最多只能標記一項異常；改選取代、清除取消，不設「已改善」流程。分類名稱可自訂與停用，所有根目錄共用，統計依根目錄篩選；來源離線或設備索引消失不能自動刪除紀錄。
 - 刪除清冊只允許刪除該清冊與其 `ledger_row`／`reshoot_mark` 關聯資料，不得影響照片、根目錄或其他清冊；重新命名清冊必須保留原 `ledger_id` 與解析列。
 
 ## 清冊核對規則
@@ -119,6 +121,7 @@ TASKS.md            需求與里程碑
 - 匯入前可做安全正規化：移除前後空白、整理 Tab／多餘空白、英文字母大小寫正規化；不得擅自改寫設備編號的實質內容、補零、猜樓層或由代碼猜完整棟別名稱。
 - 同一清冊的重複設備編號必須在正式匯入前提示；棟別樓層與設備編號看似不一致時只做非阻擋警告，由使用者判斷，不得自行修正或拒絕核對。
 - 核對結果至少區分「完整」「缺部分照片」「完全無照片」「找不到設備資料夾」「有未對應／舊制照片」，並支援依棟別樓層與缺失類型篩選，以及匯出缺失清單。
+- 清冊缺失 CSV／Excel 匯出在 Windows 桌面版必須真正產生檔案並顯示位置／失敗原因，不得僅依賴 WebView2 對 `Content-Disposition: attachment` 連結的預設行為；匯出採安全、非覆寫的本機儲存方式。既有瀏覽器 GET 下載 API 仍保留。
 - 清冊名稱可依年月／類別提出預填建議，但使用者可修改；第一次使用清冊功能需提供短引導，且之後必須能再次開啟「查看範例／使用教學」。
 
 ## 桌面與服務安全
@@ -129,6 +132,10 @@ TASKS.md            需求與里程碑
 - 錯誤訊息使用繁體中文；日誌寫 `%LOCALAPPDATA%\<應用名>\logs\`。
 - 線上更新 UI 可以簡化成一鍵流程，但不得降低安全鏈：正式 Release 必須通過 Ed25519 manifest 簽章、版本／檔名／大小、SHA-256 與下載後 EXE self-test；真正替換 EXE 前 `schedule_install` 還必須再次驗證本機 manifest 簽章、檔案 SHA-256 與 EXE self-test。
 - 更新下載／驗證同時間只允許一個工作；任一階段失敗或使用者取消最終確認時不得關閉或替換目前 EXE。正式安裝版線上更新不得修改 `{app}\data`、`.firelens-installed` 或安裝資訊；沒有 installer marker 的 portable/raw EXE 仍維持既有 LocalAppData DB 相容路徑。
+- 正式線上更新必須由獨立 `FireLensUpdater.exe` 執行替換；主程式只有在 transaction-bound `ready` handshake 驗證成功後才可退出，禁止恢復成「啟動背景程序後固定延遲、無條件 `os._exit`」的舊同步方式。PyInstaller one-file 的 bootloader PID 與 Python helper PID 可能不同，不得以兩者必須相等作為 READY 判定。
+- updater 必須等待舊 FireLens PID／EXE lock、再次驗證 staged SHA-256、建立並驗證 backup、替換後驗證實際目標 EXE SHA-256；新版必須在桌面 UI DOM ready 後以相同 transaction 回報 `healthy`，不能只用「程序存活 N 秒」判定成功。新版 crash、HEALTHY timeout 或替換錯誤必須 rollback；rollback 失敗時保留 backup、transaction state 與 log 供人工復原。
+- Installer 必須部署與主 EXE 相符的 `FireLensUpdater.exe`；portable/raw 單檔模式則由主 EXE 的受信任內嵌 payload 解出 helper，並先核對 build 時固定的 helper SHA-256 才能執行。helper 不作為獨立下載 Release 資產，也不得繞過既有 Ed25519 Release 驗證鏈。
+- 更新器變更的正式驗收必須由**打包後 `FireLens.exe` 本身**發起完整更新交易，至少涵蓋 portable、Inno Setup 安裝版、READY/HEALTHY、rollback 與故障注入；直接單獨執行 helper／腳本只能算局部測試，不能宣稱線上更新 E2E 通過。
 
 ## UI / UX
 
@@ -137,6 +144,7 @@ TASKS.md            需求與里程碑
 - 大量清單用虛擬捲動；縮圖背景產生；掃描可取消並支援增量。
 - 「新增編號資料夾」在有根目錄且尚無使用者偏好時預設展開；展開／收合狀態要持久化，按鈕需提供明確繁體中文提示、`aria-expanded` 與 `aria-controls`。
 - 破壞性或批次操作使用應用內確認介面。
+- 上方導航列順序為「照片瀏覽｜清冊核對｜統計｜整理工具｜設定」；「統計」僅呈現設備異常分類及清單（每台只計一個分類），點設備可回到照片牆，不與清冊缺照片分類混淆。
 
 ## 開發工作方式
 

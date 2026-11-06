@@ -52,7 +52,7 @@ def test_v6_to_v7_migration_preserves_ledgers_and_creates_backup(tmp_path: Path)
     assert path.with_suffix(".sqlite3.backup-v6").is_file()
     conn = connect(path)
     try:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 7
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == db_module.SCHEMA_VERSION
         columns = {row[1] for row in conn.execute("PRAGMA table_info(ledger)")}
         assert {"source_text", "source_filename"}.issubset(columns)
         row = conn.execute(

@@ -55,6 +55,60 @@ export type ItemDetail = {
   photos: PhotoRecord[]
 }
 
+export type ItemFolderRenameResult = {
+  id: number
+  root_id: number
+  old_name: string
+  new_name: string
+  old_relative_path: string
+  relative_path: string
+  photo_count: number
+}
+
+export type IssueLabel = {
+  id: number
+  name: string
+  sort_order: number
+  active: number
+  count?: number
+}
+
+export type ItemIssue = {
+  root_id: number
+  relative_path: string
+  code: string
+  label_id: number | null
+  label_name: string | null
+}
+
+export type IssueStatisticRow = {
+  root_id: number
+  root_name: string
+  item_relative_path: string
+  category_code: string
+  device_code: string
+  label_id: number
+  created_at: string
+  updated_at: string
+  item_id: number | null
+  building: string | null
+  year: string | null
+  period: string | null
+}
+
+export type IssueStatistics = {
+  labels: IssueLabel[]
+  total: number
+  items: IssueStatisticRow[]
+}
+
+export type ExportSaveResult = {
+  saved: boolean
+  filename: string
+  path: string
+  size: number
+}
+
 export type ScanSummary = {
   root_id: number
   items: number
@@ -411,6 +465,21 @@ export type AppInfo = {
   online_update_installable: boolean
   online_update_install_reason: string
   online_update_repository: string
+  last_update: UpdateTransactionStatus | null
+}
+
+export type UpdateTransactionStatus = {
+  transaction_id: string | null
+  phase: string | null
+  target_version: string | null
+  current_version: string | null
+  created_at: string | null
+  updated_at: string | null
+  completed_at: string | null
+  error: string | null
+  rollback_error: string | null
+  backup_path: string | null
+  log_file: string | null
 }
 
 export type UpdateStatus = {
@@ -454,9 +523,13 @@ export type UpdatePreparationStatus = {
 
 export type UpdateInstallResult = {
   scheduled: boolean
+  ready: boolean
   version: string
+  transaction_id: string
+  updater_pid: number
   backup_path: string
   log_path: string
+  state_path: string
 }
 
 export type BackupRestoreResult = {

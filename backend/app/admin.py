@@ -13,6 +13,7 @@ from desktop.update import (
     UpdateError,
     check_for_update,
     download_update,
+    latest_update_transaction,
     schedule_install,
     update_capability,
 )
@@ -104,6 +105,7 @@ def app_info() -> dict[str, object]:
         "online_update_installable": updater["installable"],
         "online_update_install_reason": updater["install_reason"],
         "online_update_repository": updater["repository"],
+        "last_update": latest_update_transaction(),
     }
 
 
@@ -146,9 +148,10 @@ def install_update_package(payload: UpdateVersionRequest) -> dict[str, object]:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     update_preparation.mark_installing(payload.version)
 
-    # Give the HTTP response enough time to reach the WebView, then release the
-    # current EXE so the detached updater can replace it safely.
-    timer = threading.Timer(1.5, lambda: os._exit(0))
+    # schedule_install() does not return until the independent updater has
+    # completed a transaction-bound READY handshake. Only then may FireLens
+    # release its EXE. The short delay is solely to flush the HTTP response.
+    timer = threading.Timer(0.75, lambda: os._exit(0))
     timer.daemon = True
     timer.start()
     return result

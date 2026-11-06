@@ -30,6 +30,13 @@ Invoke-NativeChecked 'uv.exe' @('run', '--locked', 'ruff', 'format', '--check', 
 Invoke-NativeChecked 'uv.exe' @('run', '--locked', 'ruff', 'check', '.')
 Invoke-NativeChecked 'uv.exe' @('run', '--locked', 'pytest', '-q')
 Invoke-NativeChecked 'uv.exe' @('run', '--locked', 'python', 'packaging/generate_icon.py')
+Invoke-NativeChecked 'uv.exe' @('run', '--locked', 'pyinstaller', '--clean', '--noconfirm', 'packaging/updater.spec')
+$UpdaterExe = Join-Path $Root 'dist\FireLensUpdater.exe'
+if (-not (Test-Path $UpdaterExe)) { throw 'PyInstaller 未產生 FireLensUpdater.exe' }
+$UpdaterHash = (Get-FileHash $UpdaterExe -Algorithm SHA256).Hash.ToLowerInvariant()
+$GeneratedDir = Join-Path $Root 'packaging\generated'
+New-Item -ItemType Directory -Force -Path $GeneratedDir | Out-Null
+Set-Content -LiteralPath (Join-Path $GeneratedDir 'updater.sha256') -Value $UpdaterHash -Encoding ascii
 Invoke-NativeChecked 'uv.exe' @('run', '--locked', 'pyinstaller', '--clean', '--noconfirm', 'packaging/firelens.spec')
 $Exe = Join-Path $Root 'dist\FireLens.exe'
 if (-not (Test-Path $Exe)) { throw 'PyInstaller 未產生 FireLens.exe' }
@@ -48,7 +55,10 @@ finally {
   Remove-Item -LiteralPath $SelfTestDir -Recurse -Force -ErrorAction SilentlyContinue
 }
 Get-FileHash $Exe -Algorithm SHA256 | Format-List
-Invoke-NativeChecked 'uv.exe' @('run', '--locked', 'python', 'packaging/update_e2e.py', '--exe', $Exe)
-& (Join-Path $PSScriptRoot 'build-installer.ps1') -SourceExe $Exe
+& (Join-Path $PSScriptRoot 'build-installer.ps1') -SourceExe $Exe -SourceUpdater $UpdaterExe
 if ($LASTEXITCODE -ne 0) { throw "安裝精靈建置失敗：$LASTEXITCODE" }
+$VersionText = Get-Content (Join-Path $Root 'desktop\version.py') -Raw
+if ($VersionText -notmatch '__version__\s*=\s*"([^"]+)"') { throw '無法讀取 FireLens 版本。' }
+$Setup = Join-Path $Root "dist\installer\FireLens-$($Matches[1])-setup.exe"
+Invoke-NativeChecked 'uv.exe' @('run', '--locked', 'python', 'packaging/update_e2e.py', '--exe', $Exe, '--setup', $Setup)
 Write-Host "Build OK: $Exe"

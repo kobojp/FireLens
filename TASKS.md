@@ -1,7 +1,8 @@
 # 滅火器燈具照片管理系統 任務文件
 
-狀態：**M0～M14 功能開發完成**。目前版本 v1.6.0；v1.6.0 已正式發布至 GitHub Release。歷史 v1.5.0 已由使用者實機測試確認 OK 並正式發布至 GitHub Release。
-M14 開發版本：v1.6.0。
+狀態：**M0～M16 功能開發完成，待使用者實機驗收**。目前版本 v1.7.0；本版本尚未正式 Release。歷史 v1.6.0 已正式發布至 GitHub Release。歷史 v1.5.0 已由使用者實機測試確認 OK 並正式發布至 GitHub Release。
+M14 歷史開發版本：v1.6.0。
+M15 歷史開發版本：v1.6.1（PATCH，修正線上更新器實機失敗）。
 
 ## 1. 目標
 
@@ -358,7 +359,7 @@ M14 開發版本：v1.6.0。
 - 驗收：完整 Windows build 通過版本一致性、Ruff format/check、pytest 82 passed、Vitest 27 passed、TypeScript/Vite、PyInstaller 與等待 GUI 程序結束的 `FireLens.exe --self-test`。當時使用 Inno Setup 6.7.3，並以 repository 內 `packaging/lang/ChineseTraditional.isl` 成功產生完整繁中 setup，無缺漏語系 fallback 警告。1407×804 Chrome 合成資料 E2E 已實際完成「雙欄貼上 → 解析預覽 → 儲存並開始核對 → 分類結果 → 缺完成篩選」，顯示 4 筆中 2 筆完整、1 筆缺部分照片、1 筆找不到資料夾，且瀏覽器 console/network 無 FireLens 4xx/5xx 或 failed request。Graphify 已重建為 530 nodes / 1164 edges / 42 communities。
 - Release：`v1.5.0` 已由 GitHub Actions run `39444235196` 正式建立，Release 資產包含 `FireLens-1.5.0-setup.exe`、`FireLens-1.5.0-windows-x64.exe`、`SHA256SUMS.txt`、`update-manifest.json`、`update-manifest.sig`；Release build／版本一致性／manifest 簽章／資產上傳步驟均成功。
 
-### M14 一鍵式安全線上更新（v1.6.0）
+### M14 一鍵式安全線上更新（歷史 v1.6.0）
 
 背景：目前線上更新需要依序按「檢查更新」→「下載並驗證」→「安裝並重新啟動」。安全驗證流程已完整，但一般使用者操作步驟偏多。新版保留既有 Ed25519／SHA-256／EXE self-test 安全鏈，只簡化使用者操作，不降低任何驗證強度。
 
@@ -391,6 +392,127 @@ M14 開發版本：v1.6.0。
 
 - 驗收：完整 Windows build 通過版本一致性、Ruff format/check、pytest **90 passed**、Vitest **31 passed**、TypeScript/Vite、PyInstaller 與打包後 `FireLens.exe --self-test`；`packaging/update_e2e.py` 實際驗證 EXE 替換／重新啟動、失敗回滾，且 SQLite DB 與 `.firelens-installed` SHA-256 均保持不變；當時使用 Inno Setup 6.7.3 成功產生 `FireLens-1.6.0-setup.exe`；打包版 UI 隔離資料目錄啟動 smoke 通過；Graphify 已重建為 **569 nodes / 1231 edges / 47 communities**。
 - Release：`v1.6.0` 已由 GitHub Actions run `39513769728` 正式建立，Tag 指向 `cb88036863ec6f8a6db796cd341619d3b8bc8db9`；Release 資產包含 `FireLens-1.6.0-setup.exe`、`FireLens-1.6.0-windows-x64.exe`、`SHA256SUMS.txt`、`update-manifest.json`、`update-manifest.sig`，Release build／版本一致性／manifest 簽章／資產上傳均成功。
+
+### M15 線上更新器可靠性修復與真正端到端更新驗證（歷史 v1.6.1）
+
+#### 實機事故與已確認證據
+
+- 使用者在歷史正式安裝的 **FireLens v1.5.0** 內檢查到 v1.6.0 後，按下「安裝並重新啟動 v1.6.0」並確認；FireLens 關閉，但沒有自動重新啟動，使用者手動重新開啟後仍為歷史 v1.5.0。
+- 實機正式安裝位置 `C:\Users\mike\AppData\Local\Programs\FireLens\FireLens.exe` 仍是舊檔，大小 **36,113,454 bytes**，沒有被 v1.6.0 正式 Release EXE 取代。
+- `%LOCALAPPDATA%\FireLens\updates\v1.6.0` 已存在完整 staging：`FireLens-1.6.0-windows-x64.exe`（**36,260,379 bytes**）、`update-manifest.json`、`update-manifest.sig`、歷史 `FireLens-1.5.0-backup.exe`、`apply-update.ps1`。因此下載、簽章／檔案驗證、備份與更新腳本建立至少已走到 `schedule_install` 後段。
+- `%LOCALAPPDATA%\FireLens\updates\update.log` **不存在**。當時歷史 PowerShell 腳本在成功複製後與 catch 失敗處才會寫 log，因此可確認故障發生在「腳本真正進入可記錄執行階段之前」；沒有足夠證據可武斷指定是 Windows detached process、PowerShell 參數／解析、端點防護或其他啟動競態中的哪一個單一 OS 近因。M15 已以 transaction log／READY handshake 補足可觀測性並消除「未確認 updater 可用就退出」的系統性根因。
+- 歷史 v1.5.0 與歷史 v1.6.0 的 `schedule_install` 都採 `subprocess.Popen(powershell.exe ...)` 搭配 `DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP`，之後 API 以約 1.5 秒 timer 直接 `os._exit(0)` 關閉 FireLens。歷史 v1.6.0 雖加強腳本內的啟動健康檢查與 rollback，但**背景 updater 的啟動／存活握手機制仍與歷史 v1.5 同類型**，所以不能把這次問題視為歷史 v1.6 已確定排除。
+- M14 的 `packaging/update_e2e.py` 是直接以 `subprocess.run(powershell.exe -File apply-update.ps1 ...)` 同步執行更新腳本，並使用不存在的假 PID；它證明「腳本已成功啟動後」的替換、重啟、rollback、DB／marker 保護，但**沒有覆蓋真正產品鏈 `FireLens.exe → schedule_install → detached updater → FireLens 自己退出 → updater 存活`**。這是本次實機才暴露出的驗收缺口。
+
+#### 修正原則
+
+- **不得先關閉 FireLens 再賭 updater 有成功存活。** FireLens 只有在獨立 updater 已啟動並完成明確 handshake 後，才允許進入關閉階段；handshake 失敗必須保持目前 FireLens 正常運作並直接顯示繁中錯誤。
+- 優先改為真正獨立的 `FireLensUpdater.exe` helper，而不是把 PowerShell detached script 當唯一正式更新執行器。helper 必須能在主程式退出後獨立存活、等待原 PID 釋放 EXE、執行替換、驗證、啟動新版與 rollback。
+- 正式安裝版可由 installer 安裝 updater helper；單一 portable/raw EXE 仍必須可更新，因此 helper 應能由主 EXE 內嵌資源安全解出到 `%LOCALAPPDATA%\FireLens\updates`，不能要求 portable 使用者自行放第二個檔案。
+- 既有 v1.5.0／v1.6.0 已發布版本無法被未來程式碼「逆向修正」。若舊版再次遇到「按更新後關閉但仍停在舊版」，官方復原路徑必須明確指示直接執行最新版 `FireLens-<版本>-setup.exe`；安裝／升級不得刪除 `{app}\data`。
+- 所有既有 Ed25519 manifest、版本／檔名／大小、SHA-256、下載後 EXE self-test、安裝前再次驗證都必須保留；M15 是可靠性修正，不得用降低驗證強度換取更新成功率。
+
+#### 可靠更新交易流程
+
+1. FireLens 完成既有下載與安全驗證後，建立唯一 `transaction_id` 與更新狀態檔，內容只保存版本、PID、目標路徑、階段、時間與錯誤，不保存私鑰或敏感資訊。
+2. FireLens 啟動 `FireLensUpdater.exe`；updater **第一件事**就建立 log 並回報 `started/ready` handshake（例如命名事件、受限 localhost IPC 或原子 ready 檔）。
+3. FireLens 等待有 timeout 的 handshake。只有確認 updater PID 存活且 handshake 對應相同 transaction 後，API 才回傳「可關閉更新」並排程主程式退出；失敗則終止本次更新、保持舊版運行。
+4. updater 等待原 FireLens PID 真正退出，並以有限次數重試確認 `{app}\FireLens.exe` 已解除檔案鎖；逾時不得破壞目前 EXE。
+5. updater 再次驗證 staged EXE SHA-256，備份目前 EXE，替換後立刻驗證**目標 `{app}\FireLens.exe` 本身**的 SHA-256 必須等於 manifest。
+6. updater 啟動新版 FireLens 時帶一次性 `transaction_id`。新版不能只靠「程序 10 秒沒退出」當成功；必須在 FastAPI／桌面視窗完成可用啟動後回寫 `healthy` handshake。
+7. updater 在 timeout 內收到新版 `healthy` 才標記成功；若新版無法啟動、提早退出、沒有 healthy handshake 或目標 hash 不符，立即恢復備份，再啟動舊版並記錄 rollback 結果。
+8. 成功、失敗、rollback 都要留下可讀的 `%LOCALAPPDATA%\FireLens\updates\update.log` 與 machine-readable 狀態；下次啟動 FireLens 若偵測上一筆失敗，要顯示「上次更新未完成，目前仍安全使用 vX.Y.Z」與查看 log／重試入口。
+
+#### 任務
+
+- [x] 事故重現／根因確認：保留實機 staging／無 log 證據並以打包後程序鏈重現 updater 啟動邊界；確認**系統性根因是舊架構沒有 READY handshake 卻允許主程式無條件退出**。M15 首輪 packaged E2E 另抓到 PyInstaller one-file bootloader PID 與 Python helper PID 不同，已移除錯誤的 PID 相等假設；不武斷宣稱歷史 PowerShell 失敗的單一 OS 近因
+- [x] Updater 架構：建立最小化 `FireLensUpdater.exe` helper，職責只包含 handshake、等待舊 PID、備份／替換／hash 驗證、啟動新版、健康確認、rollback 與 log
+- [x] Helper 配布：Inno Setup 安裝版正確部署 updater；portable/raw EXE 可從受信任內嵌資源解出 helper，並對 helper 自身做 build-time 固定 SHA-256 驗證後才執行
+- [x] 啟動握手：`schedule_install` 等待 transaction-bound updater `ready`；未取得 ready 時 API 回錯、禁止排程 `os._exit(0)`，舊 FireLens 保持執行
+- [x] 關閉流程：移除「固定 1.5 秒後無條件退出」作為唯一同步機制；現在只有 updater ready → API 成功回應後才以短延遲釋放 HTTP 回應並受控退出
+- [x] 替換安全：helper 以 Win32 process handle 等待舊 PID、有限重試 EXE lock、備份與替換前後核對 SHA-256；copy／replace／權限／鎖定錯誤進入明確失敗或 rollback
+- [x] 新版健康握手：新版以 transaction token 啟動，pywebview DOM `loaded` 後才回報 `healthy`；不再用「程序存活 N 秒」作成功判斷
+- [x] Rollback：新版 crash、healthy timeout 或安裝交易失敗可還原舊 EXE並重新啟動；rollback 注入失敗時保留 backup、state、log 與人工復原資訊
+- [x] 更新狀態與診斷：新增原子 transaction state／latest pointer／`update.log`；實測 log 含 started、ready、parent exited、backup、replace target hash、new launch、healthy、error／rollback
+- [x] 啟動後提示：`/api/app-info` 讀取上一筆更新狀態；失敗／rollback 在主畫面與設定頁顯示非阻擋繁中提示、目前版本、log 路徑與重試方式
+- [x] 舊版過渡：README 明確說明歷史 v1.5.0／v1.6.0 若自動更新關閉後沒有重啟，使用最新 setup 直接覆蓋安裝即可，且 `{app}\data` 不會被刪除；正式 Release 說明須沿用此規則，不建議刪 DB 或解除安裝清資料
+- [x] 單元測試：補齊 transaction id、ready／healthy handshake、timeout、繁中／空白路徑、target locked、helper startup failure、API 未 ready 不退出；既有 staged SHA mismatch 測試與真實故障注入 E2E 一併覆蓋 copy／replace／rollback 路徑
+- [x] 真正 E2E：由打包後 `FireLens.exe --update-e2e-trigger` 自身觸發與 production 相同 scheduler/helper 交易，實測 `FireLens.exe → updater ready → FireLens 退出 → helper 存活 → EXE 替換 → 新版 UI DOM loaded → healthy` 全鏈
+- [x] 安裝版 E2E：隔離 Inno Setup 安裝到含繁中／空白路徑，確認 setup 部署 helper，真正更新後 `{app}\data\firelens.sqlite3`、`.firelens-installed` 與 helper SHA／內容不變
+- [x] Portable E2E：單一 raw EXE 在無 installer marker 下由內嵌 payload 解出 hash 驗證 helper 完成更新，並確認仍使用隔離 LocalAppData DB 且不建立 installer marker
+- [x] 故障注入 E2E：實測 helper 無法啟動、READY 後死亡、EXE 鎖逾時、替換權限失敗、新版立即 crash、新版不回 healthy、rollback failure；可回滾情境均恢復可 self-test 舊版，rollback failure 保留可驗證 backup
+- [x] CI／build：`packaging/build.ps1` 先建 `FireLensUpdater.exe`、固定 helper hash、再建主 EXE／setup，最後強制執行真實 packaged updater E2E；GitHub Actions Release 原本即呼叫此 build，因此 E2E 失敗會阻止發布
+- [x] 版本：PATCH bump `1.6.0 → 1.6.1` 已同步 `desktop/version.py`、`pyproject.toml`、`uv.lock`、frontend fallback、TASKS、README Release 範例，版本一致性檢查通過
+- [x] 最終驗收：Ruff、pytest、Vitest、TypeScript/Vite、Windows EXE self-test、繁中 setup、真實 updater E2E、安裝版／portable／rollback 故障注入、UI 實際啟動與 Graphify 全部通過
+
+驗收標準：不能只證明「更新腳本單獨執行成功」。必須證明使用者在真正 FireLens UI 按下更新後，舊 FireLens 在 updater 已 ready 前絕不退出；退出後 updater 仍存活並成功替換 EXE，新版自動啟動且回報 healthy。任何故障都必須保持可啟動版本與使用者資料完整。
+
+- M15 驗收：完整 Windows build 通過版本一致性、Ruff format/check、pytest **98 passed**、Vitest **31 passed**、TypeScript/Vite、PyInstaller `FireLensUpdater.exe`＋`FireLens.exe`、打包後 `FireLens.exe --self-test`、完整繁中 Inno Setup。`packaging/update_e2e.py` 已由 packaged FireLens 本身觸發 portable 與 installer 真實更新，並通過 READY／HEALTHY、DB／marker／helper 不變與 7 種故障注入；額外 packaged UI 隔離啟動 smoke exit code 0。Graphify 已重建為 **625 nodes / 1376 edges / 46 communities**。
+- M15 當時最終工作樹本機產物 SHA-256：`FireLens.exe` = `43B70A77830538BB957CE1FFFD16D008F8746C3374D0386DB37DA718E2ED6515`；`FireLensUpdater.exe` = `AB6774945ABB3087305E3570AEB3DD3F4BCF31E3F4F85608AA57A7F7F143BE18`；`FireLens-1.6.1-setup.exe` = `26732A170C5AEE0CFD894A76A132C3F9C3E86C5CBAA73D8CE41A1E2B03DB824A`。歷史 v1.6.1 當時尚未建立 Git Tag 或 GitHub Release。
+
+### M16 設備資料夾更名、清冊匯出修復與設備異常單選標記／統計（v1.7.0 已實作）
+
+背景：使用者提供照片牆截圖，圈選設備編號標題（例如 `中-03-238`）。已在標題**右側**加入「更改名稱」，真正更改對應的實體設備資料夾名稱，不只改畫面文字、照片檔名或清冊名稱；並修復缺失清單匯出與新增單選設備異常／統計。所有測試只使用合成資料，不修改真實現場照片或清冊。
+
+#### 已確認需求
+
+- [x] UI：在照片牆頂部設備編號（`item.code`）右側新增「更改名稱」按鈕，與現有「刪除」明確區隔；未選擇設備時不顯示。
+- [x] 互動：按下後開啟應用內對話框，預填原名稱；輸入新名稱時顯示 `舊名稱 → 新名稱`、相對路徑與受影響照片數量，使用者明確確認後才執行。
+- [x] 實體更名：只將選取設備資料夾在**同一父資料夾**內重新命名；保留內部照片與子資料夾，不跨目錄搬移、不重新編碼、不修改照片檔名／內容。
+- [x] 索引與 UI：實體更名後同步 `item.code`、`item.relative_path`、所屬 `photo.relative_path` 與縮圖關聯，更新左側資料樹／選取狀態／頂部名稱；重新掃描、切換設備與重啟後不得產生重複設備、舊路徑或無法載入照片。
+- [x] 合法名稱：新名稱只能是單層安全 basename，拒絕空白、`.`／`..`、路徑分隔符、Windows 禁用字元／保留名稱、尾端空白／句點、跳出根目錄路徑；相同父層若已有同名目標（含 Windows 大小寫不敏感衝突）必須阻擋，禁止覆寫。
+- [x] 操作前防護：確認選取資料夾與磁碟實際位置一致、來源不是符號連結／reparse point，且具備必要寫入權限；來源不存在、根目錄離線、掃描進行中或雲端串流狀態不安全時阻擋，不得為了改名強制下載 Google Drive placeholder。
+- [x] 故障安全與稽核：任一步驟失敗不得顯示成功；實體更名與索引更新需一致性處理，必要時安全復原／重建索引。於 `audit_log` 記錄設備 ID、前後相對路徑、時間與結果；先評估既有 `rename_log` 是否適合資料夾交易，避免破壞照片改名／復原語意。
+- [x] 清冊保護：設備資料夾名稱牽涉核對主鍵；更名可能使現有清冊的舊編號比對不到，確認前必須提示。不得擅自修改受保護的 `ledger`、`ledger_row` 或原始清冊文字，清冊自動同步須另行討論。
+- [x] 測試驗收：只使用合成／暫存副本；覆蓋正常更名、撞名、非法名稱、權限拒絕、離線／掃描阻擋、索引更新失敗、繁中／空白路徑、多張照片、重啟與清冊核對；不得觸碰真實 `滅火器更換照片/` 與 `數據.xlsx`。實作時再依 AGENTS 執行升版、版本一致性、Ruff/pytest/Vitest、Windows build 和 UI 驗證。
+
+#### 清冊核對匯出缺失 CSV／Excel：使用者實測問題
+
+使用者原先實測：Windows 桌面版「清冊核對」的「匯出缺失 CSV／Excel」使用一般 `<a href>` 附件下載連結，按下後沒有可見反應。改版改用前端按鈕呼叫受保護的本機 `POST /api/reconcile/export/save`，由後端原子地儲存至 `Downloads/FireLens`（測試可使用 `FIRELENS_EXPORT_DIR` 隔離），回傳檔案位置及結果；保留原 `GET /api/reconcile/export` 供其他瀏覽器下載。無法事後確定歷史 WebView2 未下載的單一 OS 近因；但新流程已從打包後 GUI 真正點擊兩個按鈕並取得有效 CSV／XLSX。
+
+- [x] 歷史匯出路徑檢查：原版僅用 `<a href>` 附件連結，沒有桌面版下載完成回饋；不假定已查明歷史 WebView2 的唯一 OS 近因。新版改成受保護本機 POST，並在真正 packaged Windows WebView2 畫面上依序點擊「清冊核對 → 開始核對 → 匯出缺失 CSV → 匯出缺失 Excel」，兩種檔案均在隔離資料夾實際產生且非空。
+- [x] CSV 匯出修復：按下「匯出缺失 CSV」必須有明確下載／儲存行為，不得僅讓桌面 WebView 導航到 attachment URL；實際寫出 `.csv` 檔案，使用 Excel 開啟時繁體中文、設備編號與棟別樓層不得亂碼、截斷或自動改編號。
+- [x] Excel 匯出修復：按下「匯出缺失 Excel」必須實際寫出可正常開啟的 `.xlsx`，包含正確欄名、設備編號、棟別樓層、缺失項目／狀態；不可輸出損壞的 XLSX 或只有顯示成功卻未產生檔案。
+- [x] UI 互動與錯誤提示：桌面版已改為按一次即自動儲存至使用者下載目錄下的 `FireLens` 子資料夾（無另開「另存新檔」對話框）；顯示「正在匯出／已儲存檔名與路徑／失敗」狀態，可重試；錯誤不報成功。改用受保護本機 POST 儲存，避免 WebView2 一般超連結附件下載失效，保留 session／Host／Origin 檢查。
+- [x] 匯出資料範圍核對：維持舊有 `export_reconciliation` 的「整份清冊／來源的缺失與待確認清單」語意，**不受目前畫面篩選條件影響**；保留缺部分照片、完全無照片、找不到設備資料夾、未對應舊制／待確認等既有分類，完整設備不列入缺失；零缺失時匯出只有標題列的有效檔案。若日後要只匯出畫面目前篩選結果，另開需求。
+- [x] 安全與整合驗收：只用合成清冊／照片索引及暫存匯出目錄；驗證 CSV／XLSX 檔案實際存在、大小非零、內容與核對結果相符，繁中設備編號不被破壞；覆蓋無缺失、儲存路徑無法寫入時回報失敗的情境，並實際從 packaged Windows UI 點擊兩種匯出。採直接存入下載資料夾，沒有「取消另存新檔」對話框；不得修改真實清冊、照片或既有資料庫。
+
+#### 設備異常單選標記與自訂分類統計（已實作）
+
+使用者提供照片牆畫面，以紅框標示設備標題右側、既有「刪除」左側的空白區，要求為目前設備選擇現場異常分類，預設例子包括「瓶身超過10年」「無法辨識」「壓力錶故障」。**最新定案：每台設備同一時間最多只能選擇一個異常，也可不選；不提供「已改善」功能。** 使用者仍可自行建立多個異常名稱供選擇，並在另一處依分類統計設備數、列出實際設備清單。此處是**人工巡檢紀錄**，不因照片存在／缺失而自動判定，也不是既有清冊的補拍標記。
+
+- [x] 照片牆操作區：在紅框位置加入可展開的「設備異常」**單選**控制（例如下拉選單或 radio），只能選一項；顯示目前選取的異常名稱，提供「無異常／清除選擇」恢復未標記狀態，不能擠壓「刪除」、設備編號或照片槽位。支援滑鼠、鍵盤及較窄視窗，所有標籤使用繁體中文。
+- [x] 預設可選項目：至少「瓶身超過10年」「無法辨識」「壓力錶故障」。其中「瓶身超過10年」是使用者**手動勾選的判斷**，目前沒有瓶身出廠日期資料來源，不得自動推算使用年限。
+- [x] 自訂標籤管理：使用者可建立任意多個合理長度的名稱、修改名稱、排序與停用；禁止空白與重複（含前後空白差異）。修改顯示名稱後既有標記應仍指向同一個標籤 ID；已被使用的標籤不得因刪除而無提示地抹除歷史紀錄。是否允許永久刪除／合併標籤，待使用者確認。
+- [x] 設備單選標記：同一設備最多指定**一個**異常分類；若改選另一分類，必須取代舊分類而非累加；也可清除標記，一種異常可被多台設備選用。變更後立即更新 UI／統計，重新開啟程式或重新掃描仍保留。
+- [x] 資料庫持久化：採新增受保護的自訂異常字典與**設備對異常的單一關聯**（具穩定標籤 ID、設備識別、建立／更新時間，並以資料庫唯一性約束確保單設備最多一筆目前異常），只做增量 migration＋備份。不得把紀錄只掛在可重建的 `item.id`，也不得重用受保護且具不同語意的 `reshoot_mark` 或覆蓋清冊資料。設備識別應考慮根目錄／類別／相對路徑與可能同編號跨月份存在的情況，避免標錯設備。
+- [x] 與 M16 資料夾更名／掃描協作：若設備資料夾改名，異常標記必須跟著正確對應到新資料夾；改名失敗不可丟失標記。外部手動改名、設備消失、根目錄離線或索引暫時未建立時，不得默默刪除標記，需規劃「待確認／來源離線」呈現及重新關聯策略。
+- [x] 上方導覽列新增「統計」分頁：**固定放在「清冊核對」右側、「整理工具」左側**，順序為「照片瀏覽｜清冊核對｜統計｜整理工具｜設定」；採用既有分頁樣式、選取狀態與鍵盤操作，窄視窗不可與其他分頁重疊。此分頁專門顯示設備異常分類統計，不混入「清冊核對」的缺照片結果。
+- [x] 統計頁分類與清單：依使用者自訂異常名稱動態列出各異常設備數（如「瓶身超過10年：N 台」「無法辨識：N 台」「壓力錶故障：N 台」），並顯示目前已標記異常的去重設備總數；點進類別列出設備編號、棟別樓層、所在批次／根目錄與標記時間，可點擊設備返回「照片瀏覽」並選取對應設備。**每台設備只計入目前所選的一個分類**；切換分類時舊分類 -1、新分類 +1，清除則不計入任何異常。分類筆數相加應等於異常設備總數，不可重複計算設備。
+- [x] 查詢與篩選：至少支援依異常分類、根目錄、棟別樓層、設備編號搜尋；分類新增／改名／停用後，統計與清單同步。是否加入 CSV／Excel 匯出異常清單、時間範圍等其他能力，先與使用者討論，不擅自當成已決定功能；**不設計「已改善」狀態或維修流程**。
+- [x] 互動回饋與保護：標記成功／失敗有明確提示，不得 UI 已打勾但資料庫未保存；必要時記錄操作於 `audit_log`。掃描執行與離線情況如何允許標記（標記只改本機資料庫、不修改照片）需針對資料一致性決定；不可對現場照片檔案做任何更動。
+- [x] 測試驗收：使用合成資料／暫存 SQLite，覆蓋**同設備只能單選、改選替換、清除選擇、資料庫唯一性約束、統計數正確轉移**、自訂標籤增改停用、同名防重、重啟、重新掃描、不同根目錄同設備編號、資料夾更名、離線、來源消失與資料庫 migration。必須實測打包 Windows UI，確認「統計」分頁位於「清冊核對」右側、標記持久化、分類數量正確且清單可返回照片瀏覽定位原設備，並遵守 AGENTS 的完整測試／升版規則。
+
+#### 尚待確認的產品決策（先討論，勿自行拍板）
+
+- 已採保守 MVP：所有根目錄共用一份異常分類字典，統計可按根目錄篩選；使用者未另外指定每個根目錄獨立分類。
+- 已定案：「統計」為上方導覽列的獨立分頁，位置固定在「清冊核對」右側、「整理工具」左側，名稱使用「統計」，不放在「整理工具／資訊」內。
+- 已定案：每台設備只能選一種異常或清除選擇；改選會直接取代舊分類，**不需要「已改善」功能**。如有操作稽核僅供診斷，不建立改善狀態、改善日期或維修工單。
+- 本次不新增「設備異常統計清單」CSV／Excel 匯出（與已修復的「清冊缺失匯出」不同），使用者未提出確定需求；若未來需要，再另列里程碑。
+
+#### 其餘需求待討論
+
+- 本次 M16 只包含已確認的三大項目，不擴大到棟別／月份／年份資料夾批次改名、批次設備編號更名、清冊編號自動修正、已改善流程或異常統計匯出；後續需求另列新里程碑。
+
+#### M16 實作與驗收紀錄
+
+- SQLite 由 v7 增量升至 v8，舊版清冊與受保護資料表完整保留；新增 `issue_label` 及依 `root_id + item_relative_path` 識別設備的 `item_issue`，單設備最多一個標籤。異常紀錄不依賴可重建的 `item.id`，設備更名會同步更新異常關聯，來源消失／離線不會默默刪紀錄。
+- 資料夾更名使用同層 `os.rename`，不編碼或修改照片；會同步設備與照片相對路徑／縮圖索引，寫入稽核，資料庫更新失敗時嘗試還原實體名稱。Google Drive 已連線且無雲端未下載照片時允許更名；離線、掃描中、保留名稱、撞名、佔位檔及待同步項目阻擋。清冊原始編號保持不變，UI 明確警告。
+- 缺失清單匯出採 `/api/reconcile/export/save` 自動安全儲存至 `Downloads/FireLens`，顯示結果／完整路徑；不需仰賴 WebView2 附件下載。原 GET 匯出仍保留。使用者原本看到的兩個匯出按鈕現在有進度與錯誤回饋。
+- 真正打包後 Windows 視窗測試：FireLens v1.7.0 UI 可開啟「統計」並載入「設備異常統計」；使用合成根目錄與清冊，直接按 UI 匯出 CSV（339 bytes）與 XLSX（5,373 bytes）皆成功。額外在隔離 pywebview／WebView2 操作真實 React 畫面，實測設備選取 →「更改名稱」→ 實體目錄更名成功、照片保留；再標記異常並確認 SQLite 保存，統計頁可列出更名後設備。沒有對任何現場根目錄操作。
+- 完整 Windows build 已成功產生 `FireLens.exe`、`FireLensUpdater.exe` 與繁體中文 `FireLens-1.7.0-setup.exe`；打包後 self-test、portable／installer 真實 updater E2E、READY／HEALTHY、rollback／故障注入均通過；npm 正式執行依賴 `npm audit --omit=dev` 結果為 0 漏洞，npm 全依賴安裝時仍出現 1 項 high 等級開發依賴警告，不以 `npm audit fix --force` 擅自升級造成破壞。
+- 本輪最終自動驗收：`packaging/check_version_consistency.py` PASS v1.7.0、Ruff format/check PASS、pytest **107 passed**（既有 1 項 Starlette/httpx deprecation warning）、Vitest **31 passed**、TypeScript／Vite PASS。Graphify 已重建為 **665 nodes / 1536 edges / 48 communities**，`graphify-out` 仍只留本機且受 `.gitignore` 排除。
+- GitHub：此輪只保留本機開發成果，未 commit／push／建立 v1.7.0 Git Tag 或 Release；待使用者實機驗收後再決定發布。
 
 ## 11. 完成條件
 

@@ -10,7 +10,11 @@ a = Analysis(
     [str(ROOT / "desktop" / "main.py")],
     pathex=[str(ROOT)],
     binaries=[],
-    datas=[(str(ROOT / "frontend" / "dist"), "frontend_dist")],
+    datas=[
+        (str(ROOT / "frontend" / "dist"), "frontend_dist"),
+        (str(ROOT / "dist" / "FireLensUpdater.exe"), "updater_payload"),
+        (str(ROOT / "packaging" / "generated" / "updater.sha256"), "updater_payload"),
+    ],
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},

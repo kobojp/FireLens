@@ -67,6 +67,9 @@ export function SettingsView({
   }, [categories])
 
   const backupUrl = useMemo(() => api.backupUrl(), [])
+  const lastUpdateFailed = appInfo?.last_update && [
+    'error', 'rolled_back', 'rollback_failed', 'helper_start_failed',
+  ].includes(appInfo.last_update.phase ?? '')
 
   async function saveGeneral() {
     if (!draft) return
@@ -143,8 +146,10 @@ export function SettingsView({
       error: null,
     } : current)
     try {
-      await api.installUpdate(version)
-      setMessage('更新已排程，FireLens 即將關閉、更新並重新啟動。')
+      const result = await api.installUpdate(version)
+      setMessage(result.ready
+        ? '獨立更新器已就緒，FireLens 即將安全關閉、更新並重新啟動。'
+        : '更新器尚未就緒；FireLens 不會關閉。')
     } catch (err) {
       const latestProgress = await api.updateProgress().catch(() => null)
       if (latestProgress) setUpdateProgress(latestProgress)
@@ -316,6 +321,12 @@ export function SettingsView({
 
       {appInfo && <section className="panel-card settings-card">
         <div className="panel-title"><h2>線上更新</h2><span>Ed25519 安全簽章</span></div>
+        {lastUpdateFailed && <div className="warning-banner" role="status">
+          <b>上次更新未完成，目前仍安全使用 v{appInfo.version}。</b>
+          <span>{appInfo.last_update?.error || '更新器已回滾或未完成。'}</span>
+          {appInfo.last_update?.log_file && <code>{appInfo.last_update.log_file}</code>}
+          <span>可重新「檢查更新」後再試；若歷史版本自動更新後沒有重啟，可直接用最新 setup 覆蓋安裝，不會刪除 data。</span>
+        </div>}
         <p className="help-text">
           目前版本 v{appInfo.version}。FireLens 只接受由內建公鑰驗證通過的 GitHub Release；下載後還會再次核對 SHA-256 並執行 EXE self-test。
         </p>

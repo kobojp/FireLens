@@ -9,9 +9,12 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.request
+import uuid
 from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse
@@ -21,6 +24,17 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 from backend.app.config import get_app_data_dir
+from desktop.update_protocol import (
+    TRANSACTION_SCHEMA,
+    UpdateProtocolError,
+    atomic_write_handshake,
+    atomic_write_json,
+    read_json,
+    sha256_file,
+    utc_now,
+    validate_handshake,
+    validate_transaction_id,
+)
 from desktop.version import __version__
 
 REPOSITORY = "kobojp/FireLens"
@@ -42,6 +56,10 @@ _ALLOWED_HTTPS_HOSTS = {
 }
 _VERSION_RE = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+UPDATER_EXE_NAME = "FireLensUpdater.exe"
+UPDATER_PAYLOAD_DIR = "updater_payload"
+UPDATER_HASH_NAME = "updater.sha256"
+UPDATE_READY_TIMEOUT_SECONDS = 8.0
 
 
 class UpdateError(RuntimeError):
@@ -204,11 +222,7 @@ def _verified_latest_release() -> tuple[
 
 
 def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return sha256_file(path)
 
 
 def _staged_exe(manifest: ReleaseManifest) -> Path:
@@ -367,59 +381,267 @@ def download_update(
     }
 
 
-_APPLY_SCRIPT = r"""param(
-    [int]$PidToWait,
-    [string]$CurrentExe,
-    [string]$NewExe,
-    [string]$BackupExe,
-    [string]$LogFile,
-    [string]$LaunchArgument = '',
-    [string]$RollbackLaunchArgument = '',
-    [int]$HealthCheckSeconds = 10
-)
-$ErrorActionPreference = 'Stop'
-function Write-UpdateLog([string]$Message) {
-    $stamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    Add-Content -LiteralPath $LogFile -Value "$stamp $Message" -Encoding UTF8
-}
-try {
-    $old = Get-Process -Id $PidToWait -ErrorAction SilentlyContinue
-    if ($old) { $old.WaitForExit() }
-    Start-Sleep -Milliseconds 500
-    Copy-Item -LiteralPath $NewExe -Destination $CurrentExe -Force
-    Write-UpdateLog 'new executable installed'
-    if ($LaunchArgument) {
-        $new = Start-Process -FilePath $CurrentExe -ArgumentList $LaunchArgument -PassThru
+def _bundle_root() -> Path:
+    bundle = getattr(sys, "_MEIPASS", None)
+    if not bundle:
+        raise UpdateError("目前執行環境沒有內嵌 updater payload")
+    return Path(bundle).resolve()
+
+
+def _updater_payload() -> tuple[Path, str]:
+    payload_dir = _bundle_root() / UPDATER_PAYLOAD_DIR
+    source = payload_dir / UPDATER_EXE_NAME
+    hash_file = payload_dir / UPDATER_HASH_NAME
+    try:
+        expected = hash_file.read_text(encoding="ascii").strip().lower()
+    except OSError as exc:
+        raise UpdateError(f"無法讀取 updater 固定 SHA-256：{exc}") from exc
+    if not _SHA256_RE.fullmatch(expected):
+        raise UpdateError("內嵌 updater SHA-256 格式不正確")
+    if not source.is_file() or _sha256_file(source) != expected:
+        raise UpdateError("內嵌 FireLensUpdater.exe 完整性驗證失敗")
+    return source, expected
+
+
+def _materialize_updater() -> tuple[Path, str]:
+    source, expected = _updater_payload()
+    installed = Path(sys.executable).resolve().parent / UPDATER_EXE_NAME
+    try:
+        if installed.is_file() and _sha256_file(installed) == expected:
+            return installed, expected
+    except OSError:
+        pass
+
+    helper_dir = _update_dir() / "helper"
+    helper_dir.mkdir(parents=True, exist_ok=True)
+    target = helper_dir / f"FireLensUpdater-{expected[:16]}.exe"
+    if target.is_file() and _sha256_file(target) == expected:
+        return target, expected
+    temp = target.with_suffix(".tmp.exe")
+    try:
+        shutil.copy2(source, temp)
+        if _sha256_file(temp) != expected:
+            raise UpdateError("解出的 FireLensUpdater.exe SHA-256 不一致")
+        os.replace(temp, target)
+    except OSError as exc:
+        raise UpdateError(f"無法準備獨立更新器：{exc}") from exc
+    finally:
+        temp.unlink(missing_ok=True)
+    if _sha256_file(target) != expected:
+        raise UpdateError("獨立更新器落地後完整性驗證失敗")
+    return target, expected
+
+
+def _transaction_dir() -> Path:
+    return _update_dir() / "transactions"
+
+
+def _latest_transaction_pointer() -> Path:
+    return _update_dir() / "latest-transaction.json"
+
+
+def _transaction_state_path(transaction_id: str) -> Path:
+    return _transaction_dir() / f"{validate_transaction_id(transaction_id)}.json"
+
+
+def _write_latest_transaction(transaction_id: str, state_path: Path) -> None:
+    atomic_write_json(
+        _latest_transaction_pointer(),
+        {
+            "schema": TRANSACTION_SCHEMA,
+            "transaction_id": transaction_id,
+            "state_path": str(state_path),
+            "updated_at": utc_now(),
+        },
+    )
+
+
+def latest_update_transaction() -> dict[str, object] | None:
+    pointer_path = _latest_transaction_pointer()
+    if not pointer_path.is_file():
+        return None
+    try:
+        pointer = read_json(pointer_path)
+        transaction_id = validate_transaction_id(str(pointer.get("transaction_id") or ""))
+        state_path = _transaction_state_path(transaction_id)
+        state = read_json(state_path)
+        if str(state.get("transaction_id") or "") != transaction_id:
+            return None
+    except (OSError, UpdateProtocolError):
+        return None
+    keys = (
+        "transaction_id",
+        "phase",
+        "target_version",
+        "current_version",
+        "created_at",
+        "updated_at",
+        "completed_at",
+        "error",
+        "rollback_error",
+        "backup_path",
+        "log_file",
+    )
+    return {key: state.get(key) for key in keys}
+
+
+def mark_update_healthy(transaction_id: str, state_path: str | Path) -> None:
+    transaction_id = validate_transaction_id(transaction_id)
+    expected_state_path = _transaction_state_path(transaction_id).resolve()
+    provided = Path(state_path).resolve()
+    if provided != expected_state_path:
+        raise UpdateError("更新 HEALTHY 狀態檔路徑不合法")
+    try:
+        state = read_json(provided)
+    except UpdateProtocolError as exc:
+        raise UpdateError(str(exc)) from exc
+    if str(state.get("transaction_id") or "") != transaction_id:
+        raise UpdateError("更新 HEALTHY transaction 不一致")
+    if str(state.get("target_version") or "") != __version__:
+        raise UpdateError("目前版本與更新 transaction 目標版本不一致")
+    current_exe = Path(str(state.get("current_exe") or "")).resolve()
+    if current_exe != Path(sys.executable).resolve():
+        raise UpdateError("目前 EXE 與更新 transaction 目標路徑不一致")
+    healthy_file = Path(str(state.get("healthy_file") or "")).resolve()
+    if healthy_file.parent != _transaction_dir().resolve():
+        raise UpdateError("更新 HEALTHY 握手路徑不合法")
+    atomic_write_handshake(
+        healthy_file,
+        transaction_id,
+        status="healthy",
+        version=__version__,
+        pid=os.getpid(),
+    )
+
+
+def _create_transaction(
+    *,
+    manifest: ReleaseManifest,
+    staged: Path,
+    helper_sha256: str,
+) -> tuple[str, Path, dict[str, object]]:
+    transaction_id = uuid.uuid4().hex
+    transaction_root = _transaction_dir()
+    transaction_root.mkdir(parents=True, exist_ok=True)
+    state_path = _transaction_state_path(transaction_id)
+    ready_file = transaction_root / f"{transaction_id}.ready.json"
+    healthy_file = transaction_root / f"{transaction_id}.healthy.json"
+    current_exe = Path(sys.executable).resolve()
+    backup = _update_dir(manifest.version) / f"FireLens-{__version__}-backup.exe"
+    log_path = _update_dir() / "update.log"
+    state: dict[str, object] = {
+        "schema": TRANSACTION_SCHEMA,
+        "transaction_id": transaction_id,
+        "phase": "created",
+        "created_at": utc_now(),
+        "updated_at": utc_now(),
+        "current_version": __version__,
+        "target_version": manifest.version,
+        "parent_pid": os.getpid(),
+        "current_exe": str(current_exe),
+        "staged_exe": str(staged.resolve()),
+        "backup_exe": str(backup.resolve()),
+        "backup_path": str(backup.resolve()),
+        "expected_sha256": manifest.sha256,
+        "helper_sha256": helper_sha256,
+        "ready_file": str(ready_file.resolve()),
+        "healthy_file": str(healthy_file.resolve()),
+        "log_file": str(log_path.resolve()),
+        "error": None,
     }
-    else {
-        $new = Start-Process -FilePath $CurrentExe -PassThru
+    if os.environ.get("FIRELENS_UPDATE_E2E") == "1":
+        state.update(
+            {
+                "parent_timeout_seconds": 15,
+                "replace_timeout_seconds": 4,
+                "health_timeout_seconds": 12,
+            }
+        )
+    atomic_write_json(state_path, state)
+    _write_latest_transaction(transaction_id, state_path)
+    return transaction_id, state_path, state
+
+
+def _launch_updater_and_wait_ready(
+    helper: Path,
+    transaction_id: str,
+    state_path: Path,
+    ready_file: Path,
+    timeout: float = UPDATE_READY_TIMEOUT_SECONDS,
+) -> int:
+    if (
+        os.environ.get("FIRELENS_UPDATE_E2E") == "1"
+        and os.environ.get("FIRELENS_UPDATER_FAULT") == "startup_failure"
+    ):
+        raise UpdateError("測試注入：獨立更新器無法啟動")
+    flags = int(getattr(subprocess, "DETACHED_PROCESS", 0)) | int(
+        getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    )
+    try:
+        process = subprocess.Popen(
+            [str(helper), "--transaction", str(state_path)],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=flags,
+            close_fds=True,
+        )
+    except OSError as exc:
+        raise UpdateError(f"無法啟動獨立 FireLensUpdater：{exc}") from exc
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if ready_file.is_file():
+            try:
+                ready = validate_handshake(ready_file, transaction_id, "ready")
+            except UpdateProtocolError as exc:
+                raise UpdateError(f"獨立更新器 ready 握手失敗：{exc}") from exc
+            updater_pid = ready.get("updater_pid")
+            if not isinstance(updater_pid, int) or updater_pid <= 0 or process.poll() is not None:
+                raise UpdateError("獨立更新器 ready 後已失效")
+            # PyInstaller one-file runs a bootloader parent plus the Python
+            # application child. Popen.pid is the bootloader PID while
+            # os.getpid() reported by the helper is the child PID, so equality
+            # is intentionally not required here.
+            return updater_pid
+        exit_code = process.poll()
+        if exit_code is not None:
+            raise UpdateError(f"獨立更新器尚未 ready 就結束：exit code {exit_code}")
+        time.sleep(0.05)
+    with suppress(OSError):
+        process.terminate()
+    raise UpdateError("獨立更新器啟動逾時；FireLens 保持目前版本並繼續執行")
+
+
+def _schedule_verified_update(manifest: ReleaseManifest, staged: Path) -> dict[str, object]:
+    helper, helper_sha256 = _materialize_updater()
+    transaction_id, state_path, state = _create_transaction(
+        manifest=manifest,
+        staged=staged,
+        helper_sha256=helper_sha256,
+    )
+    ready_file = Path(str(state["ready_file"]))
+    try:
+        updater_pid = _launch_updater_and_wait_ready(
+            helper,
+            transaction_id,
+            state_path,
+            ready_file,
+        )
+    except UpdateError as exc:
+        state.update({"phase": "helper_start_failed", "updated_at": utc_now(), "error": str(exc)})
+        atomic_write_json(state_path, state)
+        raise
+    return {
+        "scheduled": True,
+        "ready": True,
+        "version": manifest.version,
+        "transaction_id": transaction_id,
+        "updater_pid": updater_pid,
+        "backup_path": str(state["backup_path"]),
+        "log_path": str(state["log_file"]),
+        "state_path": str(state_path),
     }
-    Start-Sleep -Seconds $HealthCheckSeconds
-    if ($new.HasExited -and $new.ExitCode -ne 0) {
-        throw "new FireLens exited early with code $($new.ExitCode)"
-    }
-    Write-UpdateLog 'new FireLens launched successfully; backup retained for rollback'
-}
-catch {
-    Write-UpdateLog "update failed: $($_.Exception.Message)"
-    try {
-        Copy-Item -LiteralPath $BackupExe -Destination $CurrentExe -Force
-        if ($RollbackLaunchArgument) {
-            Start-Process `
-                -FilePath $CurrentExe `
-                -ArgumentList $RollbackLaunchArgument `
-                -Wait | Out-Null
-        }
-        else {
-            Start-Process -FilePath $CurrentExe | Out-Null
-        }
-        Write-UpdateLog 'rollback completed'
-    }
-    catch {
-        Write-UpdateLog "rollback failed: $($_.Exception.Message)"
-    }
-}
-"""
 
 
 def schedule_install(version: str) -> dict[str, object]:
@@ -442,52 +664,21 @@ def schedule_install(version: str) -> dict[str, object]:
     if not _staged_is_valid(manifest):
         raise UpdateError("本機更新檔驗證失敗，請重新下載")
     _self_test_exe(staged)
+    return _schedule_verified_update(manifest, staged)
 
-    current_exe = Path(sys.executable).resolve()
-    backup = version_dir / f"FireLens-{__version__}-backup.exe"
-    try:
-        shutil.copy2(current_exe, backup)
-    except OSError as exc:
-        raise UpdateError(f"無法建立舊版 EXE 備份：{exc}") from exc
 
-    script_path = version_dir / "apply-update.ps1"
-    script_path.write_text(_APPLY_SCRIPT, encoding="utf-8-sig")
-    log_path = _update_dir() / "update.log"
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    flags = int(getattr(subprocess, "DETACHED_PROCESS", 0)) | int(
-        getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+def schedule_local_update_e2e(staged: Path) -> dict[str, object]:
+    if os.environ.get("FIRELENS_UPDATE_E2E") != "1":
+        raise UpdateError("本機 updater E2E 入口只允許在建置測試環境使用")
+    if os.name != "nt" or not getattr(sys, "frozen", False):
+        raise UpdateError("updater E2E 必須由打包後 Windows FireLens.exe 發起")
+    staged = staged.resolve()
+    if not staged.is_file():
+        raise UpdateError("updater E2E 找不到 staged EXE")
+    manifest = ReleaseManifest(
+        version=__version__,
+        asset=staged.name,
+        sha256=_sha256_file(staged),
+        size=staged.stat().st_size,
     )
-    try:
-        subprocess.Popen(
-            [
-                "powershell.exe",
-                "-NoProfile",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-File",
-                str(script_path),
-                "-PidToWait",
-                str(os.getpid()),
-                "-CurrentExe",
-                str(current_exe),
-                "-NewExe",
-                str(staged),
-                "-BackupExe",
-                str(backup),
-                "-LogFile",
-                str(log_path),
-            ],
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            creationflags=flags,
-            close_fds=True,
-        )
-    except OSError as exc:
-        raise UpdateError(f"無法啟動更新安裝程序：{exc}") from exc
-    return {
-        "scheduled": True,
-        "version": version,
-        "backup_path": str(backup),
-        "log_path": str(log_path),
-    }
+    return _schedule_verified_update(manifest, staged)

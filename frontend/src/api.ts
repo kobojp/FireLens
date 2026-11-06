@@ -29,6 +29,11 @@ import type {
   UpdatePreparationStatus,
   UpdateStatus,
   UpdateInstallResult,
+  ItemFolderRenameResult,
+  IssueLabel,
+  ItemIssue,
+  IssueStatistics,
+  ExportSaveResult,
 } from './types'
 
 export class ApiError extends Error {
@@ -101,6 +106,29 @@ export const api = {
   photos: (itemId: number) => request<PhotoRecord[]>(`/api/items/${itemId}/photos`),
   item: (itemId: number) => request<ItemDetail>(`/api/items/${itemId}`),
   deleteItem: (itemId: number) => request<{ status: string; deleted: boolean }>(`/api/items/${itemId}`, { method: 'DELETE' }),
+  renameItemFolder: (itemId: number, newName: string) => request<ItemFolderRenameResult>(`/api/items/${itemId}/rename`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ new_name: newName }),
+  }),
+  issueLabels: () => request<IssueLabel[]>('/api/issues/labels'),
+  createIssueLabel: (name: string) => request<IssueLabel>('/api/issues/labels', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  }),
+  editIssueLabel: (id: number, patch: { name?: string; active?: boolean; sort_order?: number }) =>
+    request<IssueLabel>(`/api/issues/labels/${id}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    }),
+  itemIssue: (id: number) => request<ItemIssue>(`/api/items/${id}/issue`),
+  setItemIssue: (id: number, labelId: number | null) => request<ItemIssue>(`/api/items/${id}/issue`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ label_id: labelId }),
+  }),
+  issueStatistics: (rootId?: number) => request<IssueStatistics>(
+    `/api/issues/statistics${rootId === undefined ? '' : `?root_id=${rootId}`}`,
+  ),
   createItem: (payload: ItemFolderCreate) => request<ItemDetail>('/api/items', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -205,6 +233,12 @@ export const api = {
     if (period) params.set('period', period)
     return `/api/reconcile/export?${params.toString()}`
   },
+  saveReconcileExport: (rootId: number, ledgerId: number, format: 'csv' | 'xlsx', period?: string) =>
+    request<ExportSaveResult>('/api/reconcile/export/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ root_id: rootId, ledger_id: ledgerId, format, period: period || null }),
+    }),
   organizer: (rootId: number) => request<OrganizerAnalysis>(`/api/organizer/${rootId}`),
   previewRenames: (rootId: number, candidateIds: string[]) => request<RenamePreview>(
     `/api/organizer/${rootId}/rename/preview`,

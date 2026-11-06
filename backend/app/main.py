@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import sys
+import tempfile
 from contextlib import asynccontextmanager
+from datetime import datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -29,6 +32,17 @@ from .cache import (
     thumbnail_file,
 )
 from .db import database, initialize_database
+from .issues import (
+    IssueConflict,
+    IssueError,
+    create_label,
+    issue_statistics,
+    item_issue,
+    list_labels,
+    set_item_issue,
+    update_label,
+)
+from .item_folders import rename_item_folder
 from .logging_config import RequestLoggingMiddleware, configure_logging, get_logger
 from .organizer import (
     OrganizerConflict,
@@ -103,6 +117,31 @@ class ItemFolderCreate(BaseModel):
     period: str = Field(min_length=1)
     building: str = Field(min_length=1)
     code: str = Field(min_length=1)
+
+
+class ItemFolderRename(BaseModel):
+    new_name: str = Field(min_length=1, max_length=120)
+
+
+class IssueLabelCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+
+
+class IssueLabelUpdate(BaseModel):
+    name: str | None = None
+    active: bool | None = None
+    sort_order: int | None = None
+
+
+class ItemIssueUpdate(BaseModel):
+    label_id: int | None
+
+
+class ReconcileExportSave(BaseModel):
+    root_id: int
+    ledger_id: int
+    format: str = "xlsx"
+    period: str | None = None
 
 
 class PeriodFolderCreate(BaseModel):
@@ -318,6 +357,68 @@ def create_app() -> FastAPI:
             try:
                 return delete_item_folder(conn, item_id)
             except StorageError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/items/{item_id}/rename")
+    def rename_folder(item_id: int, payload: ItemFolderRename) -> dict[str, object]:
+        with database() as conn:
+            try:
+                return rename_item_folder(conn, item_id, payload.new_name)
+            except StorageConflict as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            except StorageError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/issues/labels")
+    def issue_labels() -> list[dict[str, object]]:
+        with database() as conn:
+            return list_labels(conn)
+
+    @app.post("/api/issues/labels", status_code=201)
+    def add_issue_label(payload: IssueLabelCreate) -> dict[str, object]:
+        with database() as conn:
+            try:
+                return create_label(conn, payload.name)
+            except IssueConflict as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            except IssueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.put("/api/issues/labels/{label_id}")
+    def edit_issue_label(label_id: int, payload: IssueLabelUpdate) -> dict[str, object]:
+        with database() as conn:
+            try:
+                return update_label(
+                    conn,
+                    label_id,
+                    name=payload.name,
+                    active=payload.active,
+                    sort_order=payload.sort_order,
+                )
+            except IssueConflict as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            except IssueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/issues/statistics")
+    def issues_stats(root_id: int | None = None) -> dict[str, object]:
+        with database() as conn:
+            return issue_statistics(conn, root_id)
+
+    @app.get("/api/items/{item_id}/issue")
+    def get_item_issue(item_id: int) -> dict[str, object]:
+        with database() as conn:
+            try:
+                return item_issue(conn, item_id)
+            except IssueError as exc:
+                raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.put("/api/items/{item_id}/issue")
+    def update_item_issue(item_id: int, payload: ItemIssueUpdate) -> dict[str, object]:
+        with database() as conn:
+            try:
+                return set_item_issue(conn, item_id, payload.label_id)
+            except IssueError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.post("/api/items/{item_id}/slots/{slot}/photos")
@@ -762,6 +863,50 @@ def create_app() -> FastAPI:
             media_type=media_type,
             headers={"Content-Disposition": f'attachment; filename="{safe_filename}"'},
         )
+
+    @app.post("/api/reconcile/export/save")
+    def reconcile_export_save(payload: ReconcileExportSave) -> dict[str, object]:
+        file_format = payload.format.casefold()
+        if file_format not in {"csv", "xlsx"}:
+            raise HTTPException(status_code=400, detail="僅支援匯出 CSV 或 Excel")
+        with database() as conn:
+            try:
+                result = build_reconciliation(
+                    conn,
+                    root_id=payload.root_id,
+                    ledger_id=payload.ledger_id,
+                    period=payload.period.strip() if payload.period else None,
+                )
+                content, _, _ = export_reconciliation(result, file_format)
+            except ReconcileError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+        # 桌面 WebView 不依賴 attachment 超連結；真正寫入本機下載資料夾。
+        directory = Path(
+            os.environ.get("FIRELENS_EXPORT_DIR") or Path.home() / "Downloads" / "FireLens"
+        )
+        temporary: Path | None = None
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+            from uuid import uuid4
+
+            timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            filename = f"FireLens-缺失清單-{timestamp}-{uuid4().hex[:8]}.{file_format}"
+            target = directory / filename
+            with tempfile.NamedTemporaryFile(
+                dir=directory, prefix=".firelens-", delete=False
+            ) as handle:
+                temporary = Path(handle.name)
+                handle.write(content)
+                handle.flush()
+                os.fsync(handle.fileno())
+            # Windows 同層 rename 是原子操作，且目標存在時會拒絕覆蓋。
+            os.rename(temporary, target)
+        except OSError as exc:
+            raise HTTPException(status_code=500, detail=f"檔案儲存失敗：{exc}") from exc
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+        return {"saved": True, "path": str(target), "filename": filename, "size": len(content)}
 
     frontend_dist = _frontend_dist_dir()
     if frontend_dist.is_dir():

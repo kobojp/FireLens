@@ -8,12 +8,14 @@ import { TreeView } from './TreeView'
 import { ReconcileView } from './ReconcileView'
 import { OrganizerView } from './OrganizerView'
 import { SettingsView } from './SettingsView'
+import { StatisticsView } from './StatisticsView'
 import { filterTree } from './treeSearch'
 import { normalizeQuickCreate, quickCreateOptions } from './quickCreate'
 import type {
   CategoryDefinition,
   ItemDetail,
   ItemFolderCreate,
+  IssueLabel,
   PhotoRenamePreview,
   PhotoRecord,
   RootRecord,
@@ -261,8 +263,12 @@ export default function App() {
   } | null>(null)
   const [folderToDelete, setFolderToDelete] = useState<ItemDetail | null>(null)
   const [folderDeleteInput, setFolderDeleteInput] = useState('')
+  const [folderRename, setFolderRename] = useState<ItemDetail | null>(null)
+  const [newFolderName, setNewFolderName] = useState('')
+  const [issueLabels, setIssueLabels] = useState<IssueLabel[]>([])
+  const [issueSelection, setIssueSelection] = useState<number | null>(null)
   const [zoom, setZoom] = useState(1)
-  const [view, setView] = useState<'browse' | 'reconcile' | 'organizer' | 'settings'>('browse')
+  const [view, setView] = useState<'browse' | 'reconcile' | 'statistics' | 'organizer' | 'settings'>('browse')
   const [rootStatusInfo, setRootStatusInfo] = useState<RootStatus | null>(null)
   const [offlineQueue, setOfflineQueue] = useState<OfflineQueueEntry[]>([])
   const [cacheMessage, setCacheMessage] = useState('')
@@ -273,6 +279,7 @@ export default function App() {
   const [treeQuery, setTreeQuery] = useState('')
   const activeRootRef = useRef<number | null>(null)
   const selectedItemIdRef = useRef<number | null>(null)
+  const pendingStatsNavigation = useRef<{ rootId: number; itemId: number } | null>(null)
   const scanMonitorToken = useRef(0)
   const autoScanAttempted = useRef(new Set<number>())
   const deferredTreeQuery = useDeferredValue(treeQuery)
@@ -295,6 +302,16 @@ export default function App() {
   }, [item, appSettings])
   const scanRunning = rootId !== null && scanJob?.root_id === rootId && scanJob.state === 'running'
 
+  useEffect(() => {
+    setIssueSelection(null)
+    if (!item) return
+    let active = true
+    void api.itemIssue(item.id)
+      .then((issue) => { if (active) setIssueSelection(issue.label_id) })
+      .catch((err) => { if (active) setError(err instanceof Error ? err.message : '讀取設備異常失敗') })
+    return () => { active = false }
+  }, [item?.id, item?.relative_path])
+
   async function refreshRoots() {
     try {
       const next = await api.listRoots()
@@ -302,6 +319,43 @@ export default function App() {
       setRootId((current) => current ?? next[0]?.id ?? null)
     } catch (err) {
       setError(err instanceof Error ? err.message : '讀取根目錄失敗')
+    }
+  }
+
+  async function refreshIssueLabels() {
+    setIssueLabels(await api.issueLabels())
+  }
+
+  async function changeIssue(value: string) {
+    if (!item) return
+    setBusy(true)
+    setError('')
+    try {
+      const next = await api.setItemIssue(item.id, value ? Number(value) : null)
+      setIssueSelection(next.label_id)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '儲存異常標記失敗')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function confirmFolderRename() {
+    if (!folderRename || rootId === null || scanRunning) return
+    setBusy(true)
+    setError('')
+    try {
+      await api.renameItemFolder(folderRename.id, newFolderName)
+      const updated = await api.item(folderRename.id)
+      setItem(updated)
+      setSelected((current) => current ? { ...current, label: updated.code } : current)
+      await refreshTree(rootId)
+      setFolderRename(null)
+      setCacheMessage(`資料夾已更名為 ${updated.code}；照片內容保持不變。`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '資料夾更名失敗')
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -356,6 +410,7 @@ export default function App() {
 
   useEffect(() => {
     void refreshRoots()
+    void refreshIssueLabels().catch((err) => setError(err instanceof Error ? err.message : '讀取異常分類失敗'))
     void api.categories().then(setCategories).catch((err) => {
       setError(err instanceof Error ? err.message : '讀取類別設定失敗')
     })
@@ -436,6 +491,19 @@ export default function App() {
       if (status.state === 'running') void monitorScan(rootId)
     }).catch(() => undefined)
   }, [rootId])
+
+  useEffect(() => {
+    const target = pendingStatsNavigation.current
+    if (!target || view !== 'browse' || target.rootId !== rootId) return
+    let active = true
+    void api.item(target.itemId).then((detail) => {
+      if (!active) return
+      setItem(detail)
+      setSelected({ type: 'item', id: detail.id, key: `item:${detail.id}`, label: detail.code })
+      pendingStatsNavigation.current = null
+    }).catch((err) => { if (active) setError(err instanceof Error ? err.message : '開啟設備失敗') })
+    return () => { active = false }
+  }, [rootId, view])
 
   useEffect(() => {
     if (rootId === null || !appSettings || !rootStatusInfo) return
@@ -851,7 +919,7 @@ export default function App() {
       <header className="topbar">
         <div>
           <strong>FireLens</strong>
-          <span>照片管理、核對與離線工作 · v{appInfo?.version ?? '1.6.0'}</span>
+          <span>照片管理、核對與離線工作 · v{appInfo?.version ?? '1.7.0'}</span>
         </div>
         <div className="root-controls">
           <label htmlFor="root-select">根目錄</label>
@@ -871,10 +939,16 @@ export default function App() {
           )}
         </div>
       </header>
+      {appInfo?.last_update && ['error', 'rolled_back', 'rollback_failed', 'helper_start_failed'].includes(appInfo.last_update.phase ?? '') && (
+        <div className="warning-banner" role="status">
+          上次更新未完成，目前仍安全使用 v{appInfo.version}。請到「設定 → 線上更新」查看紀錄並重試。
+        </div>
+      )}
 
       <nav className="mode-tabs" aria-label="FireLens 功能">
         <button type="button" className={view === 'browse' ? 'active' : ''} onClick={() => setView('browse')}>照片瀏覽</button>
         <button type="button" className={view === 'reconcile' ? 'active' : ''} onClick={() => setView('reconcile')}>清冊核對</button>
+        <button type="button" className={view === 'statistics' ? 'active' : ''} onClick={() => setView('statistics')}>統計</button>
         <button type="button" className={view === 'organizer' ? 'active' : ''} onClick={() => setView('organizer')}>整理工具</button>
         <button type="button" className={view === 'settings' ? 'active' : ''} onClick={() => setView('settings')}>設定</button>
       </nav>
@@ -1009,12 +1083,32 @@ export default function App() {
 
         <section className="panel photo-panel" aria-label="照片槽位牆">
           <div className="panel-title">
-            <div><h2>{item?.code ?? '照片槽位'}</h2>{item && <small>{item.category_name} · {item.building}</small>}</div>
+            <div className="folder-heading">
+              <div className="folder-title-row">
+                <h2>{item?.code ?? '照片槽位'}</h2>
+                {item && (
+                  <button type="button" className="secondary-button" onClick={() => { setFolderRename(item); setNewFolderName(item.code) }} disabled={busy || scanRunning || rootStatusInfo?.connected === false}>
+                    更改名稱
+                  </button>
+                )}
+              </div>
+              {item && <small>{item.category_name} · {item.building}</small>}
+            </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               {item && (
-                <button type="button" className="danger-button" onClick={() => setFolderToDelete(item)} disabled={busy || scanRunning}>
-                  刪除
-                </button>
+                <>
+                  <label className="issue-select-control">設備異常
+                    <select aria-label="設備異常單選" value={issueSelection ?? ''} onChange={(event) => void changeIssue(event.target.value)} disabled={busy}>
+                      <option value="">無異常</option>
+                      {issueLabels.filter((label) => label.active || label.id === issueSelection).map((label) => (
+                        <option key={label.id} value={label.id}>{label.name}{!label.active ? '（已停用）' : ''}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <button type="button" className="danger-button" onClick={() => setFolderToDelete(item)} disabled={busy || scanRunning}>
+                    刪除
+                  </button>
+                </>
               )}
               <span>{item ? item.status : 'M2'}</span>
             </div>
@@ -1199,6 +1293,16 @@ export default function App() {
         </>
       ) : view === 'reconcile' ? (
         <ReconcileView roots={roots} defaultRootId={rootId} />
+      ) : view === 'statistics' ? (
+        <StatisticsView
+          roots={roots}
+          onLabelsChanged={() => void refreshIssueLabels().catch((err) => setError(String(err)))}
+          onOpenItem={(nextRootId, itemId) => {
+            pendingStatsNavigation.current = { rootId: nextRootId, itemId }
+            setRootId(nextRootId)
+            setView('browse')
+          }}
+        />
       ) : view === 'organizer' ? (
         <OrganizerView roots={roots} defaultRootId={rootId} />
       ) : (
@@ -1211,6 +1315,27 @@ export default function App() {
           onRootsChanged={async () => { await refreshRoots(); if (rootId) await refreshCacheState(rootId).catch(() => undefined) }}
           onCategoriesChanged={async () => { setCategories(await api.categories()) }}
         />
+      )}
+
+      {folderRename && (
+        <div className="preview-backdrop" onMouseDown={() => !busy && setFolderRename(null)}>
+          <section className="prompt-dialog" role="dialog" aria-modal="true" aria-label="更改設備資料夾名稱" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="prompt-header">更改設備資料夾名稱</div>
+            <div className="prompt-body">
+              <label>新資料夾名稱
+                <input autoFocus className="prompt-input" value={newFolderName} maxLength={120} onChange={(event) => setNewFolderName(event.target.value)} disabled={busy} />
+              </label>
+              <p><strong>{folderRename.code}</strong> → <strong>{newFolderName || '（尚未輸入）'}</strong></p>
+              <p className="muted">來源：{folderRename.relative_path}</p>
+              <p className="muted">保留內部 {folderRename.photo_count} 張照片及所有子資料夾，只更動資料夾名稱。</p>
+              <p className="warning-banner">提醒：既有清冊的設備編號不會自動修改，更名後可能需要重新核對。</p>
+            </div>
+            <div className="prompt-footer">
+              <button type="button" onClick={() => setFolderRename(null)} disabled={busy}>取消</button>
+              <button type="button" className="primary-button" onClick={() => void confirmFolderRename()} disabled={busy || scanRunning || !newFolderName.trim() || newFolderName === folderRename.code}>確認更名</button>
+            </div>
+          </section>
+        </div>
       )}
 
       {folderToDelete && (
