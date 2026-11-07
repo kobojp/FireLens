@@ -626,3 +626,19 @@ html[data-theme="dark"] .private-cell-editor textarea { background: #24303e; col
 .private-sheets-native-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 8px 0; }
 .private-sheets-native-actions span { font-size: 12px; color: #66758c; }
 html[data-theme="dark"] .private-editor-body textarea { background: #25313f; color: #f4f7fd; }
+
+
+/* Google Sheets clipboard selection, accessible to both readonly and edit modes */
+.private-sheet-copy-tools { padding: 12px; border: 1px solid #a9bfce; border-radius: 8px; display: grid; gap: 8px; }
+.private-sheet-copy-head, .private-sheet-copy-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.private-sheet-copy-head span { color: #64748b; font-size: 12px; }
+.private-sheet-copy-actions button { border: 1px solid #7297b4; border-radius: 7px; padding: 7px 12px; }
+.private-sheet-copy-check { display: inline-flex; align-items: center; gap: 6px; }
+.private-sheet-copy-result { font-size: 12px; color: #176247; font-weight: 600; }
+.private-copy-column { width: 100%; min-width: 40px; border: 1px solid #c4d1dd; border-radius: 5px; background: transparent; color: inherit; cursor: pointer; padding: 5px; }
+.private-sheet-table thead th { position: sticky; top: 0; z-index: 3; background: #e7edf4; color: #25364a; text-align: center; }
+.private-sheet-table thead th:first-child { z-index: 5; left: 0; }
+.private-sheet-table :is(td, th).private-copy-selected { background: #c4e3fb !important; box-shadow: inset 0 0 0 1px #2477bf; color: #143350; }
+.private-sheet-copy-cell { display: block; border: 0; padding: 7px 4px; min-height: 32px; }
+html[data-theme="dark"] .private-sheet-table thead th { background: #3b4b5d; color: #f1f5fa; }
+html[data-theme="dark"] .private-sheet-table :is(td, th).private-copy-selected { background: #245478 !important; color: #fff; }

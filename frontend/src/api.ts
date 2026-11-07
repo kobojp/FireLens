@@ -41,6 +41,8 @@ import type {
   PrivateSheet,
   PrivateTab,
   PrivateValues,
+  PrivateCopyInfo,
+  PrivateCopyChunk,
   PrivateCellUpdate,
 } from './types'
 
@@ -90,6 +92,21 @@ export const api = {
         tab, start_row: String(row),
       })}`,
     ),
+  privateDriveCopyInfo: (sheetId: string, tab: string) =>
+    request<PrivateCopyInfo>(
+      '/api/private-drive/sheets/' + encodeURIComponent(sheetId) +
+      '/copy-info?' + new URLSearchParams({ tab }),
+    ),
+  privateDriveCopyChunk: (
+    sheetId: string, tab: string, startRow: number, endRow: number,
+    startColumn: number, endColumn: number,
+  ) => request<PrivateCopyChunk>(
+    '/api/private-drive/sheets/' + encodeURIComponent(sheetId) +
+    '/copy-chunk?' + new URLSearchParams({
+      tab, start_row: String(startRow), end_row: String(endRow),
+      start_column: String(startColumn), end_column: String(endColumn),
+    }),
+  ),
   openPrivateSheetInBrowser: (sheetId: string, tabId: number | null) =>
     request<{ opened: boolean }>(
       `/api/private-drive/sheets/${encodeURIComponent(sheetId)}/open`, {

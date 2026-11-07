@@ -38,6 +38,10 @@ GOOGLE_REVOKE = "https://oauth2.googleapis.com/revoke"
 ID_RE = re.compile(r"^[A-Za-z0-9_-]{10,160}$")
 MAX_API_BYTES = 1_500_000
 MAX_SHEETS = 500
+COPY_MAX_ROWS = 20000
+COPY_CHUNK_ROWS = 200
+COPY_MAX_CELLS = 100000
+
 EDIT_SCOPE = "https://www.googleapis.com/auth/spreadsheets"
 
 
@@ -687,6 +691,83 @@ class PrivateDriveService:
             if isinstance(title, str) and 0 < len(title) <= 200:
                 result.append({"id": int(prop.get("sheetId", 0)), "title": title})
         return result[:100]
+
+    def copy_info(self, sheet_id: str, tab_title: str) -> dict[str, int]:
+        """Get bounded row count of the authenticated sheet; read-only metadata."""
+        if tab_title not in {str(tab["title"]) for tab in self.sheet_tabs(sheet_id)}:
+            raise PrivateDriveError("此試算表沒有指定工作表", 404)
+        url = (
+            f"https://sheets.googleapis.com/v4/spreadsheets/{sheet_id}"
+            "?fields=sheets(properties(title,gridProperties(rowCount)))"
+        )
+        payload = _request_json(url, token=self._access())
+        sheets = payload.get("sheets", [])
+        if not isinstance(sheets, list):
+            raise PrivateDriveError("試算表中繼資料格式不正確", 502)
+        for sheet in sheets:
+            prop = sheet.get("properties", {}) if isinstance(sheet, dict) else {}
+            if not isinstance(prop, dict) or prop.get("title") != tab_title:
+                continue
+            grid = prop.get("gridProperties", {})
+            count = grid.get("rowCount") if isinstance(grid, dict) else None
+            if type(count) is not int or count < 1:
+                raise PrivateDriveError("無法辨識工作表總列數", 502)
+            # A sheet with >20k grid rows may still allow bounded 100-row
+            # selections. Only full-column copy has the 20k-row cap.
+            return {"row_count": count}
+        raise PrivateDriveError("找不到工作表中繼資料", 404)
+
+    def copy_chunk(
+        self,
+        sheet_id: str,
+        tab_title: str,
+        start_row: int,
+        end_row: int,
+        start_column: int,
+        end_column: int,
+    ) -> dict[str, Any]:
+        """Read a bounded contiguous rectangle, padded to preserve blank rows/cells."""
+        if (
+            not 1 <= start_row <= end_row <= COPY_MAX_ROWS
+            or end_row - start_row + 1 > COPY_CHUNK_ROWS
+            or not 1 <= start_column <= end_column <= 30
+            or (end_row - start_row + 1) * (end_column - start_column + 1) > COPY_MAX_CELLS
+        ):
+            raise PrivateDriveError("複製範圍超出列／欄上限", 400)
+        if tab_title not in {str(tab["title"]) for tab in self.sheet_tabs(sheet_id)}:
+            raise PrivateDriveError("所選工作表不在私人資料夾內", 403)
+        left = self._column_letter(start_column)
+        right = self._column_letter(end_column)
+        escaped = tab_title.replace("'", "''")
+        a1 = f"'{escaped}'!{left}{start_row}:{right}{end_row}"
+        range_url = urllib.parse.quote(a1, safe="")
+        url = (
+            f"https://sheets.googleapis.com/v4/spreadsheets/{sheet_id}/values/"
+            f"{range_url}?valueRenderOption=FORMATTED_VALUE"
+        )
+        payload = _request_json(url, token=self._access())
+        values = payload.get("values", [])
+        if not isinstance(values, list):
+            raise PrivateDriveError("Google 試算表複製資料格式不正確", 502)
+        height = end_row - start_row + 1
+        width = end_column - start_column + 1
+        result: list[list[str]] = []
+        if len(values) > height:
+            raise PrivateDriveError("Google 複製資料超出預期範圍", 502)
+        for idx in range(height):
+            source = values[idx] if idx < len(values) else []
+            if not isinstance(source, list) or len(source) > width:
+                raise PrivateDriveError("Google 複製資料格式與選取範圍不符", 502)
+            row = [str(v) for v in source]
+            # No silent truncation or loss of equipment IDs.
+            result.append(row + [""] * (width - len(row)))
+        return {
+            "rows": result,
+            "start_row": start_row,
+            "end_row": end_row,
+            "start_column": start_column,
+            "end_column": end_column,
+        }
 
     def values(self, sheet_id: str, tab_title: str, start_row: int = 1) -> dict[str, Any]:
         if not 1 <= start_row <= 100000:

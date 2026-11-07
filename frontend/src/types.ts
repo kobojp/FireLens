@@ -125,6 +125,14 @@ export type PrivateCellUpdate = {
   column: number
   value: string
 }
+export type PrivateCopyInfo = { row_count: number }
+export type PrivateCopyChunk = {
+  rows: string[][]
+  start_row: number
+  end_row: number
+  start_column: number
+  end_column: number
+}
 export type PrivateValues = {
   rows: string[][]
   start_row: number

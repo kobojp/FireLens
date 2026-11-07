@@ -160,6 +160,8 @@ TASKS.md            需求與里程碑
 - 支援「使用 Google 試算表開啟」的原生網頁編輯替代方案：只允許使用後端確定屬於目標私人資料夾的試算表 ID 與工作表 gid，由本機 Python 在使用者操作後開啟固定 Google HTTPS docs.google.com 官方網址。禁止前端提交任意外部 URL、禁止將 OAuth Access Token/Client Secret 拼入 URL、禁止為此將私人 Sheet 公開發布，亦不允許繞過 WebView2 的 iframe／Google OAuth 安全限制。Google 官方式發布後嵌入的 iframe 是檢視版，不等於原生可編輯 Sheets。
 
 - Sheets 編輯 API PUT 必須驗證桌面 session／Origin、Google OAuth 寫入 scope 和真實 Google ACL；403／409／502 不可宣稱成功，操作不得把 Token、Google 私人內容、原始 HTTP 回應寫入一般日誌。
+- Google Sheets A～AD 欄標頭與多格選取／Ctrl+C 必須在唯讀及編輯模式都可使用，複製仍只需要既有 OAuth 唯讀 scope；整欄複製須依工作表 rowCount 分批從 Google API 讀取，禁止只複製當前 100 列或默默截斷。單次範圍上限 20000 列／100000 格、每批最多 200 列；超限／回應不完整／HTTP 錯誤／取消時不得將部分資料放進剪貼簿或回報成功。TSV 按 Tab 與換行分隔，多格內的 Tab／換行／引號需正確轉義，保留中間空白列和字串前置零、中文異體字，不記錄私人設備代碼；整欄可選含／不含第一列標題。剪貼簿寫入失敗保留本機暫存以利使用者再按複製，不可宣稱成功。
+
 
 - OAuth Refresh Token 以 Windows 使用者 DPAPI 加密，儲存在使用者本機 LocalAppData，不與同步相片、SQLite 內容共享；登出立即清除本機存檔，遠端撤銷若因網路失敗須清楚提醒。Google 測試版授權可能有期限限制。
 - Windows 正式桌面安全模式下，所有私人 Google API（讀取 GET 或寫入 POST）必須具備 FireLens 原有 HttpOnly session cookie，並拒絕非 loopback Origin；不以「GET 不修改資料」為由放寬私人資料存取。

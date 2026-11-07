@@ -372,6 +372,31 @@ def create_app() -> FastAPI:
         except PrivateDriveError as exc:
             raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
+    @app.get("/api/private-drive/sheets/{sheet_id}/copy-info")
+    def drive_copy_info(
+        sheet_id: str, tab: str = Query(min_length=1, max_length=200)
+    ) -> dict[str, int]:
+        try:
+            return private_drive.copy_info(sheet_id, tab)
+        except PrivateDriveError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    @app.get("/api/private-drive/sheets/{sheet_id}/copy-chunk")
+    def drive_copy_chunk(
+        sheet_id: str,
+        tab: str = Query(min_length=1, max_length=200),
+        start_row: int = Query(ge=1, le=20000),
+        end_row: int = Query(ge=1, le=20000),
+        start_column: int = Query(ge=1, le=30),
+        end_column: int = Query(ge=1, le=30),
+    ) -> dict[str, object]:
+        try:
+            return private_drive.copy_chunk(
+                sheet_id, tab, start_row, end_row, start_column, end_column
+            )
+        except PrivateDriveError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
     @app.post("/api/private-drive/sheets/{sheet_id}/open")
     def open_private_sheet_in_browser(
         sheet_id: str, payload: GoogleOpenSheetRequest

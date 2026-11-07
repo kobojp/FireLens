@@ -1,6 +1,12 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from './api'
 import { loadPrivateSheetListOnce } from './privateSheetAutoLoad'
+import {
+  boundsFor, boundsLabel, columnName, inSelection, tsvFromRows,
+  trimTrailingBlankRows, loadCopyRows,
+} from './sheetCopy'
+import type { SheetSelection } from './sheetCopy'
+
 import type { PrivateDriveStatus, PrivateSheet, PrivateTab, PrivateValues } from './types'
 
 export function PublicSheetsView() {
@@ -20,6 +26,17 @@ export function PublicSheetsView() {
   const [saveConfirm, setSaveConfirm] = useState(false)
   const [openBrowserBusy, setOpenBrowserBusy] = useState(false)
   const [autoLoadingSheets, setAutoLoadingSheets] = useState(false)
+  const [selection, setSelection] = useState<SheetSelection | null>(null)
+  const [copyTotalRows, setCopyTotalRows] = useState<number | null>(null)
+  const [includeHeader, setIncludeHeader] = useState(false)
+  const [copyBusy, setCopyBusy] = useState(false)
+  const [copyProgress, setCopyProgress] = useState('')
+  const [copyNotice, setCopyNotice] = useState('')
+  const [preparedCopy, setPreparedCopy] = useState<{
+    text: string, label: string, rows: number, columns: number
+  } | null>(null)
+  const copyGeneration = useRef(0)
+
 
 
 
@@ -58,6 +75,26 @@ export function PublicSheetsView() {
   }, [status?.authenticated])
 
   useEffect(() => {
+    copyGeneration.current++
+    setCopyTotalRows(null)
+    setSelection(null)
+    setPreparedCopy(null)
+    setCopyBusy(false)
+    setCopyProgress('')
+    setCopyNotice('')
+    if (!selectedSheet || !selectedTab || !status?.authenticated) return
+    let active = true
+    void api.privateDriveCopyInfo(selectedSheet, selectedTab)
+      .then((info) => { if (active) setCopyTotalRows(info.row_count) })
+      .catch((err) => {
+        if (active) setError(err instanceof Error ? err.message : '無法取得工作表總列數')
+      })
+    return () => { active = false; copyGeneration.current++ }
+  }, [selectedSheet, selectedTab, status?.authenticated])
+
+  useEffect(() => () => { copyGeneration.current++ }, [])
+
+  useEffect(() => {
     if (requestedEdit && status?.editable) {
       setMode('edit')
       setRequestedEdit(false)
@@ -75,6 +112,9 @@ export function PublicSheetsView() {
       setSaveConfirm(false)
       setRequestedEdit(false)
       setMode('read')
+      copyGeneration.current++
+      setSelection(null)
+      setPreparedCopy(null)
     }
   }, [status?.authenticated])
 
@@ -108,6 +148,137 @@ export function PublicSheetsView() {
     }
     setMode('edit')
   }
+
+  function selectCopyColumn(column: number) {
+    copyGeneration.current++
+    setSelection({ kind: 'column', column })
+    setPreparedCopy(null)
+    setCopyBusy(false)
+    setCopyProgress('')
+    setCopyNotice('')
+  }
+
+  function selectCopyCell(row: number, column: number, shift: boolean) {
+    copyGeneration.current++
+    setSelection((previous) => {
+      if (shift && previous?.kind === 'range') {
+        return { ...previous, endRow: row, endColumn: column }
+      }
+      if (shift && previous?.kind === 'column') {
+        return { kind: 'range', anchorRow: data?.start_row ?? row,
+          anchorColumn: previous.column, endRow: row, endColumn: column }
+      }
+      return { kind: 'range', anchorRow: row, anchorColumn: column,
+        endRow: row, endColumn: column }
+    })
+    setPreparedCopy(null)
+    setCopyBusy(false)
+    setCopyProgress('')
+    setCopyNotice('')
+  }
+
+  async function writeCopyToClipboard(text: string): Promise<void> {
+    if (navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(text)
+        return
+      } catch {
+        // Windows WebView2 may restrict the async API after network access.
+      }
+    }
+    const field = document.createElement('textarea')
+    field.value = text
+    field.readOnly = true
+    field.setAttribute('aria-hidden', 'true')
+    field.style.position = 'fixed'
+    field.style.opacity = '0'
+    document.body.appendChild(field)
+    try {
+      field.focus()
+      field.select()
+      if (!document.execCommand('copy')) {
+        throw new Error('Windows 剪貼簿拒絕存取，請按「再次複製」重試')
+      }
+    } finally { field.remove() }
+  }
+
+  async function copySelectedRange() {
+    if (!selection || !selectedSheet || !selectedTab || copyBusy || copyTotalRows === null) return
+    const job = ++copyGeneration.current
+    setCopyBusy(true)
+    setCopyNotice('')
+    setPreparedCopy(null)
+    try {
+      const bounds = boundsFor(selection, copyTotalRows, includeHeader)
+      const width = bounds.endColumn - bounds.startColumn + 1
+      const totalRows = Math.max(0, bounds.endRow - bounds.startRow + 1)
+      if (totalRows === 0) throw new Error('此欄沒有可複製的資料列')
+      const allRows = await loadCopyRows(
+        bounds,
+        async (startRow, endRow) => {
+          const chunk = await api.privateDriveCopyChunk(
+            selectedSheet, selectedTab, startRow, endRow,
+            bounds.startColumn, bounds.endColumn,
+          )
+          return chunk.rows
+        },
+        () => job !== copyGeneration.current,
+        (loaded, total) => setCopyProgress('已讀取 ' + loaded + '／' + total + ' 列'),
+      )
+      const rows = selection.kind === 'column' ? trimTrailingBlankRows(allRows) : allRows
+      if (rows.length === 0) throw new Error('選取範圍沒有資料')
+      const content = tsvFromRows(rows)
+      if (content.length > 6_000_000) throw new Error('複製內容太大，請縮小選取範圍')
+      const last = bounds.startRow + rows.length - 1
+      const label = boundsLabel({ ...bounds, endRow: last })
+      const prepared = { text: content, label, rows: rows.length, columns: width }
+      if (job !== copyGeneration.current) throw new Error('複製已取消')
+      setPreparedCopy(prepared)
+      try {
+        await writeCopyToClipboard(content)
+        if (job === copyGeneration.current) {
+          setCopyNotice('已複製 ' + rows.length + ' 列／' + width + ' 欄（' + label + '）')
+        }
+      } catch {
+        setCopyNotice('資料已完整讀取，但 Windows 剪貼簿拒絕存取，請按「再次複製」。')
+      }
+    } catch (err) {
+      if (job === copyGeneration.current) {
+        setCopyNotice(err instanceof Error ? err.message : '複製失敗，沒有寫入剪貼簿')
+      }
+    } finally {
+      if (job === copyGeneration.current) {
+        setCopyBusy(false)
+        setCopyProgress('')
+      }
+    }
+  }
+
+  async function retryPreparedCopy() {
+    if (!preparedCopy) return
+    try {
+      await writeCopyToClipboard(preparedCopy.text)
+      setCopyNotice('已複製 ' + preparedCopy.rows + ' 列／' +
+        preparedCopy.columns + ' 欄（' + preparedCopy.label + '）')
+    } catch {
+      setCopyNotice('剪貼簿仍無法寫入，請檢查 Windows 剪貼簿權限後再試。')
+    }
+  }
+
+  useEffect(() => {
+    const listener = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'c' ||
+        !selection || draft || saveConfirm || !status?.authenticated) return
+      const target = event.target
+      if (target instanceof HTMLElement &&
+        target.closest('input,textarea,select,[contenteditable="true"]')) return
+      event.preventDefault()
+      if (preparedCopy) void retryPreparedCopy()
+      else void copySelectedRange()
+    }
+    window.addEventListener('keydown', listener)
+    return () => window.removeEventListener('keydown', listener)
+  })
 
   function selectCell(row: number, column: number, expected: string) {
     if (mode !== 'edit' || busy || !discardAllowed()) return
@@ -297,21 +468,88 @@ export function PublicSheetsView() {
             )}
             {busy && <p role="status">正在讀取資料…</p>}
             {data && (
+              <div className="private-sheet-copy-tools">
+                <div className="private-sheet-copy-head">
+                  <strong>整欄複製／多格選取</strong>
+                  <span>點 A～AD 欄標頭選整欄，點格子再 Shift＋點選範圍，按 Ctrl+C 複製。</span>
+                </div>
+                <div className="private-sheet-copy-actions">
+                  <label className="private-sheet-copy-check">
+                    <input type="checkbox" checked={includeHeader}
+                      onChange={(event) => { setIncludeHeader(event.target.checked); setPreparedCopy(null); setCopyNotice('') }} />
+                    整欄複製包含第 1 列標題
+                  </label>
+                  <button type="button" disabled={!selection || !copyTotalRows || copyBusy}
+                    onClick={() => void copySelectedRange()}>複製所選範圍</button>
+                  {preparedCopy && (
+                    <button type="button" disabled={copyBusy} onClick={() => void retryPreparedCopy()}>
+                      再次複製
+                    </button>
+                  )}
+                  {copyBusy && <button type="button" onClick={() => {
+                    copyGeneration.current++
+                    setCopyBusy(false)
+                    setCopyProgress('')
+                    setPreparedCopy(null)
+                    setCopyNotice('已取消複製，未寫入剪貼簿')
+                  }}>取消複製</button>}
+                </div>
+                <p className="help-text" role="status">
+                  {selection
+                    ? (selection.kind === 'column'
+                      ? columnName(selection.column) + ' 欄，最多 ' + (copyTotalRows ?? '計算中') + ' 列'
+                      : columnName(Math.min(selection.anchorColumn, selection.endColumn)) +
+                        Math.min(selection.anchorRow, selection.endRow) + ':' +
+                        columnName(Math.max(selection.anchorColumn, selection.endColumn)) +
+                        Math.max(selection.anchorRow, selection.endRow))
+                    : '請點選欄標頭或儲存格。'}
+                  {copyProgress && ' · ' + copyProgress}
+                </p>
+                {copyNotice && <p role="status" className="private-sheet-copy-result">{copyNotice}</p>}
+              </div>
+            )}
+            {data && (
               <div className="private-sheet-table-wrap">
                 <table className="private-sheet-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">列</th>
+                      {Array.from({ length: 30 }, (_, column) => (
+                        <th scope="col" key={column + 1}
+                          className={selection?.kind === 'column' && selection.column === column + 1 ? 'private-copy-selected' : ''}>
+                          <button type="button" className="private-copy-column"
+                            aria-label={'選取整個 ' + columnName(column + 1) + ' 欄'}
+                            aria-pressed={selection?.kind === 'column' && selection.column === column + 1}
+                            onClick={() => selectCopyColumn(column + 1)}>{columnName(column + 1)}</button>
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
                   <tbody>
                     {(data.rows.length ? data.rows : mode === 'edit' ? [[]] : []).map((row, idx) => (
                       <tr key={idx}>
                         <th scope="row">{data.start_row + idx}</th>
-                        {Array.from({ length: mode === 'edit' ? 30 : row.length }, (_, column) => {
+                        {Array.from({ length: 30 }, (_, column) => {
                           const value = row[column] ?? ''
-                          return <td key={column}>
-                          {mode === 'edit' ? (
-                            <button type="button" className="private-sheet-cell-edit"
-                              onClick={() => selectCell(data.start_row + idx, column + 1, value)}
-                              disabled={busy} title="點擊修改此儲存格">{value || '　'}</button>
-                          ) : value}
-                        </td>
+                          const rowIndex = data.start_row + idx
+                          const selected = inSelection(selection, rowIndex, column + 1)
+                          return <td key={column} className={selected ? 'private-copy-selected' : ''}>
+                            <button type="button" className={
+                              'private-sheet-cell-edit private-sheet-copy-cell'
+                            } disabled={busy}
+                              title={mode === 'edit'
+                                ? '點擊編輯；按 Ctrl 或 Shift 點擊選取複製範圍'
+                                : '點擊選取儲存格；按 Shift 點擊選取範圍'}
+                              aria-label={columnName(column + 1) + rowIndex + ': ' + (value || '空白')}
+                              aria-pressed={selected}
+                              onClick={(event) => {
+                                if (mode === 'edit' && !event.shiftKey && !event.ctrlKey) {
+                                  selectCell(rowIndex, column + 1, value)
+                                } else {
+                                  selectCopyCell(rowIndex, column + 1, event.shiftKey)
+                                }
+                              }}>{value || '　'}</button>
+                          </td>
                         })}
                       </tr>
                     ))}
