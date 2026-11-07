@@ -214,6 +214,14 @@ class ReorderPhotos(BaseModel):
     photo_ids: list[int]
 
 
+class GoogleCellUpdateRequest(BaseModel):
+    tab: str = Field(min_length=1, max_length=200)
+    row: int = Field(ge=1, le=100000)
+    column: int = Field(ge=1, le=30)
+    expected: str = Field(max_length=2000)
+    value: str = Field(max_length=2000)
+
+
 class OAuthSecretSettingsRequest(BaseModel):
     client_secret: str = Field(min_length=1, max_length=2048)
 
@@ -325,9 +333,9 @@ def create_app() -> FastAPI:
         return private_drive.status()
 
     @app.post("/api/private-drive/login")
-    def drive_auth_login() -> dict[str, object]:
+    def drive_auth_login(edit: bool = Query(default=False)) -> dict[str, object]:
         try:
-            return private_drive.login()
+            return private_drive.login(edit=edit)
         except PrivateDriveError as exc:
             raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
@@ -357,6 +365,22 @@ def create_app() -> FastAPI:
     ) -> dict[str, object]:
         try:
             return private_drive.values(sheet_id, tab, start_row)
+        except PrivateDriveError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    @app.put("/api/private-drive/sheets/{sheet_id}/cell")
+    def update_private_sheet_cell(
+        sheet_id: str, payload: GoogleCellUpdateRequest
+    ) -> dict[str, object]:
+        try:
+            return private_drive.edit_cell(
+                sheet_id,
+                payload.tab,
+                payload.row,
+                payload.column,
+                payload.expected,
+                payload.value,
+            )
         except PrivateDriveError as exc:
             raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 

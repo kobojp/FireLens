@@ -603,3 +603,16 @@ html[data-theme="dark"] .private-sheet-table :is(th,td) { border-color: #596878;
 .google-oauth-settings input[readonly] { opacity: .85; cursor: default; }
 .google-oauth-buttons { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
 .google-oauth-buttons button { border-radius: 7px; padding: 9px 15px; }
+
+
+/* Google private spreadsheet read / edit toggle and single-cell draft */
+.private-sheet-mode { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.private-sheet-mode button { padding: 7px 17px; border: 1px solid #8a9aa9; border-radius: 7px; }
+.private-sheet-mode button.active { background: #285b8d; color: #fff; border-color: #285b8d; }
+.private-sheet-cell-edit { width: 100%; min-height: 30px; background: transparent; color: inherit; border: 1px dashed #7f94ac; border-radius: 4px; text-align: left; white-space: pre-wrap; overflow-wrap: anywhere; cursor: pointer; }
+.private-sheet-cell-edit:hover, .private-sheet-cell-edit:focus-visible { border-color: #277abb; background: rgba(39,122,187,.1); }
+.private-cell-editor { position: sticky; bottom: 0; padding: 14px; display: grid; gap: 8px; border-top: 2px solid #497ca3; background: #f0f6fa; }
+.private-cell-editor textarea { width: 100%; padding: 9px; resize: vertical; border: 1px solid #a9b6c6; border-radius: 6px; }
+.private-cell-original { overflow-wrap: anywhere; }
+html[data-theme="dark"] .private-cell-editor { background: #2b3543; color: #edf2f9; }
+html[data-theme="dark"] .private-cell-editor textarea { background: #24303e; color: #f2f6fa; }

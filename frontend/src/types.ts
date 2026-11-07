@@ -110,6 +110,7 @@ export type PublicSheet = {
 }
 export type OAuthClientSettings = { client_id: string, configured: boolean }
 export type PrivateDriveStatus = {
+  editable: boolean
   authenticated: boolean
   login_state: 'idle' | 'pending' | 'success' | 'error'
   error: string
@@ -118,6 +119,12 @@ export type PrivateDriveStatus = {
 }
 export type PrivateSheet = { id: string, name: string }
 export type PrivateTab = { id: number, title: string }
+export type PrivateCellUpdate = {
+  saved: boolean
+  row: number
+  column: number
+  value: string
+}
 export type PrivateValues = {
   rows: string[][]
   start_row: number

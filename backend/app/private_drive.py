@@ -38,6 +38,7 @@ GOOGLE_REVOKE = "https://oauth2.googleapis.com/revoke"
 ID_RE = re.compile(r"^[A-Za-z0-9_-]{10,160}$")
 MAX_API_BYTES = 1_500_000
 MAX_SHEETS = 500
+EDIT_SCOPE = "https://www.googleapis.com/auth/spreadsheets"
 
 
 class PrivateDriveError(ValueError):
@@ -140,7 +141,12 @@ def _google_error_message(exc: urllib.error.HTTPError, url: str) -> str:
 
 
 def _request_json(
-    url: str, *, token: str | None = None, form: dict[str, str] | None = None
+    url: str,
+    *,
+    token: str | None = None,
+    form: dict[str, str] | None = None,
+    json_body: dict[str, Any] | None = None,
+    method: str = "GET",
 ) -> dict[str, Any]:
     if not (
         url.startswith("https://oauth2.googleapis.com/")
@@ -152,10 +158,21 @@ def _request_json(
     data = None
     if token:
         headers["Authorization"] = f"Bearer {token}"
+    if form is not None and json_body is not None:
+        raise PrivateDriveError("Google 要求格式不可混用", 400)
     if form is not None:
         data = urllib.parse.urlencode(form).encode("utf-8")
         headers["Content-Type"] = "application/x-www-form-urlencoded"
-    request = urllib.request.Request(url, data=data, headers=headers)
+    if json_body is not None:
+        if method != "PUT" or not url.startswith("https://sheets.googleapis.com/v4/"):
+            raise PrivateDriveError("僅允許 Google Sheets 唯讀外的受控儲存格更新", 400)
+        data = json.dumps(json_body, ensure_ascii=False).encode("utf-8")
+        if len(data) > 8192:
+            raise PrivateDriveError("儲存格內容超過上限", 413)
+        headers["Content-Type"] = "application/json"
+    request = urllib.request.Request(
+        url, data=data, headers=headers, method=method if json_body else None
+    )
     try:
         with urllib.request.urlopen(request, timeout=10) as response:
             raw = response.read(MAX_API_BYTES + 1)
@@ -302,12 +319,17 @@ class PrivateDriveService:
                 "error": error,
                 "folder_id": FOLDER_ID,
                 "scopes": list(SCOPES),
+                "editable": authenticated
+                and EDIT_SCOPE in set((self._tokens or {}).get("scope", [])),
             }
 
-    def login(self) -> dict[str, object]:
+    def login(self, *, edit: bool = False) -> dict[str, object]:
         with self._lock:
             if self._login_state == "pending":
                 raise PrivateDriveError("Google 登入正在進行中，請完成或取消", 409)
+            if edit and not self._load():
+                raise PrivateDriveError("請先以唯讀方式登入，再申請編輯授權", 401)
+            requested_scopes = SCOPES + ((EDIT_SCOPE,) if edit else ())
             verifier, challenge = _pkce()
             state = secrets.token_urlsafe(32)
             cancelled = threading.Event()
@@ -360,7 +382,7 @@ class PrivateDriveService:
                                         **service._optional_client_secret(),
                                     },
                                 )
-                                service._receive_tokens(tokens)
+                                service._receive_tokens(tokens, required_scopes=requested_scopes)
                                 service._login_state = "success"
                             except PrivateDriveError as exc:
                                 service._login_state = "error"
@@ -398,7 +420,7 @@ class PrivateDriveService:
                         "client_id": CLIENT_ID,
                         "redirect_uri": redirect_uri,
                         "response_type": "code",
-                        "scope": " ".join(SCOPES),
+                        "scope": " ".join(requested_scopes),
                         "access_type": "offline",
                         "prompt": "consent",
                         "state": state,
@@ -433,8 +455,10 @@ class PrivateDriveService:
                 raise PrivateDriveError(self._login_error, 503) from exc
             return {"started": True, "message": "已於系統瀏覽器開啟 Google 登入，請完成授權"}
 
-    def _receive_tokens(self, tokens: dict[str, Any]) -> None:
-        required = set(SCOPES)
+    def _receive_tokens(
+        self, tokens: dict[str, Any], *, required_scopes: tuple[str, ...] = SCOPES
+    ) -> None:
+        required = set(required_scopes)
         granted = set(str(tokens.get("scope", "")).split())
         if not required.issubset(granted):
             raise PrivateDriveError("Google 未授予完整唯讀權限，請重新同意授權", 403)
@@ -569,6 +593,68 @@ class PrivateDriveService:
             if not isinstance(next_page, str) or len(next_page) > 2048:
                 raise PrivateDriveError("Google 分頁回應不正確", 502)
         return items
+
+    @staticmethod
+    def _column_letter(column: int) -> str:
+        if not 1 <= column <= 30:
+            raise PrivateDriveError("編輯只支援 A 到 AD 欄")
+        letters = ""
+        while column:
+            column, mod = divmod(column - 1, 26)
+            letters = chr(65 + mod) + letters
+        return letters
+
+    def edit_cell(
+        self,
+        sheet_id: str,
+        tab_title: str,
+        row: int,
+        column: int,
+        expected: str,
+        value: str,
+    ) -> dict[str, object]:
+        if not 1 <= row <= 100000 or not 1 <= column <= 30:
+            raise PrivateDriveError("儲存格座標超出允許範圍")
+        if len(expected) > 2000 or len(value) > 2000:
+            raise PrivateDriveError("儲存格內容超過 2000 字元")
+        if any(ord(ch) == 0 for ch in value):
+            raise PrivateDriveError("儲存格不可包含 NUL 字元")
+        with self._lock:
+            token_data = self._load()
+            granted = set((token_data or {}).get("scope", []))
+            if EDIT_SCOPE not in granted:
+                raise PrivateDriveError("請先在編輯模式完成 Google 編輯授權", 403)
+            # Resolve spreadsheet and tab membership in the restricted folder,
+            # not from user-provided IDs alone.
+            if tab_title not in {str(tab["title"]) for tab in self.sheet_tabs(sheet_id)}:
+                raise PrivateDriveError("工作表不存在或無存取權限", 403)
+            escaped = tab_title.replace("'", "''")
+            a1 = f"'{escaped}'!{self._column_letter(column)}{row}"
+            encoded = urllib.parse.quote(a1, safe="")
+            endpoint = f"https://sheets.googleapis.com/v4/spreadsheets/{sheet_id}/values/{encoded}"
+            auth = self._access()
+            observed = _request_json(
+                endpoint + "?valueRenderOption=FORMATTED_VALUE", token=auth
+            ).get("values", [])
+            current = ""
+            if (
+                isinstance(observed, list)
+                and observed
+                and isinstance(observed[0], list)
+                and observed[0]
+            ):
+                current = str(observed[0][0])
+            if current != expected:
+                raise PrivateDriveError("Google 儲存格已被其他人修改；未覆寫，請重新載入檢查", 409)
+            updated = _request_json(
+                endpoint + "?valueInputOption=RAW",
+                token=auth,
+                method="PUT",
+                json_body={"range": a1, "majorDimension": "ROWS", "values": [[value]]},
+            )
+            if updated.get("updatedCells") != 1:
+                raise PrivateDriveError("Google 未確認儲存成功，請重新載入核對", 502)
+            return {"saved": True, "row": row, "column": column, "value": value}
 
     def sheet_tabs(self, sheet_id: str) -> list[dict[str, str | int]]:
         if not ID_RE.fullmatch(sheet_id):

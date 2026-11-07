@@ -146,12 +146,16 @@ TASKS.md            需求與里程碑
 - 多步改名必須使用不覆蓋的暫存檔名與反向復原，更新 SQLite 索引、audit_log 與 slot_transfer_log；Schema v9 migration 必須於升級前備份舊資料庫，後續不可破壞性重建既有資料。
 - 使用者可從本機交換紀錄復原，但復原前必須重驗原檔是否已由其他人修改／占用；Google Drive 桌面同步不是跨電腦交易鎖，正式多人協作安全性不能只靠本地 rollback 測試宣稱驗證。
 
-## M17 Google Drive 限制存取與 OAuth 唯讀規則
+## M17 Google Drive 限制存取與 OAuth 唯讀／編輯規則
 
-- 上方「查看滅火器資料」頁籤僅允許使用 Google Desktop OAuth 身分讀取已限制存取的特定 Drive 資料夾；舊公開 API Key／匿名 iframe 與手動網址存取已停用，絕不在授權失敗時自動退回公開模式。
+- 上方「查看滅火器資料」頁籤僅允許 Google Desktop OAuth 使用者讀取限制存取的指定 Drive 資料夾，或經明確編輯授權後修改其中的試算表；舊公開 API Key／匿名 iframe 與手動網址存取已停用，絕不在授權失敗時自動退回公開模式。
 - 使用 Google 官方桌面 OAuth 授權碼、PKCE S256、隨機 state 與系統瀏覽器 loopback callback；不使用內嵌 WebView 蒐集 Google 登入資訊，不需 Client Secret。已設定的 Client ID 為公開識別碼，Google 帳號密碼／Access Token／Refresh Token 絕不可寫入 Git、UI、一般日誌或同步資料夾。
-- 為了「列出私人資料夾裡所有 Sheets」且唯讀，使用 Google Drive `drive.metadata.readonly`（**restricted scope**）及 Sheets `spreadsheets.readonly`（sensitive scope），只顯示指定資料夾內有權限的清單。正式發佈前須確認同意畫面 Data Access scopes、測試使用者與 Google 驗證要求；若採 Google Picker／drive.file 改造也要先寫新 TASKS。
+- 為了「列出私人資料夾裡所有 Sheets」，預設唯讀使用 Google Drive `drive.metadata.readonly`（**restricted scope**）及 Sheets `spreadsheets.readonly`（sensitive scope），只顯示指定資料夾內有權限的清單。正式發佈前須確認同意畫面 Data Access scopes、測試使用者與 Google 驗證要求；若採 Google Picker／drive.file 改造也要先寫新 TASKS。
 - 在本機讀取 Google API 僅限官方 HTTPS 網域、固定目標資料夾、有限的頁數／表格列數和大小；禁止任意 spreadsheet ID 繞過清單權限檢查。Google 表格內容以 React 純文字顯示，不能插入 HTML。
+- 編輯模式必須使用系統瀏覽器重新要求全部必要 OAuth scopes（包含 Sheets spreadsheets 寫入權限），並完成 PKCE/state 授權，取消／失敗不可刪除原唯讀 token。Google Desktop OAuth 官方不支援 incremental authorization，故實際需再次要求包含原唯讀與編輯的完整 scope 集，不能使用增量授權說法。只有 token 含寫入 scope 且 Google Drive ACL 允許時才可儲存。
+- Google 私人試算表儲存限定單一儲存格、既有目標資料夾內 Sheet/Tab、A~AD 欄、1~100000 列、最多 2000 字元；必須先顯示草稿與二次確認，前端預設唯讀，後端寫入前再讀原值，不符回 409。使用 RAW 字串寫入避免公式執行；禁止靜默覆蓋。Google Sheets values.update 無跨使用者原子 CAS，極短時間競爭仍存在，必須提醒並要求重要資料使用 Google 版本歷史。
+- Sheets 編輯 API PUT 必須驗證桌面 session／Origin、Google OAuth 寫入 scope 和真實 Google ACL；403／409／502 不可宣稱成功，操作不得把 Token、Google 私人內容、原始 HTTP 回應寫入一般日誌。
+
 - OAuth Refresh Token 以 Windows 使用者 DPAPI 加密，儲存在使用者本機 LocalAppData，不與同步相片、SQLite 內容共享；登出立即清除本機存檔，遠端撤銷若因網路失敗須清楚提醒。Google 測試版授權可能有期限限制。
 - Windows 正式桌面安全模式下，所有私人 Google API（讀取 GET 或寫入 POST）必須具備 FireLens 原有 HttpOnly session cookie，並拒絕非 loopback Origin；不以「GET 不修改資料」為由放寬私人資料存取。
 - Google OAuth 失敗必須區分授權回呼／Token 授權碼交換／Token 續期／Drive 資料讀取階段。可顯示經程式碼白名單核准的官方 `error` 代碼及繁中建議，但不可把 Google `error_description`、原始 HTTP 回應、授權碼、Token、Cookie、私人文件名稱等傳入 UI、紀錄或錯誤堆疊訊息；只有 HTTP 400 不足以推論 OAuth 同意範圍或資料夾權限有誤。

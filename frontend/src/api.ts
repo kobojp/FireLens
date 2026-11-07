@@ -41,6 +41,7 @@ import type {
   PrivateSheet,
   PrivateTab,
   PrivateValues,
+  PrivateCellUpdate,
 } from './types'
 
 export class ApiError extends Error {
@@ -73,7 +74,8 @@ export const api = {
     method: 'DELETE',
   }),
   privateDriveStatus: () => request<PrivateDriveStatus>('/api/private-drive/status'),
-  privateDriveLogin: () => request<{ started: boolean, message: string }>('/api/private-drive/login', {
+  privateDriveLogin: (edit = false) => request<{ started: boolean, message: string }>(
+    '/api/private-drive/login' + (edit ? '?edit=true' : ''), {
     method: 'POST',
   }),
   privateDriveLogout: () => request<{ logged_out: boolean, remote_revocation_confirmed: boolean }>(
@@ -88,6 +90,15 @@ export const api = {
         tab, start_row: String(row),
       })}`,
     ),
+  editPrivateCell: (sheetId: string, change: {
+    tab: string, row: number, column: number, expected: string, value: string,
+  }) => request<PrivateCellUpdate>(
+    `/api/private-drive/sheets/${encodeURIComponent(sheetId)}/cell`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(change),
+    },
+  ),
   saveSettings: (settings: AppSettings) => request<AppSettings>('/api/settings', {
     method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(settings),
   }),

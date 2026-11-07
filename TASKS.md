@@ -1,6 +1,6 @@
 # 滅火器燈具照片管理系統 任務文件
 
-狀態：**M0～M16 為歷史功能、M17 階段 B 開發中（照片交換已通過合成測試，仍待 Windows UI／打包及 Drive 實機驗收）**。目前版本 v1.8.0；尚未正式 Release。開發前還原點：Git commit 0f9bc7d / backup/pre-m17-20261107。歷史 v1.7.0 已正式發布至 GitHub Release。歷史 v1.6.0 與 v1.5.0 已正式發布至 GitHub Release。
+狀態：**M0～M16 為歷史功能、M17 階段 E 開發中（Google Sheets 唯讀／編輯，真實 Google 寫入待驗收）**。目前版本 v1.8.0；尚未正式 Release。開發前還原點：Git commit 0f9bc7d / backup/pre-m17-20261107。歷史 v1.7.0 已正式發布至 GitHub Release。歷史 v1.6.0 與 v1.5.0 已正式發布至 GitHub Release。
 M14 歷史開發版本：v1.6.0。
 M15 歷史開發版本：v1.6.1（PATCH，修正線上更新器實機失敗）。
 
@@ -830,6 +830,19 @@ M15 歷史開發版本：v1.6.1（PATCH，修正線上更新器實機失敗）�
 - [x] Ruff、pytest、Vitest、TypeScript-Vite、版本檢查與 Windows 安裝包/更新器 E2E，AGENTS/README/TASKS 同步，將建立本機 Git 還原點，不推送 Release；真正 Google OAuth 仍需使用者驗收。
 
 已確認：Python pytest 151 passed、前端 Vitest 36 passed、Ruff／TypeScript-Vite／版本一致性 PASS；Windows 安裝檔和更新器 portable／installed READY／HEALTHY／rollback／故障注入 E2E 全部通過，packaging/build.ps1 Exit Code 0。真正 Google OAuth 登入與私人資料夾授權讀取仍待使用者在新版 FireLens 驗收。
+
+### M17-E Google 試算表「唯讀／編輯」切換（2026-11-07，先 TASKS 再開發）
+
+使用者明確要求能編輯 Google 試算表且可切換唯讀／編輯。必須保留限制存取 Google Drive 身分授權，預設唯讀、編輯需使用者明確點選；Google Drive「檢視者」不能因前端切換而取得寫入權限；編輯權限由 Google OAuth scope 與檔案 ACL 共同決定。這個施工單先寫入 TASKS.md，讀回確認後才能改功能程式。
+
+- [x] OAuth 編輯模式重新授權：原有 drive.metadata.readonly + spreadsheets.readonly 保持預設唯讀；使用者選擇「編輯」時才以系統瀏覽器 PKCE/state 重新授權 `spreadsheets` 寫入 scope。不可宣稱已具權限直到 Google 回傳確認；讀取模式仍可用舊憑證，取消/失敗不能覆蓋已成功登入的唯讀 Token。顯示目前登入 Token 是否具編輯 scope，且不存取其他未授權資料夾。
+- [x] 後端只允許被指定受限資料夾列出的 Sheet + 現有 Tab，寫入 API 只接受單一範圍中有限的儲存格，使用者明確確認後才呼叫 Sheets values.update；必須檢查授權 scope 且 Google ACL 拒絕時回報 403。禁止任意 spreadsheet ID/網址、任意 A1 範圍及過量寫入。
+- [x] 保護既有雲端資料：前端編輯內容只在本機草稿，不自動同步；按「儲存變更」先顯示儲存格原值/新值及二次確認。後端在寫入前重新讀取同一儲存格，與前端最初讀取值核對；不一致 409 拒絕並要求重新整理，避免覆蓋他人更新。Google Sheets API 不提供 values.update 的原子 compare-and-swap，因此跨使用者極短時間競爭仍不可保證，必須在 UI/文件明確揭露。
+- [x] React 「唯讀／編輯」切換：未取得寫入 scope 時引導重新授權（只在使用者明確點選時），可編輯限目前頁面 100 列×30 欄；未儲存修改、模式切換/翻頁/切 Sheet/登出前要確認避免草稿遺失。保留純文字顯示、禁止公式注入（預設以 RAW 寫入），Google 權限失敗時不可標示儲存成功。
+- [x] 合成 Google OAuth+Sheets API 測試：readonly token 禁止 PUT、編輯 scope/檔案檢視者拒絕、錯誤 sheet/tab ID、衝突 409、正常保存與 Google 4xx/5xx、超過範圍拒絕、API 不能回傳 Token/Secret，並驗證現有桌面 session/Origin 防護；前端測試及全量 Ruff/pytest/Vitest/Vite。
+- [x] 版本判定：功能納入尚未正式 Release 的 M17 v1.8.0 開發版本，同版多階段驗收依 AGENTS.md 第 3 條允許，正式 Release 前保持版本來源同步；Windows EXE/繁中 setup + portable/installer 更新 E2E／READY／HEALTHY／rollback／故障注入皆通過，build.ps1 Exit Code 0；已同步 AGENTS/README/TASKS，將建立本機 Git commit，不推送 GitHub/Release。
+- [x] 本輪合成測試：Python pytest 163 passed、Vitest 36 passed、Ruff PASS、TypeScript/Vite PASS、版本一致性 v1.8.0 PASS；Google editor scope、Google ACL 403、衝突 409、單格 RAW 寫入與授權失敗不覆寫舊唯讀 Token 均已測試。
+- [ ] **真實 Google 寫入驗收**：在使用者自己的 Windows 上，先準備一份不含現場資料的測試試算表，確認該 Google 帳號是「編輯者」，於 FireLens 主動切至編輯、完成完整 OAuth 授權、修改測試儲存格再讀回；僅實機驗證後才可標記完成。
 
 ## 11. 完成條件
 
