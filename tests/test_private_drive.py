@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import io
+import json
 import time
 import urllib.parse
 import urllib.request
@@ -191,3 +193,106 @@ def test_private_drive_get_requires_desktop_session_cookie(monkeypatch, tmp_path
             == 403
         )
         assert client.get("/api/private-drive/sheets").status_code == 401
+
+
+@pytest.mark.parametrize(
+    ("google_code", "expected_text"),
+    [
+        ("invalid_grant", "授權碼已過期"),
+        ("invalid_request", "交換要求格式有誤"),
+        ("invalid_client", "用戶端無法識別"),
+        ("unauthorized_client", "不允許使用這種登入流程"),
+        ("invalid_scope", "授權範圍無效"),
+    ],
+)
+def test_google_oauth_http400_shows_only_safe_error_code(monkeypatch, google_code, expected_text):
+    def mocked_open(_request, timeout):
+        response = json.dumps(
+            {
+                "error": google_code,
+                "error_description": "DO_NOT_LEAK_CLIENT_TOKEN_CREDENTIALS",
+                "authorization_code": "DO_NOT_LEAK_AUTH_CODE",
+            }
+        ).encode()
+        raise urllib.error.HTTPError(
+            private_drive.GOOGLE_TOKEN,
+            400,
+            "error",
+            {},
+            io.BytesIO(response),
+        )
+
+    monkeypatch.setattr(private_drive.urllib.request, "urlopen", mocked_open)
+    with pytest.raises(private_drive.PrivateDriveError) as error:
+        private_drive._request_json(
+            private_drive.GOOGLE_TOKEN,
+            form={"client_id": private_drive.CLIENT_ID, "code": "synthetic"},
+        )
+    assert error.value.status_code == 400
+    assert google_code in str(error.value)
+    assert expected_text in str(error.value)
+    assert "DO_NOT_LEAK" not in str(error.value)
+
+
+def test_google_oauth_unknown_or_oversized_response_sanitized(monkeypatch):
+    for body in (
+        b'{"error": "unknown_code", "error_description": "DO_NOT_LEAK"}',
+        b"not-json-DO_NOT_LEAK",
+        b"A" * 8000 + b"DO_NOT_LEAK",
+    ):
+
+        def mocked_open(_request, timeout, response_body=body):
+            raise urllib.error.HTTPError(
+                private_drive.GOOGLE_TOKEN, 400, "error", {}, io.BytesIO(response_body)
+            )
+
+        monkeypatch.setattr(private_drive.urllib.request, "urlopen", mocked_open)
+        with pytest.raises(private_drive.PrivateDriveError) as error:
+            private_drive._request_json(private_drive.GOOGLE_TOKEN, form={"code": "synthetic"})
+        assert "HTTP 400" in str(error.value)
+        assert "DO_NOT_LEAK" not in str(error.value)
+
+
+def test_google_drive_http403_cannot_leak_raw_error(monkeypatch):
+    def mocked_open(_request, timeout):
+        raise urllib.error.HTTPError(
+            "https://www.googleapis.com/drive/v3/files",
+            403,
+            "denied",
+            {},
+            io.BytesIO(b'{"error": "DO_NOT_LEAK_PRIVATE_SPREADSHEET_NAME"}'),
+        )
+
+    monkeypatch.setattr(private_drive.urllib.request, "urlopen", mocked_open)
+    with pytest.raises(private_drive.PrivateDriveError) as error:
+        private_drive._request_json(
+            "https://www.googleapis.com/drive/v3/files", token="synthetic-access"
+        )
+    assert error.value.status_code == 403
+    assert "資料讀取" in str(error.value)
+    assert "DO_NOT_LEAK" not in str(error.value)
+
+
+def test_google_callback_access_denied_gets_safe_diagnostic(monkeypatch, service):
+    urls = []
+    monkeypatch.setattr(private_drive.webbrowser, "open", lambda url: urls.append(url) or True)
+    service.login()
+    parsed = urllib.parse.urlparse(urls[0])
+    params = urllib.parse.parse_qs(parsed.query)
+    denied = (
+        params["redirect_uri"][0]
+        + "?"
+        + urllib.parse.urlencode(
+            {
+                "state": params["state"][0],
+                "error": "access_denied",
+                "error_description": "DO_NOT_LEAK_USER_EMAIL",
+            }
+        )
+    )
+    with urllib.request.urlopen(denied, timeout=3) as response:
+        body = response.read().decode()
+    assert "access_denied" in body
+    assert "DO_NOT_LEAK" not in body
+    assert "access_denied" in service.status()["error"]
+    assert service.status()["authenticated"] is False

@@ -138,7 +138,7 @@ M15 歷史開發版本：v1.6.1（PATCH，修正線上更新器實機失敗）�
 
 - 效能：要能撐到數萬張；掃描增量且可取消；縮圖背景產生；清單用虛擬捲動。
 - 備份：清冊、別名表、設定可匯出與匯入；資料庫更新前以 SQLite backup 快照。
-- 日誌：寫入 `%LOCALAPPDATA%\<應用名>\logs\`；錯誤訊息使用繁體中文。
+- 日誌：寫入 `%LOCALAPPDATA%\<應用名>\logs`；錯誤訊息使用繁體中文。
 - 操作：鍵盤、滑鼠、觸控、拖放皆可用；互動元件提供 accessible name。
 - 完成程式修改後，依全域 AGENTS.md 重建 graphify 圖。
 
@@ -795,6 +795,18 @@ M15 歷史開發版本：v1.6.1（PATCH，修正線上更新器實機失敗）�
 
 - [x] 在 Windows 正式桌面安全模式下，所有 `/api/private-drive/` GET／POST 都需要既有 HttpOnly 桌面 session cookie，且不接受非 loopback Origin；不能因 GET 原本不屬於修改操作就允許未持有工作階段的程序讀取私人 Sheet。
 - [x] 合成安全測試驗證無 cookie 私人 API 拒絕、已有桌面 session 可查看登入狀態、未登入時仍不能讀取 Sheets；不影響一般 `/api/health`／初始化頁面建立 session 的流程。
+
+### M17-D OAuth 實機失敗修正（2026-11-07）
+
+使用者真實登入回報：Google 系統瀏覽器完成回呼，但 FireLens 顯示「Google 拒絕此次要求，請重新登入或檢查同意範圍」，回呼頁只顯示授權未完成。原始後端 `_request_json` 把 Google HTTP 400 全映射為同一錯誤，不保留 Google 官方 `error` 代碼；因此不能推定是同意範圍或資料夾權限。已確認 Google Desktop OAuth 官方 code+PKCE 的 `client_secret` 為選填，不應要求使用者提供密碼。
+
+- [x] 在不回傳 OAuth code、token、Cookie、`error_description` 或 Google 原始回應的前提下，安全讀取 Google token 端點回應中的白名單錯誤代碼（`invalid_grant`、`invalid_client`、`invalid_request`、`unauthorized_client`、`invalid_scope` 等），UI 顯示「失敗階段（授權碼交換／同意授權／續期）＋可執行原因＋安全錯誤代碼」。無法辨識時維持通用繁中提示。
+- [x] 分開處理系統瀏覽器回呼中的 `error=access_denied`、`state` 驗證、Token API 錯誤；不得用寬鬆提示宣稱認證成功，亦不得繞過 PKCE、取消或超時檢核。必要時在回呼頁顯示安全、不含憑證的失敗原因。
+- [x] 以合成 Google HTTP 400/401/403、惡意或錯誤 JSON、HTTPError 安全處理、沒有 error code 的回應測試；不得記錄敏感登入網址或任何原始 response body。
+- [x] 重新執行 Ruff／pytest／Vitest／TS-Vite／版本一致性與 Windows 打包／更新器 E2E；同步 AGENTS/README/TASKS，本機 Git checkpoint，不推送 GitHub Release。真實 Google 登入與私人資料夾權限驗證需使用者以自己帳號重新授權，未驗證仍保留未完成。
+- [x] 已觀察：OAuth 專項 17 passed，完整 Python 142 passed、Vitest 36 passed、Ruff / TypeScript-Vite / 版本一致性 PASS；Windows `packaging/build.ps1` Exit Code 0，EXE／繁中 setup／更新器 E2E（portable／installed／READY／HEALTHY／rollback／故障注入）通過；Graphify 更新 801 nodes／1892 edges／56 communities。
+- [ ] 等待使用者安裝新建置並再次完成真實 Google OAuth，回報 **安全錯誤代碼**（例如 invalid_grant／invalid_client／invalid_request），才能鎖定 Google HTTP 400 的確切根因；不能把合成測試誤認成真實登入通過。
+
 
 ## 11. 完成條件
 

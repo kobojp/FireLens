@@ -78,6 +78,55 @@ def _dpapi_transform(data: bytes, *, decrypt: bool) -> bytes:
         ctypes.windll.kernel32.LocalFree(ctypes.cast(out.pbData, ctypes.c_void_p))
 
 
+# Never expose Google response bodies, error_description, URLs, codes, or tokens.
+_OAUTH_TOKEN_ERRORS = {
+    "invalid_request": "OAuth 授權碼交換要求格式有誤，請檢查 Desktop OAuth 設定",
+    "invalid_client": "Google OAuth 用戶端無法識別，請確認用戶端類型與 Client ID",
+    "invalid_grant": "授權碼已過期、被使用過，或回呼位址／PKCE 不一致，請重新登入",
+    "unauthorized_client": "目前 OAuth 用戶端不允許使用這種登入流程",
+    "invalid_scope": "要求的 Google API 授權範圍無效，請確認同意畫面的資料存取設定",
+    "access_denied": "此帳號拒絕授權，或 Google 管理政策禁止存取",
+    "temporarily_unavailable": "Google OAuth 服務暫時無法使用，請稍後再試",
+}
+_CALLBACK_ERRORS = {
+    "access_denied": "使用者取消授權，或此帳號未被允許授權 FireLens",
+    "admin_policy_enforced": "Google Workspace 管理員禁止此項授權",
+    "org_internal": "應用程式僅允許指定 Google Workspace 組織使用",
+    "invalid_scope": "Google 同意畫面的 API 權限設定不符",
+}
+
+
+def _google_error_message(exc: urllib.error.HTTPError, url: str) -> str:
+    is_token_endpoint = url == GOOGLE_TOKEN
+    is_revoke_endpoint = url == GOOGLE_REVOKE
+    stage = (
+        "OAuth 授權碼交換／續期"
+        if is_token_endpoint
+        else "OAuth 撤銷授權"
+        if is_revoke_endpoint
+        else "Google 資料讀取"
+    )
+    if is_token_endpoint:
+        # Read a tiny, bounded structured error, never echo description or raw body.
+        try:
+            raw = exc.read(4097)
+            if len(raw) <= 4096:
+                parsed = json.loads(raw)
+                error = parsed.get("error") if isinstance(parsed, dict) else None
+                if isinstance(error, str) and error in _OAUTH_TOKEN_ERRORS:
+                    return f"{stage}失敗（{error}）：{_OAUTH_TOKEN_ERRORS[error]}"
+        except (OSError, ValueError, UnicodeError):
+            pass
+    messages = {
+        400: "Google 拒絕要求，請確認 OAuth Client ID 與授權設定",
+        401: "Google 憑證已失效，請重新登入",
+        403: "Google 帳號沒有授權或受管理員政策限制",
+        404: "找不到指定 Google 資源",
+        429: "Google API 查詢已達速率限制，請稍後再試",
+    }
+    return f"{stage}失敗（HTTP {exc.code}）：{messages.get(exc.code, 'Google API 請求失敗')}"
+
+
 def _request_json(
     url: str, *, token: str | None = None, form: dict[str, str] | None = None
 ) -> dict[str, Any]:
@@ -99,15 +148,8 @@ def _request_json(
         with urllib.request.urlopen(request, timeout=10) as response:
             raw = response.read(MAX_API_BYTES + 1)
     except urllib.error.HTTPError as exc:
-        # Do not expose OAuth tokens or private Google response body in errors.
-        messages = {
-            400: "Google 拒絕此次要求，請重新登入或檢查同意範圍",
-            401: "Google 登入已失效，請重新登入",
-            403: "此帳號沒有存取權或 OAuth 權限尚未核准",
-            404: "找不到授權資料夾或試算表",
-            429: "Google API 查詢過於頻繁，請稍後再試",
-        }
-        raise PrivateDriveError(messages.get(exc.code, "Google API 查詢失敗"), exc.code) from exc
+        # Only a fixed, whitelisted diagnostic is exposed. Never leak Google body or credentials.
+        raise PrivateDriveError(_google_error_message(exc, url), exc.code) from exc
     except (TimeoutError, urllib.error.URLError, OSError) as exc:
         raise PrivateDriveError("無法連線 Google，請檢查網路後重試", 503) from exc
     if len(raw) > MAX_API_BYTES:
@@ -226,7 +268,12 @@ class PrivateDriveService:
                             return
                         if error or not code:
                             service._login_state = "error"
-                            service._login_error = "已取消 Google 授權或未取得授權碼"
+                            safe_reason = _CALLBACK_ERRORS.get(error, "Google 未核發授權碼")
+                            service._login_error = (
+                                f"Google 同意授權階段失敗（{error}）：{safe_reason}"
+                                if error in _CALLBACK_ERRORS
+                                else safe_reason
+                            )
                         else:
                             try:
                                 tokens = _request_json(
@@ -247,7 +294,7 @@ class PrivateDriveService:
                     message = (
                         "已完成授權，請返回 FireLens。"
                         if service._login_state == "success"
-                        else "Google 授權未完成，請返回 FireLens 查看原因。"
+                        else f"{service._login_error}。請返回 FireLens。"
                     )
                     body = (
                         "<!doctype html><html lang='zh-Hant'>"

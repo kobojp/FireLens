@@ -31,6 +31,10 @@ FireLens 是一套以 Windows 桌面環境為主的消防設備照片管理工�
 
 FireLens 使用 OAuth **Desktop Client ID**（公開識別碼），不需要將 Client Secret 提交給專案。採 Windows DPAPI 將 Token 加密到使用者的 LocalAppData。舊公開 API Key、自動公開清單與 iframe 模式均已停用。Google OAuth 測試模式的授權可能在數天後需要重新登入。
 
+### Google 登入失敗排查
+
+新版 FireLens 對 OAuth 授權碼交換的 Google HTTP 400 錯誤，會以**白名單錯誤代碼**顯示具體原因，且不呈現授權碼、Token、Google 私人回應或 `error_description`。如 `invalid_grant` 先重新登入（可能與授權碼逾時、重複兌換、PKCE 或回呼不一致有關），`invalid_client` 檢查 Desktop OAuth Client ID，`invalid_request` 檢查授權碼交換參數，`invalid_scope` 檢查 Google Cloud 資料存取權限。回呼瀏覽器的錯誤畫面也會顯示不含敏感資訊的原因，請只提供安全錯誤代碼或截圖，**不要提供瀏覽器地址列的完整授權碼與 state**。
+
 **狀態：** v1.8.0 開發版目前已通過合成 OAuth／API 測試，**尚未**經使用者本機真實 Google 帳號、私人資料夾權限驗收，不得宣稱正式上線。
 
 ## 清冊核對
