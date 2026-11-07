@@ -113,6 +113,18 @@ def _google_error_message(exc: urllib.error.HTTPError, url: str) -> str:
             if len(raw) <= 4096:
                 parsed = json.loads(raw)
                 error = parsed.get("error") if isinstance(parsed, dict) else None
+                if error == "invalid_request" and isinstance(parsed, dict):
+                    description = parsed.get("error_description")
+                    if isinstance(description, str) and len(description) <= 300:
+                        normalized = " ".join(description.lower().split())
+                        if "client_secret" in normalized and (
+                            "missing" in normalized or "required" in normalized
+                        ):
+                            return (
+                                f"{stage}失敗（invalid_request）：Google 指出缺少 client_secret。"
+                                "請在 Windows 本機設定 FIRELENS_GOOGLE_CLIENT_SECRET "
+                                "後重新開啟 FireLens；不要把憑證貼到聊天室或提交 Git。"
+                            )
                 if isinstance(error, str) and error in _OAUTH_TOKEN_ERRORS:
                     return f"{stage}失敗（{error}）：{_OAUTH_TOKEN_ERRORS[error]}"
         except (OSError, ValueError, UnicodeError):
@@ -284,6 +296,7 @@ class PrivateDriveService:
                                         "redirect_uri": redirect_uri,
                                         "grant_type": "authorization_code",
                                         "code_verifier": verifier,
+                                        **service._optional_client_secret(),
                                     },
                                 )
                                 service._receive_tokens(tokens)
@@ -378,6 +391,17 @@ class PrivateDriveService:
             }
         )
 
+    @staticmethod
+    def _optional_client_secret() -> dict[str, str]:
+        # Optional by Google Desktop docs; some actual OAuth clients require it.
+        # Value is never embedded in the app or emitted in logs/UI.
+        secret = os.environ.get("FIRELENS_GOOGLE_CLIENT_SECRET", "")
+        if not secret:
+            return {}
+        if len(secret) > 2048 or any(ord(char) < 32 for char in secret):
+            raise PrivateDriveError("FIRELENS_GOOGLE_CLIENT_SECRET 本機設定格式不正確")
+        return {"client_secret": secret}
+
     def _access(self) -> str:
         with self._lock:
             tokens = self._load()
@@ -392,6 +416,7 @@ class PrivateDriveService:
                         "grant_type": "refresh_token",
                         "client_id": CLIENT_ID,
                         "refresh_token": str(tokens["refresh_token"]),
+                        **self._optional_client_secret(),
                     },
                 )
             except PrivateDriveError as exc:

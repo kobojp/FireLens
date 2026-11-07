@@ -808,6 +808,16 @@ M15 歷史開發版本：v1.6.1（PATCH，修正線上更新器實機失敗）�
 - [ ] 等待使用者安裝新建置並再次完成真實 Google OAuth，回報 **安全錯誤代碼**（例如 invalid_grant／invalid_client／invalid_request），才能鎖定 Google HTTP 400 的確切根因；不能把合成測試誤認成真實登入通過。
 
 
+### M17-D OAuth invalid_request 再排查（2026-11-07，先 TASKS 後實作）
+
+使用者實機再次回報 `OAuth 授權碼交換／續期失敗（invalid_request）`。FireLens 現有授權碼交換包含 `client_id`、`code`、`redirect_uri`、`grant_type`、`code_verifier`，未傳 `client_secret`。Google 官方 Desktop OAuth 文件稱 `client_secret` 選填；2026 年 Google 開發者論壇有同型 Desktop + PKCE + loopback 交換得到 `invalid_request`、詳細原因為 `client_secret is missing` 的案例。**此為高度相似線索，非本次 Google 回應已證明的根因**。桌面 Secret 不能視為機密防線，亦不可要求使用者貼到聊天室或 Git。
+
+- [x] 增加安全的 *本機可選* Desktop OAuth Client Secret 配置（只從 Windows 本機環境變數或不加入 Git 的使用者設定讀取），存在時於授權碼交換／Refresh Token 送 `client_secret`，未設定仍保留官方 PKCE-only 流程；嚴禁將值輸出 UI／日誌／git 或 Google callback URL。
+- [x] 只針對 Google 官方回應的 `invalid_request` 及其 `error_description` 安全白名單辨識 `client_secret is missing` 等具體缺參數原因；只顯示固定翻譯與安全建議，不顯示 Google 原始描述、token、授權碼。
+- [x] 合成測試：不提供 Secret 仍走 PKCE、不洩漏；有 Secret 時 Token 交換與刷新含設定值；無 Secret 的 Google 欠缺參數提示會引導本機設定；無關或惡意描述不能直接顯示。
+- [x] Ruff、pytest（146 passed）、Vitest（36 passed）、TypeScript/Vite、版本一致性 PASS；Windows EXE／繁中 setup 與更新器 portable／installed READY／HEALTHY／rollback／故障注入 E2E 皆通過，packaging/build.ps1 Exit Code 0。文件已同步，待本機 Git commit；不 push/release。
+- [ ] 使用者在 Windows 本機選擇是否設定 FIRELENS_GOOGLE_CLIENT_SECRET 並重新嘗試 Google OAuth。只有實際授權與讀取私人資料夾成功後，才可驗收此功能；未重試前仍保留原始根因的不確定性。
+
 ## 11. 完成條件
 
 - 使用者要求的流程可從介面完整操作。

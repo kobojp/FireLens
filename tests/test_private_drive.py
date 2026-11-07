@@ -296,3 +296,91 @@ def test_google_callback_access_denied_gets_safe_diagnostic(monkeypatch, service
     assert "DO_NOT_LEAK" not in body
     assert "access_denied" in service.status()["error"]
     assert service.status()["authenticated"] is False
+
+
+def test_desktop_oauth_optional_secret_for_code_exchange(monkeypatch, service):
+    from backend.app import private_drive as oauth
+
+    urls = []
+    captured_forms = []
+    monkeypatch.setenv("FIRELENS_GOOGLE_CLIENT_SECRET", "synthetic-local-secret")
+    monkeypatch.setattr(oauth.webbrowser, "open", lambda url: urls.append(url) or True)
+
+    def mock_token(url, *, token=None, form=None):
+        assert url == oauth.GOOGLE_TOKEN
+        captured_forms.append(form)
+        return {
+            "access_token": "synthetic-access",
+            "refresh_token": "synthetic-refresh",
+            "scope": " ".join(oauth.SCOPES),
+            "expires_in": 3600,
+        }
+
+    monkeypatch.setattr(oauth, "_request_json", mock_token)
+    assert service.login()["started"] is True
+    from urllib.parse import parse_qs, urlencode, urlparse
+
+    params = parse_qs(urlparse(urls[0]).query)
+    callback = (
+        params["redirect_uri"][0]
+        + "?"
+        + urlencode(
+            {
+                "state": params["state"][0],
+                "code": "synthetic-code",
+            }
+        )
+    )
+    with urllib.request.urlopen(callback, timeout=3) as response:
+        assert b"FireLens" in response.read()
+    assert service.status()["authenticated"] is True
+    assert captured_forms[0]["client_secret"] == "synthetic-local-secret"
+    assert service.status().get("client_secret") is None
+
+
+def test_desktop_oauth_refresh_includes_optional_secret(monkeypatch, service):
+    monkeypatch.setenv("FIRELENS_GOOGLE_CLIENT_SECRET", "local-secret-only")
+    service._tokens = {
+        "client_id": private_drive.CLIENT_ID,
+        "access_token": "expired",
+        "refresh_token": "synthetic",
+        "expires_at": 0,
+    }
+
+    def mock_refresh(url, *, token=None, form=None):
+        assert url == private_drive.GOOGLE_TOKEN
+        assert form["grant_type"] == "refresh_token"
+        assert form["client_secret"] == "local-secret-only"
+        return {"access_token": "fresh", "expires_in": 3600}
+
+    monkeypatch.setattr(private_drive, "_request_json", mock_refresh)
+    assert service._access() == "fresh"
+
+
+def test_desktop_oauth_secret_not_set_preserves_pkce(monkeypatch, service):
+    monkeypatch.delenv("FIRELENS_GOOGLE_CLIENT_SECRET", raising=False)
+    assert service._optional_client_secret() == {}
+    monkeypatch.setenv("FIRELENS_GOOGLE_CLIENT_SECRET", "bad\nsecret")
+    with pytest.raises(private_drive.PrivateDriveError):
+        service._optional_client_secret()
+
+
+def test_safe_missing_client_secret_diagnostic_does_not_leak_description(monkeypatch):
+    import io
+    import json
+
+    body = json.dumps(
+        {
+            "error": "invalid_request",
+            "error_description": "client_secret is missing. DO_NOT_LEAK",
+        }
+    ).encode()
+
+    def reject(_request, timeout):
+        raise urllib.error.HTTPError(private_drive.GOOGLE_TOKEN, 400, "error", {}, io.BytesIO(body))
+
+    monkeypatch.setattr(private_drive.urllib.request, "urlopen", reject)
+    with pytest.raises(private_drive.PrivateDriveError) as e:
+        private_drive._request_json(private_drive.GOOGLE_TOKEN, form={"code": "fake"})
+    assert "缺少 client_secret" in str(e.value)
+    assert "DO_NOT_LEAK" not in str(e.value)

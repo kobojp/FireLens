@@ -155,6 +155,7 @@ TASKS.md            需求與里程碑
 - OAuth Refresh Token 以 Windows 使用者 DPAPI 加密，儲存在使用者本機 LocalAppData，不與同步相片、SQLite 內容共享；登出立即清除本機存檔，遠端撤銷若因網路失敗須清楚提醒。Google 測試版授權可能有期限限制。
 - Windows 正式桌面安全模式下，所有私人 Google API（讀取 GET 或寫入 POST）必須具備 FireLens 原有 HttpOnly session cookie，並拒絕非 loopback Origin；不以「GET 不修改資料」為由放寬私人資料存取。
 - Google OAuth 失敗必須區分授權回呼／Token 授權碼交換／Token 續期／Drive 資料讀取階段。可顯示經程式碼白名單核准的官方 `error` 代碼及繁中建議，但不可把 Google `error_description`、原始 HTTP 回應、授權碼、Token、Cookie、私人文件名稱等傳入 UI、紀錄或錯誤堆疊訊息；只有 HTTP 400 不足以推論 OAuth 同意範圍或資料夾權限有誤。
+- 若 Desktop OAuth + PKCE token 交換得到 invalid_request 且 Google 安全診斷顯示缺 client_secret，可從 Windows 本機環境變數 `FIRELENS_GOOGLE_CLIENT_SECRET` 提供可選 client_secret。官方文件列為選填，桌面端不能視其為安全機密。只允許本機設定，不得寫入 Git／日誌／回呼 URL／UI。沒有設定時仍允許純 PKCE；錯誤只顯示白名單固定提示。
 - 任何「真實 Google 登入、私人資料夾列檔、讀取」之完成宣稱，都需本人 Windows 環境實機授權與驗收；合成 HTTP 測試只能證明程式邏輯，不代表真實帳號連線成功。
 
 ## M17 圖片剪貼簿匯入安全規則
