@@ -35,6 +35,10 @@ FireLens 是一套以 Windows 桌面環境為主的消防設備照片管理工�
 
 真正能不能編輯仍由 Google Drive 分享 ACL 決定：只有被授予「編輯者」的帳號才能儲存；「檢視者」即使已獲得 OAuth 寫入 scope 也不能修改。
 
+**操作說明：** FireLens 編輯模式點一下任一虛線儲存格，會立即在畫面中央開啟文字編輯視窗，按「儲存變更」後還會顯示第二次確認。若想大量貼上、修改格式或公式，選取試算表後，點 **「使用 Google 試算表開啟」**，FireLens 會在 Windows 預設瀏覽器打開 Google Sheets 原生編輯器（有選工作表會一併選擇分頁）。Google 由自己的登入 Cookie 與試算表分享 ACL 決定可否編輯；FireLens 不把 OAuth Token 放進網址。
+
+**為什麼不是直接 iframe 嵌入？** Google 官方的「發布到網路 → 嵌入」是檢視功能，不是可互動編輯器，而且可能使限制存取的更換紀錄對外發布。Google 官方也限制在內嵌 WebView 中登入 OAuth；因此不為了嵌入強制公開資料、跳過 frame 限制或繞過 Google 驗證。原生瀏覽器是完整編輯最可靠的替代方式。
+
 目前採用安全單格修改：在編輯模式點選儲存格，輸入草稿，按「儲存變更」看原值／新值確認，FireLens 先向 Google 重新讀取確認原值未變；衝突即拒絕覆寫，成功時採 RAW 文字模式儲存（等號開頭文字不會變成公式）。不支援修改公式、格式或合併儲存格。Google Sheets API values.update 沒有原子 compare-and-swap，若其他人同一瞬間修改仍可能競爭；重要工作紀錄請保留 Google 試算表版本歷史。
 
 FireLens 使用 OAuth **Desktop Client ID**（公開識別碼），不需要將 Client Secret 提交給專案。採 Windows DPAPI 將 Token 加密到使用者的 LocalAppData。舊公開 API Key、自動公開清單與 iframe 模式均已停用。Google OAuth 測試模式的授權可能在數天後需要重新登入。

@@ -17,6 +17,7 @@ export function PublicSheetsView() {
     row: number, column: number, expected: string, value: string
   } | null>(null)
   const [saveConfirm, setSaveConfirm] = useState(false)
+  const [openBrowserBusy, setOpenBrowserBusy] = useState(false)
 
 
   const refreshStatus = useCallback(async () => {
@@ -91,6 +92,18 @@ export function PublicSheetsView() {
     if (mode !== 'edit' || busy || !discardAllowed()) return
     setDraft({ row, column, expected, value: expected })
     setSaveConfirm(false)
+  }
+
+  async function openInGoogleSheets() {
+    if (busy || openBrowserBusy || !selectedSheet || !discardAllowed()) return
+    const tabId = tabs.find((tab) => tab.title === selectedTab)?.id ?? null
+    setOpenBrowserBusy(true)
+    setError('')
+    try {
+      await api.openPrivateSheetInBrowser(selectedSheet, tabId)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '無法開啟 Google 試算表')
+    } finally { setOpenBrowserBusy(false) }
   }
 
   async function saveCell() {
@@ -237,6 +250,15 @@ export function PublicSheetsView() {
               </select>
             </label>
             {!!selectedSheet && (
+              <div className="private-sheets-native-actions">
+                <button type="button" className="primary-button" onClick={() => void openInGoogleSheets()}
+                  disabled={busy || openBrowserBusy}>
+                  {openBrowserBusy ? '開啟中…' : '使用 Google 試算表開啟'}
+                </button>
+                <span>在系統瀏覽器以原生 Google Sheets 編輯；不需要公開檔案。</span>
+              </div>
+            )}
+            {!!selectedSheet && (
               <label className="public-sheet-selector">工作表
                 <select value={selectedTab} disabled={busy}
                   onChange={(event) => {
@@ -273,22 +295,6 @@ export function PublicSheetsView() {
                   </tbody>
                 </table>
                 {data.rows.length === 0 && <p className="help-text">這個範圍沒有資料。</p>}
-                {mode === 'edit' && draft && (
-                  <div className="private-cell-editor" role="region" aria-label="編輯儲存格">
-                    <strong>編輯儲存格：第 {draft.row} 列，第 {draft.column} 欄</strong>
-                    <div className="private-cell-original">原始內容：{draft.expected || '（空白）'}</div>
-                    <textarea rows={3} maxLength={2000} value={draft.value}
-                      disabled={busy} aria-label="新儲存格內容"
-                      onChange={(event) => setDraft({ ...draft, value: event.target.value })}/>
-                    <div className="google-oauth-buttons">
-                      <button type="button" disabled={busy || draft.value === draft.expected}
-                        onClick={() => setSaveConfirm(true)}>儲存變更…</button>
-                      <button type="button" disabled={busy}
-                        onClick={() => { setDraft(null); setSaveConfirm(false) }}>取消編輯</button>
-                    </div>
-                    <p className="help-text">資料以文字 RAW 模式儲存；Google 不會將輸入的 = 開頭內容自動執行為公式。</p>
-                  </div>
-                )}
                 <div className="private-sheet-pagination">
                   <button type="button" disabled={busy || data.start_row === 1}
                     onClick={() => void loadValues(selectedSheet, selectedTab, Math.max(1, data.start_row - 100))}>上一頁</button>
@@ -299,6 +305,32 @@ export function PublicSheetsView() {
               </div>
             )}
           </>
+        )}
+        {mode === 'edit' && draft && !saveConfirm && (
+          <div className="preview-backdrop private-editor-backdrop"
+            onMouseDown={() => { if (!busy && discardAllowed()) setDraft(null) }}>
+            <section className="prompt-dialog private-editor-dialog" role="dialog"
+              aria-modal="true" aria-label="編輯 Google 試算表儲存格"
+              onMouseDown={(event) => event.stopPropagation()}>
+              <div className="prompt-header">編輯儲存格：第 {draft.row} 列，第 {draft.column} 欄</div>
+              <div className="prompt-body private-editor-body">
+                <p>工作表：<b>{selectedTab}</b></p>
+                <p className="private-cell-original">原值：{draft.expected || '（空白）'}</p>
+                <label htmlFor="private-cell-draft-input">新儲存格內容</label>
+                <textarea id="private-cell-draft-input" autoFocus rows={5} maxLength={2000}
+                  value={draft.value} disabled={busy}
+                  onChange={(event) => setDraft({ ...draft, value: event.target.value })}/>
+                <p className="help-text">採用 RAW 文字模式，等號開頭內容不會作為公式執行。修改後請確認儲存。</p>
+              </div>
+              <div className="prompt-footer">
+                <button type="button" disabled={busy}
+                  onClick={() => { if (discardAllowed()) setDraft(null) }}>取消</button>
+                <button type="button" className="primary-button"
+                  disabled={busy || draft.value === draft.expected}
+                  onClick={() => setSaveConfirm(true)}>儲存變更…</button>
+              </div>
+            </section>
+          </div>
         )}
         {saveConfirm && draft && (
           <div className="preview-backdrop" onMouseDown={() => !busy && setSaveConfirm(false)}>

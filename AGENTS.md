@@ -154,6 +154,9 @@ TASKS.md            需求與里程碑
 - 在本機讀取 Google API 僅限官方 HTTPS 網域、固定目標資料夾、有限的頁數／表格列數和大小；禁止任意 spreadsheet ID 繞過清單權限檢查。Google 表格內容以 React 純文字顯示，不能插入 HTML。
 - 編輯模式必須使用系統瀏覽器重新要求全部必要 OAuth scopes（包含 Sheets spreadsheets 寫入權限），並完成 PKCE/state 授權，取消／失敗不可刪除原唯讀 token。Google Desktop OAuth 官方不支援 incremental authorization，故實際需再次要求包含原唯讀與編輯的完整 scope 集，不能使用增量授權說法。只有 token 含寫入 scope 且 Google Drive ACL 允許時才可儲存。
 - Google 私人試算表儲存限定單一儲存格、既有目標資料夾內 Sheet/Tab、A~AD 欄、1~100000 列、最多 2000 字元；必須先顯示草稿與二次確認，前端預設唯讀，後端寫入前再讀原值，不符回 409。使用 RAW 字串寫入避免公式執行；禁止靜默覆蓋。Google Sheets values.update 無跨使用者原子 CAS，極短時間競爭仍存在，必須提醒並要求重要資料使用 Google 版本歷史。
+- 點選 Google 試算表儲存格後，草稿編輯器必須出現在使用者目前可見的視窗中央（可存取的 modal），不可置於獨立捲動的表格最底部導致看似不能編輯。二次確認原值／新值與離開草稿警示不可取消。
+- 支援「使用 Google 試算表開啟」的原生網頁編輯替代方案：只允許使用後端確定屬於目標私人資料夾的試算表 ID 與工作表 gid，由本機 Python 在使用者操作後開啟固定 Google HTTPS docs.google.com 官方網址。禁止前端提交任意外部 URL、禁止將 OAuth Access Token/Client Secret 拼入 URL、禁止為此將私人 Sheet 公開發布，亦不允許繞過 WebView2 的 iframe／Google OAuth 安全限制。Google 官方式發布後嵌入的 iframe 是檢視版，不等於原生可編輯 Sheets。
+
 - Sheets 編輯 API PUT 必須驗證桌面 session／Origin、Google OAuth 寫入 scope 和真實 Google ACL；403／409／502 不可宣稱成功，操作不得把 Token、Google 私人內容、原始 HTTP 回應寫入一般日誌。
 
 - OAuth Refresh Token 以 Windows 使用者 DPAPI 加密，儲存在使用者本機 LocalAppData，不與同步相片、SQLite 內容共享；登出立即清除本機存檔，遠端撤銷若因網路失敗須清楚提醒。Google 測試版授權可能有期限限制。

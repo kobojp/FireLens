@@ -844,6 +844,17 @@ M15 歷史開發版本：v1.6.1（PATCH，修正線上更新器實機失敗）�
 - [x] 本輪合成測試：Python pytest 163 passed、Vitest 36 passed、Ruff PASS、TypeScript/Vite PASS、版本一致性 v1.8.0 PASS；Google editor scope、Google ACL 403、衝突 409、單格 RAW 寫入與授權失敗不覆寫舊唯讀 Token 均已測試。
 - [ ] **真實 Google 寫入驗收**：在使用者自己的 Windows 上，先準備一份不含現場資料的測試試算表，確認該 Google 帳號是「編輯者」，於 FireLens 主動切至編輯、完成完整 OAuth 授權、修改測試儲存格再讀回；僅實機驗證後才可標記完成。
 
+### M17-E 實機回報：編輯框不可見與原生 Google Sheets 操作（2026-11-07）
+
+使用者截圖顯示已進 FireLens 編輯模式，儲存格被虛線按鈕包住，但點擊後的草稿輸入區位於 70vh 高度的內部表格捲動容器**底部**，未隨儲存格點擊出現在可視範圍，造成使用者覺得無法編輯。使用者也要求了解為何不「嵌入」原生 Google Sheets：Google 官方「發布到網路後嵌入」僅為檢視，無法編輯且對限制存取資料有曝露風險；Google OAuth 登入限制內嵌 WebView2。**不發布到網路，不繞過 X-Frame-Options，不嘗試注入 Google OAuth Token 到 iframe。**
+
+- [x] 修正編輯 UX：點選儲存格立即在 viewport 中央開啟可輸入的對話框（原值、文字輸入、取消、儲存），獨立於 70vh 內部表格捲動；保留二次確認原值/新值、RAW 文字寫入、409 原值衝突、403 Google ACL 及離開未儲存草稿提示，完整鍵盤／焦點操作。
+- [x] 選取已驗證的資料夾內試算表後顯示「使用 Google 試算表開啟」：於使用者明確點擊時開啟系統預設瀏覽器中的 Google 官方 docs.google.com/spreadsheets/d/<已選 Sheet ID>/edit#gid=<已選 Tab ID>。只使用後端已列出的 ID 且以嚴格格式檢查，不接受任意 URL 或自訂域名；瀏覽器由 Google Cookie 決定是否登入及是否具有編輯 ACL，FireLens 不傳任何 OAuth Token／Client Secret。
+- [x] 更新 README、AGENTS/TASKS（公開 iframe 與原生 Sheets 差異和資料隱私）；合成測試、Ruff、pytest、Vitest、TS/Vite、版本一致性、Windows EXE／繁中 installer／更新器 E2E；本機 Git checkpoint，不推送 Release。實際瀏覽器登入與真實 Google Sheets 寫入僅由使用者實機測試。
+- [x] 本輪合成驗證：Python pytest 165 passed、前端 Vitest 36 passed、Ruff/TS/Vite 與版本一致性 v1.8.0 PASS。Windows packaging/build.ps1 Exit Code 0，繁中 dist/installer/FireLens-1.8.0-setup.exe 及 portable/installer 更新器 READY/HEALTHY、rollback 與故障注入 E2E 均通過；原生 Sheets 開啟的資料夾成員、gid 和本機 session/Origin 拒絕由合成測試驗證。
+- [ ] 待使用者實機驗收：新版 FireLens 點儲存格確認中央編輯視窗顯示，二次確認並對測試 Sheet 成功儲存；點使用 Google 試算表開啟，確認 Google 登入與完整編輯功能。未實測前不宣稱真實 Google 編輯成功。
+
+
 ## 11. 完成條件
 
 - 使用者要求的流程可從介面完整操作。

@@ -90,6 +90,13 @@ export const api = {
         tab, start_row: String(row),
       })}`,
     ),
+  openPrivateSheetInBrowser: (sheetId: string, tabId: number | null) =>
+    request<{ opened: boolean }>(
+      `/api/private-drive/sheets/${encodeURIComponent(sheetId)}/open`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tab_id: tabId }),
+      },
+    ),
   editPrivateCell: (sheetId: string, change: {
     tab: string, row: number, column: number, expected: string, value: string,
   }) => request<PrivateCellUpdate>(

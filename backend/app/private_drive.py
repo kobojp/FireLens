@@ -604,6 +604,22 @@ class PrivateDriveService:
             letters = chr(65 + mod) + letters
         return letters
 
+    def open_sheet_in_browser(self, sheet_id: str, tab_id: int | None) -> dict[str, bool]:
+        # Revalidate membership with the current account. Never take a URL from the client.
+        tabs = self.sheet_tabs(sheet_id)
+        if tab_id is not None and tab_id not in {int(tab["id"]) for tab in tabs}:
+            raise PrivateDriveError("所選 Google 工作表不在已授權清單內", 403)
+        url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/edit"
+        if tab_id is not None:
+            url += f"#gid={tab_id}"
+        try:
+            opened = webbrowser.open(url)
+        except Exception as exc:
+            raise PrivateDriveError("無法開啟系統瀏覽器，請檢查 Windows 預設瀏覽器", 503) from exc
+        if not opened:
+            raise PrivateDriveError("系統瀏覽器未能開啟 Google 試算表", 503)
+        return {"opened": True}
+
     def edit_cell(
         self,
         sheet_id: str,

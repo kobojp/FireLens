@@ -194,3 +194,36 @@ def test_edit_consent_success_requires_write_scope_and_preserves_old_token_on_fa
     )
     assert service.status()["editable"] is True
     assert service._tokens["access_token"] == "new-access"
+
+
+def test_native_google_sheet_open_only_known_folder_sheet_and_tab(
+    monkeypatch, service, mock_google
+):
+    opened = []
+    monkeypatch.setattr(private_drive.webbrowser, "open", lambda url: opened.append(url) or True)
+    assert service.open_sheet_in_browser(SID, 0) == {"opened": True}
+    assert opened == [f"https://docs.google.com/spreadsheets/d/{SID}/edit#gid=0"]
+    with pytest.raises(private_drive.PrivateDriveError) as exc:
+        service.open_sheet_in_browser(SID, 99)
+    assert exc.value.status_code == 403
+    with pytest.raises(private_drive.PrivateDriveError):
+        service.open_sheet_in_browser("../untrusted", None)
+    assert len(opened) == 1
+
+
+def test_native_sheet_open_rejects_unauthed_and_non_local_request(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("FIRELENS_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("FIRELENS_DESKTOP_SECURE", "1")
+    with TestClient(create_app()) as client:
+        path = f"/api/private-drive/sheets/{SID}/open"
+        assert client.post(path, json={"tab_id": 0}).status_code == 403
+        assert client.get("/api/health").status_code == 200
+        assert (
+            client.post(
+                path,
+                json={"tab_id": 0},
+                headers={"Origin": "https://untrusted.example"},
+            ).status_code
+            == 403
+        )
+        assert client.post(path, json={"tab_id": 0}).status_code == 401

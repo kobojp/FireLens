@@ -214,6 +214,10 @@ class ReorderPhotos(BaseModel):
     photo_ids: list[int]
 
 
+class GoogleOpenSheetRequest(BaseModel):
+    tab_id: int | None = Field(default=None, ge=0, le=2147483647)
+
+
 class GoogleCellUpdateRequest(BaseModel):
     tab: str = Field(min_length=1, max_length=200)
     row: int = Field(ge=1, le=100000)
@@ -365,6 +369,15 @@ def create_app() -> FastAPI:
     ) -> dict[str, object]:
         try:
             return private_drive.values(sheet_id, tab, start_row)
+        except PrivateDriveError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    @app.post("/api/private-drive/sheets/{sheet_id}/open")
+    def open_private_sheet_in_browser(
+        sheet_id: str, payload: GoogleOpenSheetRequest
+    ) -> dict[str, bool]:
+        try:
+            return private_drive.open_sheet_in_browser(sheet_id, payload.tab_id)
         except PrivateDriveError as exc:
             raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
