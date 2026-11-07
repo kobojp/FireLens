@@ -2,6 +2,7 @@ import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from './api'
 import { initialNewItemPanelOpen, newItemPanelButtonText } from './newItemPanel'
 import { photosForSlot, slotAllowsAdditional, unmappedPhotos } from './slots'
+import { clipboardHasImage, fromPaste, readClipboardImage } from './clipboardImage'
 import { scanSummaryText, shouldAutoScan } from './scanPolicy'
 import { countByStatus, countItems } from './tree'
 import { TreeView } from './TreeView'
@@ -119,6 +120,10 @@ function SlotCard({
   onAssignExisting,
   onRename,
   onError,
+  onChooseSlot,
+  onPasteImage,
+  selectedForPaste,
+  clipboardAvailable,
 }: {
   item: ItemDetail
   slot: string
@@ -131,6 +136,10 @@ function SlotCard({
   onAssignExisting: (slot: string, photoId: number) => void
   onRename: (photo: PhotoRecord) => void
   onError: (message: string) => void
+  onChooseSlot: (slot: string) => void
+  onPasteImage: (slot: string) => void
+  selectedForPaste: boolean
+  clipboardAvailable: boolean | null
 }) {
   const photos = photosForSlot(item, slot)
   const canAdd = slotAllowsAdditional(item, slot)
@@ -178,7 +187,8 @@ function SlotCard({
 
   return (
     <section
-      className={`slot-card ${photos.length ? 'filled' : 'empty'} ${dragActive ? 'drag-target' : ''}`}
+      className={`slot-card ${photos.length ? 'filled' : 'empty'} ${dragActive ? 'drag-target' : ''} ${selectedForPaste ? 'paste-selected' : ''}`}
+      onClick={() => onChooseSlot(slot)}
       onDragEnter={(event) => { event.preventDefault(); if (!disabled) setDragActive(true) }}
       onDragOver={(event) => { event.preventDefault(); if (!disabled) setDragActive(true) }}
       onDragLeave={() => setDragActive(false)}
@@ -190,6 +200,12 @@ function SlotCard({
           <span className="slot-name">{slot}</span>
           <small>{photos.length ? `${photos.length} 張` : '缺照片'}</small>
         </div>
+        <div className="slot-heading-actions">
+        <button type="button" className="paste-photo-button"
+          onClick={() => { onChooseSlot(slot); onPasteImage(slot) }}
+          disabled={disabled || !canAdd || clipboardAvailable === false}
+          title={clipboardAvailable === false ? '剪貼簿沒有支援的圖片，請先從 LINE 複製照片' : '從剪貼簿貼上圖片'}
+        >貼上照片</button>
         {canAdd && (
           <label className="add-photo-button" aria-disabled={disabled}>
             ＋ 加入照片
@@ -206,6 +222,7 @@ function SlotCard({
             />
           </label>
         )}
+        </div>
       </div>
       {photos.length === 0 ? (
         <div className="drop-hint">拖曳照片到這裡<br /><small>會自動命名並安全複製</small></div>
@@ -260,6 +277,9 @@ export default function App() {
     code: '',
   })
   const [preview, setPreview] = useState<PhotoRecord | null>(null)
+  const [pasteSlot, setPasteSlot] = useState<string | null>(null)
+  const [clipboardAvailable, setClipboardAvailable] = useState<boolean | null>(null)
+  const [pendingPaste, setPendingPaste] = useState<{ rootId: number, itemId: number, slot: string, file: File, previewUrl: string } | null>(null)
   const [photoToDelete, setPhotoToDelete] = useState<PhotoRecord | null>(null)
   const [renameDialog, setRenameDialog] = useState<RenameDialogState | null>(null)
   const [lastRename, setLastRename] = useState<{
@@ -632,6 +652,86 @@ export default function App() {
       setError(err instanceof Error ? err.message : '讀取照片資料失敗')
     }
   }
+
+  function stageClipboardImage(slot: string, file: File) {
+    if (!item || rootId === null || busy || scanRunning) return
+    if (!orderedSlots.includes(slot)) { setError('請先選擇有效的照片槽位'); return }
+    if (file.size > 100 * 1024 * 1024) { setError('剪貼簿圖片超過 100 MB'); return }
+    setPendingPaste((old) => {
+      if (old) URL.revokeObjectURL(old.previewUrl)
+      return { rootId, itemId: item.id, slot, file, previewUrl: URL.createObjectURL(file) }
+    })
+    setError('')
+  }
+
+  async function pasteFromButton(slot: string) {
+    try {
+      const file = await readClipboardImage()
+      setClipboardAvailable(Boolean(file))
+      if (!file) { setError('剪貼簿沒有可使用的圖片，請先在 LINE 複製圖片'); return }
+      stageClipboardImage(slot, file)
+    } catch (error) {
+      setError(error instanceof Error ? error.message : '無法讀取剪貼簿，請嘗試 Ctrl+V')
+    }
+  }
+
+  function closePaste() {
+    setPendingPaste((old) => {
+      if (old) URL.revokeObjectURL(old.previewUrl)
+      return null
+    })
+  }
+
+  async function confirmPaste() {
+    const pending = pendingPaste
+    if (!pending || !item || rootId !== pending.rootId || item.id !== pending.itemId ||
+      !orderedSlots.includes(pending.slot) || busy || scanRunning) {
+      setError('設備或槽位已變更，請重新選取後貼上')
+      closePaste()
+      return
+    }
+    closePaste()
+    await upload(pending.slot, pending.file)
+  }
+
+  useEffect(() => {
+    const onPaste = (event: ClipboardEvent) => {
+      if (view !== 'browse' || !item || busy || scanRunning || pendingPaste) return
+      const target = event.target
+      if (target instanceof HTMLElement &&
+          (target.closest('input,textarea,select,[contenteditable="true"],[role="dialog"]'))) return
+      const file = fromPaste(event.clipboardData?.items ?? null)
+      if (!file) return
+      event.preventDefault()
+      setClipboardAvailable(true)
+      if (!pasteSlot || !orderedSlots.includes(pasteSlot)) {
+        setError('請先點選「編號／藥劑／完成」或「前／中／後」槽位，再按 Ctrl+V')
+        return
+      }
+      stageClipboardImage(pasteSlot, file)
+    }
+    window.addEventListener('paste', onPaste)
+    return () => window.removeEventListener('paste', onPaste)
+  }, [view, item, pasteSlot, busy, scanRunning, pendingPaste, orderedSlots, rootId])
+
+  useEffect(() => {
+    // Clipboard reads may be denied until user interaction; unknown stays actionable.
+    let cancelled = false
+    const check = async () => {
+      if (!navigator.clipboard?.read || document.visibilityState !== 'visible') return
+      try {
+        const entries = await navigator.clipboard.read()
+        if (!cancelled) setClipboardAvailable(clipboardHasImage(entries))
+      } catch {
+        if (!cancelled) setClipboardAvailable(null)
+      }
+    }
+    const onFocus = () => { void check() }
+    window.addEventListener('focus', onFocus)
+    return () => { cancelled = true; window.removeEventListener('focus', onFocus) }
+  }, [])
+
+  useEffect(() => { setPasteSlot(null); setClipboardAvailable(null); closePaste() }, [item?.id, rootId, view])
 
   async function upload(slot: string, file: File, replacePhotoId?: number) {
     if (!item || rootId === null) return
@@ -1192,6 +1292,10 @@ export default function App() {
                     onAssignExisting={assignExistingToSlot}
                     onRename={openManualRename}
                     onError={setError}
+                    selectedForPaste={pasteSlot === slot}
+                    onChooseSlot={setPasteSlot}
+                    onPasteImage={(value) => void pasteFromButton(value)}
+                    clipboardAvailable={clipboardAvailable}
                   />
                 ))}
               </div>
@@ -1268,6 +1372,27 @@ export default function App() {
           <div className="notice"><b>來源照片不變</b><p>拖入的原始照片只讀取內容，FireLens 只在目標設備資料夾建立副本。</p></div>
         </aside>
       </section>
+
+      {pendingPaste && (
+        <div className="preview-backdrop" role="presentation" onMouseDown={() => !busy && closePaste()}
+          onKeyDown={(event) => { if (event.key === 'Escape' && !busy) closePaste() }}>
+          <section className="prompt-dialog paste-confirm-dialog" role="dialog" aria-modal="true"
+            aria-label="確認貼上照片" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="prompt-header">確認貼上照片</div>
+            <div className="prompt-body">
+              <p>設備：<b>{item?.code}</b>　槽位：<b>{pendingPaste.slot}</b></p>
+              <img className="paste-preview-image" src={pendingPaste.previewUrl} alt="待貼上的剪貼簿照片預覽" />
+              <p>來源：剪貼簿圖片（{Math.ceil(pendingPaste.file.size / 1024)} KB）</p>
+              <p>將依現有命名規則儲存到「{pendingPaste.slot}」，不覆蓋既有照片。</p>
+            </div>
+            <div className="prompt-footer">
+              <button type="button" disabled={busy} onClick={closePaste}>取消</button>
+              <button type="button" className="primary-button" disabled={busy || scanRunning}
+                onClick={() => void confirmPaste()}>確認貼上</button>
+            </div>
+          </section>
+        </div>
+      )}
 
       {preview && (
         <div className="preview-backdrop" role="presentation" onMouseDown={() => setPreview(null)}>

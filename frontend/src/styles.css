@@ -533,3 +533,14 @@ html[data-theme="dark"] .alias-test span { color: #bdc7d3; }
 .tree-branch summary .tree-add-button { opacity: 0; margin-left: auto; min-width: 26px; border: 1px solid #aeb8c3; border-radius: 5px; background: transparent; color: inherit; }
 .tree-branch summary:hover .tree-add-button,.tree-branch summary:focus-within .tree-add-button { opacity: 1; }
 .tree-branch summary .tree-add-button:focus-visible { opacity: 1; outline: 2px solid #f28b67; }
+
+/* M17 clipboard paste: selected target and confirmation */
+.slot-heading-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; flex-wrap: wrap; }
+.paste-photo-button { white-space: nowrap; padding: 7px 9px; background: #eef3f9; border: 1px solid #90a8bb; border-radius: 7px; color: #2a4d67; font-weight: 700; }
+.paste-photo-button:disabled { background: #e5e5e7; color: #858990; border-color: #d3d7dc; opacity: .66; }
+.slot-card.paste-selected { outline: 2px solid #e45b31; outline-offset: -2px; }
+.paste-preview-image { width: 100%; max-height: min(48vh, 390px); object-fit: contain; border: 1px solid #ced5dc; border-radius: 8px; background: #111; }
+.paste-confirm-dialog { width: min(540px, 92vw); }
+html[data-theme="dark"] .paste-photo-button { background: #35495a; color: #edf2f9; border-color: #697e92; }
+html[data-theme="dark"] .paste-photo-button:disabled { background: #2a2f37; color: #8d99a7; border-color: #4b5664; }
+@media (prefers-color-scheme: dark) { html:not([data-theme]) .paste-photo-button { background: #35495a; color: #edf2f9; border-color: #697e92; } }
