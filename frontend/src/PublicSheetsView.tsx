@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api } from './api'
+import { loadPrivateSheetListOnce } from './privateSheetAutoLoad'
 import type { PrivateDriveStatus, PrivateSheet, PrivateTab, PrivateValues } from './types'
 
 export function PublicSheetsView() {
@@ -18,6 +19,8 @@ export function PublicSheetsView() {
   } | null>(null)
   const [saveConfirm, setSaveConfirm] = useState(false)
   const [openBrowserBusy, setOpenBrowserBusy] = useState(false)
+  const [autoLoadingSheets, setAutoLoadingSheets] = useState(false)
+
 
 
   const refreshStatus = useCallback(async () => {
@@ -35,6 +38,24 @@ export function PublicSheetsView() {
     const poll = window.setInterval(() => void refreshStatus(), 1500)
     return () => window.clearInterval(poll)
   }, [status?.login_state, refreshStatus])
+
+  // Each time the tab mounts with an authenticated session, or OAuth login
+  // transitions from logged out to logged in, fetch the private folder once.
+  // Edits to OAuth scope or background status polling must not refetch.
+  // Auto-refresh updates only the listing and preserves selected Sheet/Tab,
+  // current page and unsaved cell drafts.
+  useEffect(() => {
+    if (!status?.authenticated) {
+      setAutoLoadingSheets(false)
+      return
+    }
+    return loadPrivateSheetListOnce(
+      () => api.privateDriveSheets(),
+      (nextSheets) => { setSheets(nextSheets); setError('') },
+      (err) => setError(err instanceof Error ? err.message : '無法自動載入試算表，可按重新整理重試'),
+      setAutoLoadingSheets,
+    )
+  }, [status?.authenticated])
 
   useEffect(() => {
     if (requestedEdit && status?.editable) {
@@ -225,7 +246,8 @@ export function PublicSheetsView() {
           )}
           {status?.authenticated && <>
             <strong>Google 已授權 · {status.editable ? '具編輯授權' : '唯讀授權'}</strong>
-            <button type="button" disabled={busy} onClick={() => void loadSheets()}>重新整理試算表清單</button>
+            <button type="button" disabled={busy || autoLoadingSheets}
+              onClick={() => void loadSheets()}>重新整理試算表清單</button>
             <button type="button" disabled={busy} onClick={() => void logout()}>登出 Google</button>
           </>}
         </div>
@@ -241,9 +263,10 @@ export function PublicSheetsView() {
               {status.login_state === 'pending' && <span role="status">請在瀏覽器完成 Google 編輯授權…</span>}
             </div>
             <p className="help-text">預設唯讀。切到編輯會要求 Google 試算表編輯授權，實際寫入仍以 Google Drive 的檔案權限為準；若帳號只有「檢視者」權限，Google 會拒絕儲存。僅允許目前頁面單格修改，儲存前會再次檢查原值。</p>
-            <p className="help-text">只顯示指定資料夾中、此帳號有權限讀取的 Google 試算表。首次登入請按「重新整理試算表清單」。</p>
+            <p className="help-text">登入後會自動取得指定私人資料夾的試算表清單；切回此頁也會自動刷新，無需按重新整理。</p>
+            {autoLoadingSheets && <p role="status">正在自動載入 Google 試算表清單…</p>}
             <label className="public-sheet-selector">選擇試算表（{sheets.length} 份）
-              <select value={selectedSheet} disabled={busy}
+              <select value={selectedSheet} disabled={busy || autoLoadingSheets && sheets.length === 0}
                 onChange={(event) => void chooseSheet(event.target.value)}>
                 <option value="">請選擇</option>
                 {sheets.map((sheet) => <option key={sheet.id} value={sheet.id}>{sheet.name}</option>)}

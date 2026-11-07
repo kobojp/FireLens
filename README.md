@@ -26,7 +26,7 @@ FireLens 是一套以 Windows 桌面環境為主的消防設備照片管理工�
 使用者已把目標 Google Drive 資料夾設為「限制存取」。上方導覽列「設定」右側的「查看滅火器資料」獨立頁籤，改用 **FireLens Desktop OAuth**：
 1. 在 Google Cloud 專案啟用 **Google Drive API**、**Google Sheets API**；設定 OAuth 同意畫面的「外部／測試」、加入使用者自己的 Google 帳號為測試使用者。
 2. 在 Google Auth Platform **Data Access / 資料存取**設定 `https://www.googleapis.com/auth/drive.metadata.readonly` 和 `https://www.googleapis.com/auth/spreadsheets.readonly`。前者屬 restricted scope，後者為 sensitive scope，未來公開給其他人使用前需要評估驗證限制。因需直接列出已共用私人資料夾的所有 Sheet，目前不採無法列出所有檔案的 `drive.file` 權限。
-3. FireLens 內點「使用 Google 帳號登入」，系統瀏覽器會顯示 Google 授權頁；完成後回到 FireLens，點重新整理清單，選試算表、工作表，以 React 表格瀏覽（每頁最多 100 列、30 欄，預設唯讀）。
+3. FireLens 內點「使用 Google 帳號登入」，系統瀏覽器會顯示 Google 授權頁；完成後回到 FireLens，清單會自動載入，直接選試算表、工作表，以 React 表格瀏覽（每頁最多 100 列、30 欄，預設唯讀）。每次進入此頁以及完成 Google 登入時均會自動取得清單；「重新整理」保留作為手動重試。自動刷新不清除目前所選試算表、工作表、頁面或未儲存編輯草稿。
 4. 只受邀帳號能讀取私人資料。可隨時按「登出 Google」清除本機加密 Token；網路正常時會嘗試遠端撤銷授權。使用者密碼、Token 和內容均不放 GitHub。
 
 ### 試算表「唯讀／編輯」模式

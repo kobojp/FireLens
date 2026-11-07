@@ -855,6 +855,17 @@ M15 歷史開發版本：v1.6.1（PATCH，修正線上更新器實機失敗）�
 - [ ] 待使用者實機驗收：新版 FireLens 點儲存格確認中央編輯視窗顯示，二次確認並對測試 Sheet 成功儲存；點使用 Google 試算表開啟，確認 Google 登入與完整編輯功能。未實測前不宣稱真實 Google 編輯成功。
 
 
+### M17-E Google 試算表清單自動載入（2026-11-07）
+
+使用者明確反映：進入「查看滅火器資料」時每次還要手動按「重新整理試算表清單」很麻煩。預期已登入時直接看到「選擇試算表（N 份）」；剛從 Google 瀏覽器完成登入後也能自動載入。
+
+- [x] React 頁籤初始化取得 Google 授權狀態，若已登入即自動向既有受限制資料夾清單 API 載入 Sheets；未登入不請求清單，成功登入時只載入一次，OAuth 編輯 scope 更新/狀態輪詢不得重複請求。
+- [x] 自動載入不得重設已選取的試算表、工作表、正在檢視的資料或未儲存編輯草稿；手動「重新整理」仍保留明確重選流程，防止過期請求在登出後覆寫清單。載入中顯示清楚提示，出錯可由手動按鈕重試。
+- [x] 前端型別/邏輯測試、Python pytest、Ruff、Vitest、TypeScript/Vite、版本一致性與 Windows EXE/繁中 installer/更新器 E2E；同步 README/TASKS/AGENTS（若長期規則需修訂），本機 Git commit，不推送 GitHub。真實 Google 連線仍需使用者實機驗證。
+- [x] 已觀察：Vitest 39 passed（含本輪自動載入成功／失敗／登出後過期回應 3 項）、Python pytest 165 passed、Ruff PASS、TS/Vite build PASS、版本一致性 v1.8.0 PASS；Windows packaging/build.ps1 Exit Code 0、EXE／繁中 installer／更新器 portable/installed READY／HEALTHY、rollback、故障注入 E2E 通過。
+- [ ] 真實 Google 雲端實機驗收：安裝本輪新版後，在已登入狀態進入「查看滅火器資料」，確認無須按「重新整理」便顯示目前有權限的試算表數量與清單；登出/重新登入後也自動載入，且編輯草稿不因清單更新遺失。未測前不宣稱真實 Google 清單驗收完成。
+
+
 ## 11. 完成條件
 
 - 使用者要求的流程可從介面完整操作。

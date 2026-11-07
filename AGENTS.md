@@ -152,6 +152,8 @@ TASKS.md            需求與里程碑
 - 使用 Google 官方桌面 OAuth 授權碼、PKCE S256、隨機 state 與系統瀏覽器 loopback callback；不使用內嵌 WebView 蒐集 Google 登入資訊，不需 Client Secret。已設定的 Client ID 為公開識別碼，Google 帳號密碼／Access Token／Refresh Token 絕不可寫入 Git、UI、一般日誌或同步資料夾。
 - 為了「列出私人資料夾裡所有 Sheets」，預設唯讀使用 Google Drive `drive.metadata.readonly`（**restricted scope**）及 Sheets `spreadsheets.readonly`（sensitive scope），只顯示指定資料夾內有權限的清單。正式發佈前須確認同意畫面 Data Access scopes、測試使用者與 Google 驗證要求；若採 Google Picker／drive.file 改造也要先寫新 TASKS。
 - 在本機讀取 Google API 僅限官方 HTTPS 網域、固定目標資料夾、有限的頁數／表格列數和大小；禁止任意 spreadsheet ID 繞過清單權限檢查。Google 表格內容以 React 純文字顯示，不能插入 HTML。
+- 已完成 Google OAuth 登入時，進入「查看滅火器資料」頁籤應自動載入私人 Google Sheets 清單；OAuth 成功從未登入變為已登入時亦自動取得一次。禁止因編輯 scope 更新、狀態輪詢造成反覆刷新；自動清單更新只改清單，不可清除已選 Sheet/Tab、當前資料頁或未儲存編輯草稿。舊請求在登出或離開頁面後不得回寫畫面；手動重新整理保留作為故障重試。
+
 - 編輯模式必須使用系統瀏覽器重新要求全部必要 OAuth scopes（包含 Sheets spreadsheets 寫入權限），並完成 PKCE/state 授權，取消／失敗不可刪除原唯讀 token。Google Desktop OAuth 官方不支援 incremental authorization，故實際需再次要求包含原唯讀與編輯的完整 scope 集，不能使用增量授權說法。只有 token 含寫入 scope 且 Google Drive ACL 允許時才可儲存。
 - Google 私人試算表儲存限定單一儲存格、既有目標資料夾內 Sheet/Tab、A~AD 欄、1~100000 列、最多 2000 字元；必須先顯示草稿與二次確認，前端預設唯讀，後端寫入前再讀原值，不符回 409。使用 RAW 字串寫入避免公式執行；禁止靜默覆蓋。Google Sheets values.update 無跨使用者原子 CAS，極短時間競爭仍存在，必須提醒並要求重要資料使用 Google 版本歷史。
 - 點選 Google 試算表儲存格後，草稿編輯器必須出現在使用者目前可見的視窗中央（可存取的 modal），不可置於獨立捲動的表格最底部導致看似不能編輯。二次確認原值／新值與離開草稿警示不可取消。
