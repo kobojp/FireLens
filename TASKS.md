@@ -741,6 +741,20 @@ M15 歷史開發版本：v1.6.1（PATCH，修正線上更新器實機失敗）�
 
 - [ ] 正式發布前檢查前端 npm audit 回報的 1 項 high severity 開發依賴漏洞及 Node 版本相容性；不得直接使用 npm audit fix --force 破壞 lockfile，需先辨識受影響套件、是否進入發佈 bundle，再規劃修補與回歸測試。
 
+### M17 階段 C 施工單（2026-11-07：Google Drive 公開試算表清單與內嵌瀏覽）
+
+使用者要在「設定」右側加入「查看滅火器更換資料」，來源為 https://drive.google.com/drive/folders/1iEgsrIVmFdwC4sgLjDWOZZSfA9-xNgpU?usp=drive_link，可從公開雲端資料夾挑選試算表、在應用內嵌閱讀，不需 OAuth／登入。官方 Drive 文件確認公開資料夾列檔仍需 **Google Cloud Drive API Key**（非 Google 帳號 OAuth）；尚未提供 Key。採可用的分階段唯讀方案：有金鑰列清單／選取／內嵌，沒金鑰可內嵌公開資料夾檢視及手動輸入試算表網址並顯示設定說明；不可假裝免金鑰也可透過 API 列清單。此施工單必須先寫入 TASKS 再改程式。
+
+- [x] 建立唯讀 Google 公開試算表代理：固定／安全設定指定 folder ID，後端對 Google Drive v3 `files.list` 用 `q="'<id>' in parents and trashed=false"` + API Key、限制 Google 官方 HTTPS 主機、timeout、頁數／筆數上限、過濾 Google Sheet MIME、清理不可信名稱／ID；不存使用者 Google 密碼、不用 OAuth。
+- [x] 在設定頁加「查看滅火器更換資料」面板，預設使用提供的公開資料夾，顯示「重新整理清單」、清單選取、目前試算表標題、嵌入 iframe；提供「外部開啟」與「Google Drive 資料夾」入口，避免禁止 iframe／登入要求時無法查看。
+- [x] API Key 由本機環境變數 `FIRELENS_DRIVE_API_KEY`（或安全設定）提供；沒有金鑰時清楚提示「清單需要 API Key」，提供資料夾嵌入及手動貼入 Google Sheets URL 的唯讀後備方案。URL 僅接受 sheets.google.com／docs.google.com/spreadsheets/d/ 合法 ID，防止任意 URL iframe、XSS、外部網域代理。
+- [x] API 使用明確狀態（未設金鑰、空清單、權限拒絕、Google API 速率限制、網路逾時）及無快取敏感資訊；非 2xx 不可宣稱查詢成功，介面不得因第三方拒絕 iframe 而當成已驗證。
+- [x] 合成 HTTP 回應測試：公開資料夾多頁、只有 Sheets、惡意 ID 與名稱、無 Key、403／404／429／逾時；前端正常清單選擇／網址解析測試、深淺色排版與連結安全。
+- [x] 程式驗證：Ruff PASS、pytest 125 passed、Vitest 36 passed、TypeScript／Vite PASS、v1.8.0 一致性 PASS。
+- [x] Windows EXE／繁中 setup 正式建置及更新器 portable／installed E2E（READY／HEALTHY、rollback、故障注入）全部通過，packaging/build.ps1 Exit Code 0。
+- [ ] 未取得真實 Drive API Key 或 WebView2 實機畫面前不標記實際公開清單或 iframe 已驗收，不 GitHub push／Release。
+- [ ] 實機待驗：使用真實 Google Drive API Key 列出指定資料夾實際 Sheets；公開資料夾／特定 Sheet iframe 在 WebView2 中是否允許顯示。若 Google 拒絕 iframe，保留「外部開啟」入口。
+
 ## 11. 完成條件
 
 - 使用者要求的流程可從介面完整操作。

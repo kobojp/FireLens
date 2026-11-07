@@ -54,6 +54,7 @@ from .organizer import (
     undo_rename,
 )
 from .photo_transfer import execute_slot_transfer, preview_slot_transfer, undo_slot_transfer
+from .public_sheets import PublicSheetError, list_public_sheets
 from .reconcile import (
     ReconcileError,
     build_reconciliation,
@@ -292,6 +293,13 @@ def create_app() -> FastAPI:
     @app.get("/api/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/api/public-sheets")
+    def public_sheets() -> dict[str, object]:
+        try:
+            return list_public_sheets()
+        except PublicSheetError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     @app.get("/api/roots")
     def list_roots() -> list[dict[str, object]]:

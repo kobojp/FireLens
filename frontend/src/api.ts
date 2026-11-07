@@ -36,6 +36,7 @@ import type {
   ItemIssue,
   IssueStatistics,
   ExportSaveResult,
+  PublicSheetListing,
 } from './types'
 
 export class ApiError extends Error {
@@ -59,6 +60,7 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   settings: () => request<AppSettings>('/api/settings'),
+  publicSheets: () => request<PublicSheetListing>('/api/public-sheets'),
   saveSettings: (settings: AppSettings) => request<AppSettings>('/api/settings', {
     method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(settings),
   }),

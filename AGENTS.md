@@ -146,6 +146,12 @@ TASKS.md            需求與里程碑
 - 多步改名必須使用不覆蓋的暫存檔名與反向復原，更新 SQLite 索引、audit_log 與 slot_transfer_log；Schema v9 migration 必須於升級前備份舊資料庫，後續不可破壞性重建既有資料。
 - 使用者可從本機交換紀錄復原，但復原前必須重驗原檔是否已由其他人修改／占用；Google Drive 桌面同步不是跨電腦交易鎖，正式多人協作安全性不能只靠本地 rollback 測試宣稱驗證。
 
+## M17 公開 Google Drive 試算表唯讀限制
+
+- 公開分享 Google Drive 資料夾的試算表清單使用 Google Drive v3 `files.list` 及本機環境變數 `FIRELENS_DRIVE_API_KEY`，不是使用者 OAuth。未配置金鑰時不得宣稱能自動列檔，須顯示公開資料夾／特定試算表網址後備方案。
+- 試算表內嵌與外部連結僅限 Google `docs.google.com/spreadsheets/d/<ID>` 之有效 ID；不可把任意使用者輸入 URL 直接當 iframe src。後端代理只可請求固定的 `www.googleapis.com/drive/v3/files`，對結果限筆數、逾時及 Google Sheet MIME 過濾，禁止列出其他類型內容或使用 API 金鑰於 UI／日誌。
+- 這項功能永遠唯讀，不存 Google 帳號／密碼、不修改檔案或權限；Google iframe 可能因提供方限制而拒絕顯示，需保留外部開啟且不得假裝嵌入實機已驗收。
+
 ## M17 圖片剪貼簿匯入安全規則
 
 - LINE 複製圖片貼上需先明確選定設備與槽位；不干擾文字輸入控制項的 Ctrl+V。非圖片剪貼簿不得寫入；圖片必須預覽確認後沿用既有安全照片匯入 API（不得由前端任意寫入檔案或覆蓋）。切換設備或根目錄時取消過期貼上。

@@ -102,6 +102,21 @@ export type IssueStatistics = {
   items: IssueStatisticRow[]
 }
 
+export type PublicSheet = {
+  id: string
+  name: string
+  url: string
+  embed_url: string
+}
+export type PublicSheetListing = {
+  configured: boolean
+  folder_id: string
+  folder_url: string
+  sheets: PublicSheet[]
+  truncated?: boolean
+  message?: string
+}
+
 export type ExportSaveResult = {
   saved: boolean
   filename: string
