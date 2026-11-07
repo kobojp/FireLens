@@ -10,6 +10,7 @@ FireLens 是一套以 Windows 桌面環境為主的消防設備照片管理工�
 - 滅火器槽位：`編號`、`藥劑`、`完成`
 - 放置盒／燈具槽位：`前`、`中`、`後`
 - Excel／文字清冊核對與補拍清單
+- 清冊核對只列出匯入清冊內的設備，其他照片資料夾不混入缺失、統計與 CSV／Excel 匯出
 - 清冊核對結果可一鍵匯出缺失 CSV／Excel（桌面版直接儲存至下載資料夾並顯示檔案位置）
 - 照片牆設備資料夾安全更名，原位修改資料夾名稱而不變更照片內容
 - 設備異常單選標記（瓶身超過10年、無法辨識、壓力錶故障等）、自訂異常分類與獨立「統計」分頁
@@ -120,8 +121,8 @@ Windows 可執行檔請從 GitHub Releases 下載。Release binary 不直接提�
 GitHub Actions 會監聽 `v*` 標籤。建立正式版本前，`packaging/check_version_consistency.py` 會核對應用程式、套件、前端、TASKS 與發版文件的版本一致性；任一處不一致就停止 build／Release。確認通過後再推送 Tag：
 
 ```powershell
-git tag v1.7.0
-git push origin v1.7.0
+git tag v1.7.1
+git push origin v1.7.1
 ```
 
 工作流程會在 `windows-latest` 上自動執行完整測試與 PyInstaller 打包、執行 `FireLens.exe --self-test`，接著建立 GitHub Release 並上傳：

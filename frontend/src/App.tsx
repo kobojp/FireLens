@@ -919,7 +919,7 @@ export default function App() {
       <header className="topbar">
         <div>
           <strong>FireLens</strong>
-          <span>照片管理、核對與離線工作 · v{appInfo?.version ?? '1.7.0'}</span>
+          <span>照片管理、核對與離線工作 · v{appInfo?.version ?? '1.7.1'}</span>
         </div>
         <div className="root-controls">
           <label htmlFor="root-select">根目錄</label>

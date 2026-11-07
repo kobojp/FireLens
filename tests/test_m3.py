@@ -198,21 +198,11 @@ def test_reconciliation_statuses_cross_month_aliases_and_exports(
         assert by_no["中-04-01"]["status"] == "duplicate_number"
         assert by_no["中-99-99"]["status"] == "no_folder"
 
-        extras = [row["device_no"] for row in result["rows"] if row["status"] == "extra_folder"]
-        assert "額-01-01" in extras
-        special = [row for row in result["rows"] if row["status"] == "special"]
-        assert any(row["device_no"] == "特-01-01" for row in special)
-        slot_only = {
-            (row["category"], row["device_no"]): row
-            for row in result["rows"]
-            if row["kind"] == "slot_only"
-        }
-        assert slot_only[("box", "中-02-C124")]["status"] == "special"
-        assert slot_only[("box", "中-02-C124")]["missing_slots"] == []
-        assert slot_only[("box", "箱舊-01")]["status"] == "legacy"
-        assert slot_only[("box", "箱舊-01")]["missing_slots"] == []
-        assert slot_only[("lamp", "D-05-04")]["status"] == "legacy"
-        assert slot_only[("lamp", "D-05-04")]["missing_slots"] == []
+        assert len(result["rows"]) == len(rows)
+        assert all(row["kind"] == "ledger" for row in result["rows"])
+        assert "額-01-01" not in {row["device_no"] for row in result["rows"]}
+        assert "特-01-01" not in {row["device_no"] for row in result["rows"]}
+        assert all(row["category"] == "extinguisher" for row in result["rows"])
         assert result["total"] == 8
         assert result["complete"] == 2
         assert result["completion_rate"] == 25.0
@@ -231,6 +221,8 @@ def test_reconciliation_statuses_cross_month_aliases_and_exports(
         csv_bytes, media_type, _ = export_reconciliation(result, "csv")
         assert media_type.startswith("text/csv")
         assert "中-99-99" in csv_bytes.decode("utf-8-sig")
+        assert "額-01-01" not in csv_bytes.decode("utf-8-sig")
+        assert "特-01-01" not in csv_bytes.decode("utf-8-sig")
         xlsx_bytes, xlsx_type, _ = export_reconciliation(result, "xlsx")
         assert "spreadsheetml" in xlsx_type
         workbook = load_workbook(io.BytesIO(xlsx_bytes), read_only=True, data_only=True)

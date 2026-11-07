@@ -785,66 +785,8 @@ def build_reconciliation(
         base["classification"] = _result_classification(base)
         rows.append(base)
 
-    ledger_set = set(ledger_ids)
-    for code, code_items in sorted(items_by_code.items()):
-        if code in ledger_set:
-            continue
-        for item in code_items:
-            payload = _item_payload(conn, item)
-            is_special = item["period"] in SPECIAL_PERIODS
-            extra_row: dict[str, object] = {
-                "kind": "special" if is_special else "extra",
-                "category": "extinguisher",
-                "row_no": None,
-                "section": "",
-                "expected_building": "",
-                "device_no": code,
-                "specification": "",
-                "last_replacement_date": "",
-                "status": "special" if is_special else "extra_folder",
-                "found": [payload],
-                "missing_slots": [] if is_special else payload["missing_slots"],
-                "naming_suggestions": ([] if is_special else payload["naming_suggestions"]),
-                "near_candidates": [],
-                "marked_reshot": ("extinguisher", code) in marked_pairs,
-            }
-            extra_row["classification"] = _result_classification(extra_row)
-            rows.append(extra_row)
-
-    slot_query = """
-        SELECT i.id, i.code, i.year, i.period, i.building, i.relative_path,
-               i.status, i.photo_count, c.code AS category_code, c.name AS category_name,
-               c.slots_json
-        FROM item AS i
-        JOIN category AS c ON c.id=i.category_id
-        WHERE i.root_id=? AND c.code IN ('box', 'lamp')
-    """
-    slot_params: list[object] = [root_id]
-    if period:
-        slot_query += " AND i.period=?"
-        slot_params.append(period)
-    for slot_item in conn.execute(slot_query, slot_params):
-        payload = _slot_only_payload(conn, slot_item)
-        slot_row: dict[str, object] = {
-            "kind": "slot_only",
-            "category": slot_item["category_code"],
-            "row_no": None,
-            "section": slot_item["building"],
-            "expected_building": normalize_building(slot_item["building"], aliases),
-            "device_no": slot_item["code"],
-            "specification": slot_item["category_name"],
-            "last_replacement_date": "",
-            "status": payload["status"],
-            "found": [payload],
-            "missing_slots": payload["missing_slots"],
-            "naming_suggestions": [],
-            "near_candidates": [],
-            "marked_reshot": (slot_item["category_code"], slot_item["code"]) in marked_pairs,
-        }
-        slot_row["classification"] = _result_classification(slot_row)
-        rows.append(slot_row)
-
-    ledger_result_rows = [row for row in rows if row["kind"] == "ledger"]
+    # 清冊核對僅輸出清冊中指定設備，其他照片資料夾不能算作缺失。
+    ledger_result_rows = rows
     counts = Counter(str(row["status"]) for row in rows)
     classification_counts = Counter(str(row["classification"]) for row in ledger_result_rows)
     complete_count = sum(row["classification"] == "complete" for row in ledger_result_rows)
@@ -885,7 +827,7 @@ def reshoot_rows(result: dict[str, object]) -> list[dict[str, object]]:
     return [
         row
         for row in result["rows"]  # type: ignore[index]
-        if row.get("classification") != "complete" and row.get("kind") != "special"
+        if row.get("kind") == "ledger" and row.get("classification") != "complete"
     ]
 
 

@@ -18,7 +18,6 @@ const STATUS_LABELS: Record<string, string> = {
   zero_byte: '0 byte',
   cloud_not_downloaded: '雲端未下載',
   invalid_naming: '命名異常',
-  extra_folder: '清冊外資料夾',
   duplicate_number: '重複編號',
   near_number: '近似編號',
   legacy: '舊制／待確認（只顯示）',
@@ -482,7 +481,7 @@ export function ReconcileView({ roots, defaultRootId }: Props) {
                         className={row.marked_reshot ? 'marked-reshot' : ''}
                       >
                         <td>{CATEGORY_LABELS[row.category] ?? row.category}</td>
-                        <td><b>{row.device_no}</b>{row.kind === 'extra' && <small>清冊外</small>}</td>
+                        <td><b>{row.device_no}</b></td>
                         <td>{row.section || '—'}</td>
                         <td><span className={`status-pill status-${row.classification}`}>{CLASSIFICATION_LABELS[row.classification] ?? row.classification}</span></td>
                         <td>{row.missing_slots.join('、') || '—'}</td>
