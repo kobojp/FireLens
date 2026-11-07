@@ -214,6 +214,10 @@ class ReorderPhotos(BaseModel):
     photo_ids: list[int]
 
 
+class OAuthSecretSettingsRequest(BaseModel):
+    client_secret: str = Field(min_length=1, max_length=2048)
+
+
 class SlotTransferRequest(BaseModel):
     target_slot: str = Field(min_length=1, max_length=100)
     target_photo_id: int | None = None
@@ -294,6 +298,27 @@ def create_app() -> FastAPI:
     @app.get("/api/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/api/google-oauth-settings")
+    def google_oauth_settings() -> dict[str, object]:
+        try:
+            return private_drive.client_settings()
+        except PrivateDriveError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    @app.post("/api/google-oauth-settings")
+    def save_google_oauth_settings(payload: OAuthSecretSettingsRequest) -> dict[str, object]:
+        try:
+            return private_drive.save_client_secret(payload.client_secret)
+        except PrivateDriveError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    @app.delete("/api/google-oauth-settings")
+    def clear_google_oauth_settings() -> dict[str, object]:
+        try:
+            return private_drive.clear_client_secret()
+        except PrivateDriveError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
     @app.get("/api/private-drive/status")
     def drive_auth_status() -> dict[str, object]:

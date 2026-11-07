@@ -384,3 +384,91 @@ def test_safe_missing_client_secret_diagnostic_does_not_leak_description(monkeyp
         private_drive._request_json(private_drive.GOOGLE_TOKEN, form={"code": "fake"})
     assert "缺少 client_secret" in str(e.value)
     assert "DO_NOT_LEAK" not in str(e.value)
+
+
+def test_desktop_client_secret_encrypted_settings_lifecycle(monkeypatch, tmp_path):
+    monkeypatch.setenv("FIRELENS_DATA_DIR", str(tmp_path))
+    store = private_drive.DesktopOAuthSecretStore()
+    assert store.configured() is False
+    if private_drive.os.name != "nt":
+        with pytest.raises(private_drive.PrivateDriveError):
+            store.save("synthetic-not-real-secret")
+        assert not store.path.exists()
+        return
+    store.save("synthetic-not-real-secret")
+    assert store.configured() is True
+    assert b"synthetic-not-real-secret" not in store.path.read_bytes()
+    reloaded = private_drive.DesktopOAuthSecretStore()
+    assert reloaded.get() == "synthetic-not-real-secret"
+    reloaded.save("second-synthetic-secret")
+    assert reloaded.get() == "second-synthetic-secret"
+    assert b"second-synthetic-secret" not in reloaded.path.read_bytes()
+    reloaded.clear()
+    assert not reloaded.path.exists()
+    assert reloaded.get() is None
+
+
+def test_client_secret_rejects_invalid_values(monkeypatch, tmp_path):
+    monkeypatch.setenv("FIRELENS_DATA_DIR", str(tmp_path))
+    store = private_drive.DesktopOAuthSecretStore()
+    for bad in ("", " ", "secret\nnewline", " leading", "x" * 2049):
+        with pytest.raises(private_drive.PrivateDriveError):
+            store.save(bad)
+    assert not store.path.exists()
+
+
+def test_oauth_settings_api_never_echoes_secret(monkeypatch, tmp_path):
+    monkeypatch.setenv("FIRELENS_DATA_DIR", str(tmp_path))
+    with TestClient(create_app()) as client:
+        status = client.get("/api/google-oauth-settings")
+        assert status.status_code == 200
+        assert status.json() == {"client_id": private_drive.CLIENT_ID, "configured": False}
+        invalid = client.post("/api/google-oauth-settings", json={"client_secret": "bad\nvalue"})
+        assert invalid.status_code == 400
+        assert "bad\nvalue" not in invalid.text
+        if private_drive.os.name != "nt":
+            assert (
+                client.post(
+                    "/api/google-oauth-settings", json={"client_secret": "synthetic"}
+                ).status_code
+                == 503
+            )
+            return
+        saved = client.post(
+            "/api/google-oauth-settings",
+            json={"client_secret": "synthetic-only-for-test"},
+        )
+        assert saved.status_code == 200, saved.text
+        assert saved.json()["configured"] is True
+        assert "synthetic-only-for-test" not in saved.text
+        assert "synthetic-only-for-test" not in client.get("/api/google-oauth-settings").text
+        assert client.delete("/api/google-oauth-settings").json()["configured"] is False
+
+
+def test_oauth_settings_api_requires_desktop_cookie_for_get(monkeypatch, tmp_path):
+    monkeypatch.setenv("FIRELENS_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("FIRELENS_DESKTOP_SECURE", "1")
+    with TestClient(create_app()) as client:
+        assert client.get("/api/google-oauth-settings").status_code == 403
+        assert client.get("/api/health").status_code == 200
+        assert client.get("/api/google-oauth-settings").status_code == 200
+        assert (
+            client.post(
+                "/api/google-oauth-settings",
+                json={"client_secret": "synthetic"},
+                headers={"Origin": "https://untrusted.example"},
+            ).status_code
+            == 403
+        )
+
+
+def test_oauth_prefer_encrypted_user_setting_then_environment(monkeypatch, tmp_path):
+    monkeypatch.setenv("FIRELENS_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("FIRELENS_GOOGLE_CLIENT_SECRET", "environment-synthetic")
+    drive = private_drive.PrivateDriveService()
+    assert drive._optional_client_secret() == {"client_secret": "environment-synthetic"}
+    if private_drive.os.name == "nt":
+        drive.save_client_secret("local-dpapi-synthetic")
+        assert drive._optional_client_secret() == {"client_secret": "local-dpapi-synthetic"}
+        drive.clear_client_secret()
+    assert drive._optional_client_secret() == {"client_secret": "environment-synthetic"}

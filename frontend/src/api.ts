@@ -37,6 +37,7 @@ import type {
   IssueStatistics,
   ExportSaveResult,
   PrivateDriveStatus,
+  OAuthClientSettings,
   PrivateSheet,
   PrivateTab,
   PrivateValues,
@@ -63,6 +64,14 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   settings: () => request<AppSettings>('/api/settings'),
+  oauthClientSettings: () => request<OAuthClientSettings>('/api/google-oauth-settings'),
+  saveOauthClientSecret: (secret: string) => request<OAuthClientSettings>('/api/google-oauth-settings', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ client_secret: secret }),
+  }),
+  clearOauthClientSecret: () => request<OAuthClientSettings>('/api/google-oauth-settings', {
+    method: 'DELETE',
+  }),
   privateDriveStatus: () => request<PrivateDriveStatus>('/api/private-drive/status'),
   privateDriveLogin: () => request<{ started: boolean, message: string }>('/api/private-drive/login', {
     method: 'POST',

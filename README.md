@@ -31,15 +31,13 @@ FireLens 是一套以 Windows 桌面環境為主的消防設備照片管理工�
 
 FireLens 使用 OAuth **Desktop Client ID**（公開識別碼），不需要將 Client Secret 提交給專案。採 Windows DPAPI 將 Token 加密到使用者的 LocalAppData。舊公開 API Key、自動公開清單與 iframe 模式均已停用。Google OAuth 測試模式的授權可能在數天後需要重新登入。
 
-### Desktop OAuth invalid_request 相容設定
+### Google OAuth Client Secret 本機設定（推薦）
 
-Google 官方 Desktop OAuth 文件將 client_secret 列為選填，但部分實際 Desktop + PKCE 流程會回傳 invalid_request: client_secret is missing。FireLens 支援可選的 Windows 本機環境變數 FIRELENS_GOOGLE_CLIENT_SECRET，僅用於授權碼交換與 Token 續期；不用傳給 AI，不放 Git。
+在 FireLens 上方「設定 → Google OAuth 設定」，可查看唯讀 Desktop Client ID，將 Google Cloud Console → Google Auth Platform → 用戶端 → FireLens Desktop 的 Client Secret 貼到密碼欄，按「加密儲存」。已設定時僅顯示狀態，不顯示原文，可覆寫或清除。後續 Google 登入與 Token 續期優先讀取設定頁的加密值，不需要使用 PowerShell。
 
-從 Google Cloud Console → Google Auth Platform → 用戶端 → FireLens Desktop 查看自己的 Desktop Client Secret，於 Windows PowerShell 7 執行：
+Windows DPAPI 將 Client Secret 以目前使用者身分加密到 LocalAppData 獨立檔案，不寫入 SQLite、前端 bundle、Google Drive 或 Git。Client Secret 在桌面程式不是真正安全的身分驗證機密，Google OAuth 仍依賴 PKCE／state 與 Google 權限。
 
-`[Environment]::SetEnvironmentVariable('FIRELENS_GOOGLE_CLIENT_SECRET', (Read-Host '貼上 Desktop OAuth Client Secret'), 'User')`
-
-完成後重新登入 Windows 再啟動新版 FireLens。這個 Desktop Client Secret 不是可長期保密的安全憑證，保護仍依賴 PKCE／state 與 Google 授權。不要傳送或提交值。
+舊的使用者環境變數 FIRELENS_GOOGLE_CLIENT_SECRET 仍可作為備用。兩者都未設定則保留 PKCE-only。Google 官方 Desktop OAuth 文件列 Client Secret 為選填，但部分實際 Desktop + PKCE 環境曾回報 invalid_request: client_secret is missing。
 
 ### Google 登入失敗排查
 

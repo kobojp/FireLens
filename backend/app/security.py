@@ -33,6 +33,7 @@ class DesktopSecurityMiddleware(BaseHTTPMiddleware):
             and (
                 request.method.upper() in MUTATING_METHODS
                 or request.url.path.startswith("/api/private-drive/")
+                or request.url.path.startswith("/api/google-oauth-settings")
             )
         ):
             origin = request.headers.get("origin")

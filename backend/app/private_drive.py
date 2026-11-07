@@ -187,6 +187,66 @@ def _pkce() -> tuple[str, str]:
     return verifier, challenge
 
 
+class DesktopOAuthSecretStore:
+    """Per-user DPAPI-protected OAuth Desktop client configuration."""
+
+    def __init__(self) -> None:
+        self.path = get_app_data_dir() / "auth" / "google-client-secret.dpapi"
+        self._lock = threading.RLock()
+
+    @staticmethod
+    def validate(secret: str) -> None:
+        if not secret or not secret.strip():
+            raise PrivateDriveError("請輸入 Google Desktop OAuth Client Secret")
+        if len(secret) > 2048 or any(ord(char) < 32 or ord(char) == 127 for char in secret):
+            raise PrivateDriveError("Client Secret 格式不正確，不可包含控制字元且長度須在限制內")
+        if secret != secret.strip():
+            raise PrivateDriveError("Client Secret 前後不可包含空白")
+
+    def configured(self) -> bool:
+        with self._lock:
+            if not self.path.exists():
+                return False
+            # Report a corrupt/undecryptable record instead of silently using an empty value.
+            return bool(self.get())
+
+    def get(self) -> str | None:
+        with self._lock:
+            if not self.path.exists():
+                return None
+            try:
+                encrypted = self.path.read_bytes()
+                value = _dpapi_transform(encrypted, decrypt=True).decode("utf-8")
+                self.validate(value)
+                return value
+            except (OSError, UnicodeError, ValueError) as exc:
+                raise PrivateDriveError(
+                    "本機 Google OAuth Client Secret 無法安全讀取，請清除後重新設定", 503
+                ) from exc
+
+    def save(self, secret: str) -> None:
+        self.validate(secret)
+        with self._lock:
+            encrypted = _dpapi_transform(secret.encode("utf-8"), decrypt=False)
+            target = self.path
+            temporary = target.with_name(f".{secrets.token_hex(12)}.tmp")
+            try:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                temporary.write_bytes(encrypted)
+                os.replace(temporary, target)
+            except OSError as exc:
+                raise PrivateDriveError("無法安全儲存 Google OAuth 設定", 503) from exc
+            finally:
+                temporary.unlink(missing_ok=True)
+
+    def clear(self) -> None:
+        with self._lock:
+            try:
+                self.path.unlink(missing_ok=True)
+            except OSError as exc:
+                raise PrivateDriveError("無法清除 Google OAuth Client Secret 設定", 503) from exc
+
+
 class PrivateDriveService:
     def __init__(self) -> None:
         self._lock = threading.RLock()
@@ -197,6 +257,7 @@ class PrivateDriveService:
         self._server: HTTPServer | None = None
         self._started = 0.0
         self._token_path = get_app_data_dir() / "auth" / "google-oauth.dpapi"
+        self.client_secret_store = DesktopOAuthSecretStore()
 
     def _load(self) -> dict[str, Any] | None:
         if self._tokens:
@@ -391,10 +452,23 @@ class PrivateDriveService:
             }
         )
 
-    @staticmethod
-    def _optional_client_secret() -> dict[str, str]:
+    def client_settings(self) -> dict[str, object]:
+        return {"client_id": CLIENT_ID, "configured": self.client_secret_store.configured()}
+
+    def save_client_secret(self, secret: str) -> dict[str, object]:
+        self.client_secret_store.save(secret)
+        return self.client_settings()
+
+    def clear_client_secret(self) -> dict[str, object]:
+        self.client_secret_store.clear()
+        return self.client_settings()
+
+    def _optional_client_secret(self) -> dict[str, str]:
         # Optional by Google Desktop docs; some actual OAuth clients require it.
         # Value is never embedded in the app or emitted in logs/UI.
+        secret = self.client_secret_store.get()
+        if secret:
+            return {"client_secret": secret}
         secret = os.environ.get("FIRELENS_GOOGLE_CLIENT_SECRET", "")
         if not secret:
             return {}

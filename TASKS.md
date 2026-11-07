@@ -818,6 +818,19 @@ M15 歷史開發版本：v1.6.1（PATCH，修正線上更新器實機失敗）�
 - [x] Ruff、pytest（146 passed）、Vitest（36 passed）、TypeScript/Vite、版本一致性 PASS；Windows EXE／繁中 setup 與更新器 portable／installed READY／HEALTHY／rollback／故障注入 E2E 皆通過，packaging/build.ps1 Exit Code 0。文件已同步，待本機 Git commit；不 push/release。
 - [ ] 使用者在 Windows 本機選擇是否設定 FIRELENS_GOOGLE_CLIENT_SECRET 並重新嘗試 Google OAuth。只有實際授權與讀取私人資料夾成功後，才可驗收此功能；未重試前仍保留原始根因的不確定性。
 
+### M17-D 新增設定頁 OAuth Client Secret（2026-11-07，先 TASKS 再施工）
+
+使用者確認：在 FireLens「設定 → Google OAuth 設定」填寫、修改、清除 Client Secret，免 PowerShell 環境變數步驟。Client ID 使用既有公開識別碼；Secret 只在本人 Windows 輸入，不傳至聊天室、Git 或同步區。
+
+- [x] 建立 Windows 每位使用者專屬 DPAPI 加密 Client Secret 儲存，位於 LocalAppData 獨立檔案，原子寫入，不與 Token 共存；解密/寫入失敗不可退回明文。
+- [x] 新增受 desktop session 與 Origin 防護的 GET 狀態、POST 儲存、DELETE 清除 API。GET 僅回傳 configured/Client ID，不得回傳原 Secret；驗證空值、長度、控制字元與未授權。
+- [x] 在「設定」頁新增 Google OAuth 設定卡片，Client ID 唯讀、Client Secret 密碼型輸入、儲存/清除按鈕與狀態；儲存後清空輸入，永不顯示已儲存值。
+- [x] OAuth 授權碼交換/Refresh Token 優先從加密儲存讀取，然後是舊環境變數，未設定保留 PKCE-only，不放寬安全檢查。
+- [x] 合成測試及 Windows DPAPI 測試：儲存/覆寫/清除/重開、檔案不含明文、API 無明文、未授權拒絕、非法值拒絕、OAuth 交換與續期取值正確。
+- [x] Ruff、pytest、Vitest、TypeScript-Vite、版本檢查與 Windows 安裝包/更新器 E2E，AGENTS/README/TASKS 同步，將建立本機 Git 還原點，不推送 Release；真正 Google OAuth 仍需使用者驗收。
+
+已確認：Python pytest 151 passed、前端 Vitest 36 passed、Ruff／TypeScript-Vite／版本一致性 PASS；Windows 安裝檔和更新器 portable／installed READY／HEALTHY／rollback／故障注入 E2E 全部通過，packaging/build.ps1 Exit Code 0。真正 Google OAuth 登入與私人資料夾授權讀取仍待使用者在新版 FireLens 驗收。
+
 ## 11. 完成條件
 
 - 使用者要求的流程可從介面完整操作。

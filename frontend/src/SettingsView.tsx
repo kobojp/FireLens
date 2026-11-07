@@ -15,6 +15,7 @@ import type {
   RootRecord,
   UpdatePreparationStatus,
   UpdateStatus,
+  OAuthClientSettings,
 } from './types'
 
 type Props = {
@@ -56,9 +57,25 @@ export function SettingsView({
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null)
   const [updateProgress, setUpdateProgress] = useState<UpdatePreparationStatus | null>(null)
   const [updateBusy, setUpdateBusy] = useState(false)
+  const [oauthSettings, setOauthSettings] = useState<OAuthClientSettings | null>(null)
+  const [oauthSecretDraft, setOauthSecretDraft] = useState('')
+  const [oauthBusy, setOauthBusy] = useState(false)
+  const [oauthMessage, setOauthMessage] = useState('')
+  const [oauthError, setOauthError] = useState('')
+
 
 
   useEffect(() => setDraft(settings), [settings])
+  useEffect(() => {
+    let mounted = true
+    void api.oauthClientSettings().then((result) => {
+      if (mounted) setOauthSettings(result)
+    }).catch((err) => {
+      if (mounted) setOauthError(err instanceof Error ? err.message : '無法取得 Google OAuth 設定')
+    })
+    return () => { mounted = false }
+  }, [])
+
   useEffect(() => {
     setRootDrafts(Object.fromEntries(roots.map((root) => [root.id, {
       label: root.label,
@@ -76,6 +93,30 @@ export function SettingsView({
   const lastUpdateFailed = appInfo?.last_update && [
     'error', 'rolled_back', 'rollback_failed', 'helper_start_failed',
   ].includes(appInfo.last_update.phase ?? '')
+
+  async function saveOauthSecret() {
+    if (!oauthSecretDraft || oauthBusy) return
+    setOauthBusy(true); setOauthError(''); setOauthMessage('')
+    try {
+      setOauthSettings(await api.saveOauthClientSecret(oauthSecretDraft))
+      setOauthSecretDraft('')
+      setOauthMessage('Google OAuth Client Secret 已加密保存於目前 Windows 使用者。')
+    } catch (err) {
+      setOauthError(err instanceof Error ? err.message : 'Google OAuth 設定儲存失敗')
+    } finally { setOauthBusy(false) }
+  }
+
+  async function clearOauthSecret() {
+    if (oauthBusy || !window.confirm('確定清除本機保存的 Google OAuth Client Secret？不會刪除 Google Drive 資料。')) return
+    setOauthBusy(true); setOauthError(''); setOauthMessage('')
+    try {
+      setOauthSettings(await api.clearOauthClientSecret())
+      setOauthSecretDraft('')
+      setOauthMessage('已清除本機儲存的 Google OAuth Client Secret。')
+    } catch (err) {
+      setOauthError(err instanceof Error ? err.message : '清除 Google OAuth 設定失敗')
+    } finally { setOauthBusy(false) }
+  }
 
   async function saveGeneral() {
     if (!draft) return
@@ -208,6 +249,30 @@ export function SettingsView({
     <section className="settings-page" aria-label="FireLens 設定">
       {error && <div className="error-banner" role="alert">{error}</div>}
       {message && <div className="success-banner" role="status">{message}</div>}
+
+      <section className="panel-card settings-card google-oauth-settings">
+        <div className="panel-title"><h2>Google OAuth 設定</h2><span>Windows 本機加密保存</span></div>
+        <p className="help-text">設定後即可在「查看滅火器資料」使用 Google 帳號登入，不必再設定 PowerShell 環境變數。Client Secret 僅儲存在目前 Windows 使用者的本機加密檔案，不會寫進 GitHub。</p>
+        {oauthError && <p className="error-banner" role="alert">{oauthError}</p>}
+        {oauthMessage && <p className="success-banner" role="status">{oauthMessage}</p>}
+        <div className="settings-grid">
+          <label>OAuth Client ID
+            <input type="text" readOnly value={oauthSettings?.client_id ?? '讀取中…'} />
+          </label>
+          <label>OAuth Client Secret（{oauthSettings?.configured ? '已設定' : '未設定'}）
+            <input type="password" autoComplete="new-password" value={oauthSecretDraft}
+              onChange={(event) => setOauthSecretDraft(event.target.value)}
+              placeholder="輸入新的 Desktop OAuth Client Secret" disabled={oauthBusy} />
+          </label>
+        </div>
+        <div className="google-oauth-buttons">
+          <button type="button" className="primary-button" onClick={() => void saveOauthSecret()}
+            disabled={oauthBusy || !oauthSecretDraft.trim()}>加密儲存</button>
+          <button type="button" className="secondary-button" onClick={() => void clearOauthSecret()}
+            disabled={oauthBusy || !oauthSettings?.configured}>清除已存設定</button>
+        </div>
+        <p className="help-text">儲存後不會再顯示 Client Secret。下次登入會自動使用已保存的設定；若未設定，仍可採用舊環境變數或 PKCE-only。</p>
+      </section>
 
       <section className="panel-card settings-card">
         <div className="panel-title"><h2>介面與快取</h2><span>持久化設定</span></div>

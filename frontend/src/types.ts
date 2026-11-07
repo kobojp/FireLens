@@ -108,6 +108,7 @@ export type PublicSheet = {
   url: string
   embed_url: string
 }
+export type OAuthClientSettings = { client_id: string, configured: boolean }
 export type PrivateDriveStatus = {
   authenticated: boolean
   login_state: 'idle' | 'pending' | 'success' | 'error'
