@@ -442,3 +442,94 @@ html[data-theme="dark"] .prompt-footer button { background: #353a40; color: #e7e
 html[data-theme="dark"] .prompt-footer button:hover:not(:disabled) { background: #40464e; }
 html[data-theme="dark"] .prompt-footer button.danger { background: #e45b31; border-color: #e45b31; color: #fff; }
 html[data-theme="dark"] .prompt-footer button.danger:hover:not(:disabled) { background: #d14922; border-color: #d14922; }
+
+/* M17: Modal tutorials and consistent high-contrast dark UI */
+.reconcile-tutorial { width: min(780px, 92vw); max-height: 88vh; overflow-y: auto; box-shadow: 0 18px 65px #0007; }
+.reconcile-tutorial .panel-title button { border: 0; border-radius: 6px; padding: 4px 12px; font-size: 21px; background: transparent; color: inherit; }
+.reconcile-tutorial .panel-title button:hover { background: #7f899033; }
+.control-grid { grid-template-columns: repeat(4,minmax(150px,1fr)) auto; }
+.slot-actions, .photo-meta { flex-wrap: wrap; }
+.photo-meta { align-items: center; }
+.photo-meta button { flex-shrink: 0; white-space: nowrap; min-width: 54px; }
+.photo-meta b { flex: 1; }
+:where(html[data-theme="dark"]) {
+  --fl-dark-bg: #191d24;
+  --fl-dark-surface: #272e38;
+  --fl-dark-border: #4b5664;
+  --fl-dark-fg: #edf2f9;
+  --fl-dark-muted: #bdc7d3;
+}
+html[data-theme="dark"] .slot-name, html[data-theme="dark"] .slot-heading,
+html[data-theme="dark"] .photo-meta b, html[data-theme="dark"] .panel-title h2,
+html[data-theme="dark"] .stats dt, html[data-theme="dark"] .stats dd,
+html[data-theme="dark"] .issue-stat-cards b, html[data-theme="dark"] .issue-stat-cards strong,
+html[data-theme="dark"] .result-table th, html[data-theme="dark"] .result-table td {
+  color: #edf2f9;
+}
+html[data-theme="dark"] .slot-heading small, html[data-theme="dark"] .drop-hint,
+html[data-theme="dark"] .slot-note, html[data-theme="dark"] .help-text,
+html[data-theme="dark"] .control-grid label, html[data-theme="dark"] .result-toolbar label,
+html[data-theme="dark"] .issue-filters label,
+html[data-theme="dark"] .photo-meta small, html[data-theme="dark"] .panel-title span {
+  color: #bdc7d3;
+}
+html[data-theme="dark"] .slot-card, html[data-theme="dark"] .photo-tile,
+html[data-theme="dark"] .issue-stat-cards button, html[data-theme="dark"] .panel-card {
+  background: #272e38; border-color: #4b5664; color: #edf2f9;
+}
+html[data-theme="dark"] .issue-stat-cards button.active {
+  background: #42372f; border-color: #f28b67;
+}
+html[data-theme="dark"] .photo-meta button, html[data-theme="dark"] .unmapped-actions button,
+html[data-theme="dark"] .add-photo-button, html[data-theme="dark"] .secondary-button,
+html[data-theme="dark"] .secondary-action,
+html[data-theme="dark"] .result-toolbar button {
+  color: #edf2f9; background: #394655; border: 1px solid #596878;
+}
+html[data-theme="dark"] .photo-meta .danger-button, html[data-theme="dark"] .danger-button {
+  background: #513039; color: #ffb7af; border-color: #8c4c56;
+}
+html[data-theme="dark"] :is(button, input, select, textarea):focus-visible {
+  outline: 2px solid #f28b67; outline-offset: 2px;
+}
+@media (prefers-color-scheme: dark) {
+  html:not([data-theme]) .slot-name,
+  html:not([data-theme]) .photo-meta b,
+  html:not([data-theme]) .panel-title h2,
+  html:not([data-theme]) .stats dt,
+  html:not([data-theme]) .stats dd { color: #edf2f9; }
+  html:not([data-theme]) .slot-heading small,
+  html:not([data-theme]) .drop-hint,
+  html:not([data-theme]) .help-text { color: #bdc7d3; }
+  html:not([data-theme]) .slot-card,
+  html:not([data-theme]) .photo-tile,
+  html:not([data-theme]) .issue-stat-cards button { background: #272e38; color: #edf2f9; border-color: #4b5664; }
+  html:not([data-theme]) .photo-meta button,
+  html:not([data-theme]) .add-photo-button,
+  html:not([data-theme]) .secondary-button { color: #edf2f9; background: #394655; border-color: #596878; }
+  html:not([data-theme]) .photo-meta .danger-button { background: #513039; color: #ffb7af; }
+}
+
+.export-feedback { display: flex; gap: 9px; align-items: center; flex-wrap: wrap; margin: 10px 0; }
+.export-feedback p { margin: 0 auto 0 0; min-width: 280px; }
+.export-feedback button { padding: 8px 12px; border-radius: 6px; border: 1px solid #aeb9c3; background: #edf2f6; color: #25323e; font-weight: 700; white-space: nowrap; }
+html[data-theme="dark"] .export-feedback button { background: #394655; color: #edf2f9; border-color: #596878; }
+@media (prefers-color-scheme: dark) { html:not([data-theme]) .export-feedback button { background: #394655; color: #edf2f9; border-color: #596878; } }
+
+.alias-category-tabs { display: flex; gap: 8px; margin: 10px 0 16px; }
+.alias-category-tabs button { border: 1px solid #cdd4dc; border-radius: 7px; padding: 8px 14px; background: transparent; color: inherit; }
+.alias-category-tabs button.active { background: #e45b31; color: #fff; border-color: #e45b31; }
+.alias-rules { display: grid; gap: 9px; max-width: 960px; }
+.alias-rule, .alias-rule-header { display: grid; grid-template-columns: minmax(180px,1fr) minmax(130px,.7fr) 90px; gap: 10px; align-items: center; }
+.alias-rule input,.alias-rule select,.alias-test input { width: 100%; min-height: 36px; padding: 6px 9px; border-radius: 6px; border: 1px solid #cdd4dc; }
+.alias-rule button,.alias-rules > button { min-height: 35px; border-radius: 6px; border: 1px solid #aab6c2; padding: 4px 10px; }
+.alias-test { display: grid; gap: 7px; margin-top: 12px; font-size: 13px; }
+.alias-test span { color: #72777e; }
+html[data-theme="dark"] .alias-rule button,html[data-theme="dark"] .alias-rules > button,html[data-theme="dark"] .alias-category-tabs button:not(.active) { background: #394655; color: #edf2f9; border-color: #596878; }
+html[data-theme="dark"] .alias-test span { color: #bdc7d3; }
+
+.tree-branch summary { display: flex; align-items: center; gap: 7px; }
+.tree-branch summary > span { flex: 1; min-width: 0; }
+.tree-branch summary .tree-add-button { opacity: 0; margin-left: auto; min-width: 26px; border: 1px solid #aeb8c3; border-radius: 5px; background: transparent; color: inherit; }
+.tree-branch summary:hover .tree-add-button,.tree-branch summary:focus-within .tree-add-button { opacity: 1; }
+.tree-branch summary .tree-add-button:focus-visible { opacity: 1; outline: 2px solid #f28b67; }

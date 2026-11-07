@@ -76,6 +76,20 @@ def build_tree(conn: sqlite3.Connection, root_id: int) -> list[dict[str, Any]]:
         )
 
     catalog = load_folder_catalog(conn, root_id)
+    for entry in catalog["years"]:
+        category = grouped.setdefault(
+            entry["category_code"],
+            {
+                "type": "category",
+                "key": entry["category_code"],
+                "label": category_names.get(entry["category_code"], entry["category_code"]),
+                "children": {},
+            },
+        )
+        category["children"].setdefault(
+            entry["year"],
+            {"type": "year", "key": entry["year"], "label": entry["year"], "children": {}},
+        )
     for entry in catalog["periods"]:
         ensure_path(entry["category_code"], entry["year"], entry["period"])
     for entry in catalog["buildings"]:

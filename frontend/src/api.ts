@@ -134,6 +134,11 @@ export const api = {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   }),
+  createYearFolder: (payload: { root_id: number, category_code: string, year: string }) =>
+    request<StructureFolderResult>('/api/folders/year', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
   createPeriodFolder: (payload: Omit<ItemFolderCreate, 'building' | 'code'> & { period: string }) => request<StructureFolderResult>('/api/folders/period', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -215,10 +220,10 @@ export const api = {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ source_value: sourceValue, target_value: targetValue, confirmed: true }),
   }),
-  reconcile: (rootId: number, ledgerId: number, period?: string) => request<ReconcileResult>('/api/reconcile', {
+  reconcile: (rootId: number, ledgerId: number, period?: string, categoryCode = 'extinguisher') => request<ReconcileResult>('/api/reconcile', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ root_id: rootId, ledger_id: ledgerId, period: period || null }),
+    body: JSON.stringify({ root_id: rootId, ledger_id: ledgerId, period: period || null, category_code: categoryCode }),
   }),
   setReshotMark: (rootId: number, ledgerId: number, categoryCode: string, deviceNo: string, marked: boolean) =>
     request<{ marked: boolean }>('/api/reconcile/reshot', {
@@ -233,11 +238,24 @@ export const api = {
     if (period) params.set('period', period)
     return `/api/reconcile/export?${params.toString()}`
   },
-  saveReconcileExport: (rootId: number, ledgerId: number, format: 'csv' | 'xlsx', period?: string) =>
+  saveReconcileExport: (rootId: number, ledgerId: number, format: 'csv' | 'xlsx', period?: string, categoryCode = 'extinguisher') =>
     request<ExportSaveResult>('/api/reconcile/export/save', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ root_id: rootId, ledger_id: ledgerId, format, period: period || null }),
+      body: JSON.stringify({ root_id: rootId, ledger_id: ledgerId, format, period: period || null, category_code: categoryCode }),
+    }),
+  saveIssueExport: (format: 'csv' | 'xlsx', filters: {
+    root_id?: number, label_id?: number, building?: string, query?: string
+  }) => request<ExportSaveResult>('/api/issues/export/save', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ format, ...filters }),
+  }),
+  openExport: (token: string, mode: 'file' | 'folder') =>
+    request<{ opened: boolean }>('/api/exports/open', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ open_token: token, mode }),
     }),
   organizer: (rootId: number) => request<OrganizerAnalysis>(`/api/organizer/${rootId}`),
   previewRenames: (rootId: number, candidateIds: string[]) => request<RenamePreview>(

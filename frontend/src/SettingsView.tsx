@@ -44,7 +44,12 @@ export function SettingsView({
 }: Props) {
   const [draft, setDraft] = useState<AppSettings | null>(settings)
   const [rootDrafts, setRootDrafts] = useState<Record<number, { label: string; is_cloud_stream: boolean }>>({})
-  const [aliasDrafts, setAliasDrafts] = useState<Record<string, string>>({})
+  const [aliasDrafts, setAliasDrafts] = useState<Record<string, Record<string, string>>>({})
+  const [aliasCategory, setAliasCategory] = useState('extinguisher')
+  const [newAliasName, setNewAliasName] = useState('')
+  const [newAliasSlot, setNewAliasSlot] = useState('')
+  const [aliasHelpOpen, setAliasHelpOpen] = useState(false)
+  const [testFilename, setTestFilename] = useState('')
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
@@ -62,7 +67,7 @@ export function SettingsView({
   useEffect(() => {
     setAliasDrafts(Object.fromEntries(categories.map((category) => [
       category.code,
-      JSON.stringify(category.filename_aliases, null, 2),
+      { ...category.filename_aliases },
     ])))
   }, [categories])
 
@@ -99,9 +104,10 @@ export function SettingsView({
   async function saveAliases(code: string) {
     setBusy(true); setError(''); setMessage('')
     try {
-      const parsed = JSON.parse(aliasDrafts[code] || '{}') as unknown
-      if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') throw new Error('同義詞必須是 JSON 物件')
-      await api.updateCategoryAliases(code, parsed as Record<string, string>)
+      const aliases = aliasDrafts[code] ?? {}
+      const legalSlots = categories.find((c) => c.code === code)?.slots ?? []
+      if (Object.values(aliases).some((slot) => !legalSlots.includes(slot))) throw new Error('辨識用途不符合此設備類別的照片槽位')
+      await api.updateCategoryAliases(code, aliases)
       await onCategoriesChanged()
       setMessage('檔名同義詞已儲存。')
     } catch (err) {
@@ -293,15 +299,86 @@ export function SettingsView({
       </section>
 
       <section className="panel-card settings-card">
-        <div className="panel-title"><h2>檔名同義詞</h2><span>逐類別</span></div>
-        <p className="help-text">JSON 左側是舊檔名（不含副檔名），右側只能指定該類別既有槽位。</p>
-        <div className="alias-editor-grid">
-          {categories.map((category) => <div key={category.code}>
-            <b>{category.name}</b>
-            <textarea aria-label={`${category.name}檔名同義詞`} value={aliasDrafts[category.code] ?? '{}'} onChange={(event) => setAliasDrafts({ ...aliasDrafts, [category.code]: event.target.value })} />
-            <button type="button" disabled={busy} onClick={() => void saveAliases(category.code)}>儲存 {category.name}</button>
-          </div>)}
+        <div className="panel-title">
+          <h2>照片檔名辨識設定</h2>
+          <button type="button" className="secondary-button" onClick={() => setAliasHelpOpen(true)}>？使用說明</button>
         </div>
+        <p className="help-text">讓不同檔名對應到相同照片用途；只影響辨識結果，不會重新命名原始照片。</p>
+        <div className="alias-category-tabs" role="group" aria-label="設備類別">
+          {categories.map((category) => (
+            <button type="button" key={category.code} className={aliasCategory === category.code ? 'active' : ''}
+              onClick={() => { setAliasCategory(category.code); setNewAliasName(''); setNewAliasSlot(''); setTestFilename('') }}>
+              {category.name}
+            </button>
+          ))}
+        </div>
+        {categories.filter((c) => c.code === aliasCategory).map((category) => (
+          <div key={category.code} className="alias-rules">
+            <div className="alias-rule-header"><b>照片檔名</b><b>辨識為</b><span>操作</span></div>
+            {Object.entries(aliasDrafts[category.code] ?? {}).map(([name, slot]) => (
+              <div className="alias-rule" key={name}>
+                <span title={name}>{name}</span>
+                <select aria-label={name + ' 對應用途'} value={slot} onChange={(event) => setAliasDrafts((current) => ({
+                  ...current, [category.code]: { ...current[category.code], [name]: event.target.value },
+                }))}>
+                  {category.slots.map((option) => <option key={option} value={option}>{option}</option>)}
+                </select>
+                <button type="button" disabled={busy} aria-label={'移除 ' + name}
+                  onClick={() => setAliasDrafts((current) => {
+                    const next = { ...current[category.code] }
+                    delete next[name]
+                    return { ...current, [category.code]: next }
+                  })}>移除</button>
+              </div>
+            ))}
+            <div className="alias-rule">
+              <input aria-label="新增照片檔名" value={newAliasName} maxLength={100}
+                onChange={(event) => setNewAliasName(event.target.value)} placeholder="例如：有效日期（不含 .jpg）" />
+              <select aria-label="新增照片對應用途" value={newAliasSlot || category.slots[0] || ''}
+                onChange={(event) => setNewAliasSlot(event.target.value)}>
+                {category.slots.map((slot) => <option key={slot} value={slot}>{slot}</option>)}
+              </select>
+              <button type="button" disabled={busy || !newAliasName.trim() || !!aliasDrafts[category.code]?.[newAliasName.trim()]}
+                onClick={() => {
+                  const name = newAliasName.trim().replace(/\.(jpg|jpeg|png|heic|heif)$/i, '')
+                  if (!name || /[\/]/.test(name) || aliasDrafts[category.code]?.[name]) {
+                    setError('請輸入有效且未重複的照片檔名')
+                    return
+                  }
+                  setAliasDrafts((current) => ({
+                    ...current, [category.code]: { ...(current[category.code] ?? {}), [name]: newAliasSlot || category.slots[0] },
+                  }))
+                  setNewAliasName('')
+                }}>新增</button>
+            </div>
+            <label className="alias-test">測試辨識
+              <input value={testFilename} onChange={(event) => setTestFilename(event.target.value)}
+                placeholder="輸入照片檔名，例如 有效日期.jpg" />
+              <span>{testFilename.trim()
+                ? (aliasDrafts[category.code]?.[testFilename.trim().replace(/\.[^.]+$/, '')] || '未命中自訂同義詞')
+                : '輸入檔名即可檢查'}
+              </span>
+            </label>
+            <button type="button" disabled={busy} onClick={() => void saveAliases(category.code)}>儲存 {category.name} 辨識規則</button>
+          </div>
+        ))}
+        {aliasHelpOpen && (
+          <div className="preview-backdrop" onMouseDown={() => setAliasHelpOpen(false)}
+            onKeyDown={(event) => { if (event.key === 'Escape') setAliasHelpOpen(false) }}>
+            <section className="prompt-dialog" role="dialog" aria-modal="true" aria-label="照片檔名辨識使用說明"
+              onMouseDown={(event) => event.stopPropagation()}>
+              <div className="prompt-header">照片檔名辨識說明</div>
+              <div className="prompt-body">
+                <p>不同同事可能使用不同照片檔名；在這裡將名稱對應到正確用途，FireLens 核對照片時便能自動辨識。</p>
+                <p>例如：有效日期.jpg → 藥劑；更換完成.jpg → 完成。</p>
+                <p>這些規則只影響照片分類，不會修改或刪除原始檔案。</p>
+              </div>
+              <div className="prompt-footer">
+                <button type="button" autoFocus onClick={() => setAliasHelpOpen(false)}>我知道了</button>
+              </div>
+            </section>
+          </div>
+        )}
       </section>
 
       <section className="panel-card settings-card">

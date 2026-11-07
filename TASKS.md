@@ -1,6 +1,6 @@
 # 滅火器燈具照片管理系統 任務文件
 
-狀態：**M0～M17 已完成程式開發與自動驗證，待使用者實機核對驗收**。目前版本 v1.7.1；本版本尚未正式 Release。歷史 v1.7.0 已正式發布至 GitHub Release。歷史 v1.6.0 與 v1.5.0 已正式發布至 GitHub Release。
+狀態：**M0～M16 為歷史功能、M17 階段 A 開發中（僅部分功能已通過程式測試，尚未完成 Windows UI／打包驗收）**。目前版本 v1.8.0；尚未正式 Release。開發前還原點：Git commit 0f9bc7d / backup/pre-m17-20261107。歷史 v1.7.0 已正式發布至 GitHub Release。歷史 v1.6.0 與 v1.5.0 已正式發布至 GitHub Release。
 M14 歷史開發版本：v1.6.0。
 M15 歷史開發版本：v1.6.1（PATCH，修正線上更新器實機失敗）。
 
@@ -514,7 +514,7 @@ M15 歷史開發版本：v1.6.1（PATCH，修正線上更新器實機失敗）�
 - 歷史 v1.7.0 當時最終自動驗收：`packaging/check_version_consistency.py` PASS v1.7.0、Ruff format/check PASS、pytest **107 passed**（既有 1 項 Starlette/httpx deprecation warning）、Vitest **31 passed**、TypeScript／Vite PASS。Graphify 已重建為 **665 nodes / 1536 edges / 48 communities**，`graphify-out` 仍只留本機且受 `.gitignore` 排除。
 - GitHub：歷史 v1.7.0 已於 2026-11-07 正式 commit／push 並透過 GitHub Actions 發布；當時安裝檔已可下載。
 
-### M17 清冊核對只顯示匯入設備（v1.7.1）
+### M17 清冊核對只顯示匯入設備（歷史 v1.7.1 預備版本）
 
 使用者回報核對畫面出現「清冊外」且顯示「找不到設備資料夾」，雖實際照片目錄存在。確認定案：**核對以匯入清冊為唯一範圍，提供哪些編號就顯示哪些結果**；資料來源存在但未列入清冊，不能算作缺失，其他設備照常保留於照片瀏覽與異常統計。
 
@@ -522,8 +522,8 @@ M15 歷史開發版本：v1.6.1（PATCH，修正線上更新器實機失敗）�
 - [x] 核對狀態、棟別進度、分類數量、補拍文字、CSV 與 Excel 只依清冊設備列產出。
 - [x] 移除核對列表中的誤導性「清冊外」提示，照片目錄資料不刪除。
 - [x] 回歸測試：使用合成照片與 SQLite，清冊外／特例／其他類別不進核對或匯出，清冊真正缺設備才顯示找不到；既有單欄／雙欄及月份篩選測試通過。
-- [x] 自動驗收：v1.7.1 版本一致性、Ruff、pytest 107 passed、Vitest 31 passed、TypeScript／Vite、Windows EXE 與繁中 setup 正式 build、打包後 self-test、portable／installer 更新 E2E、rollback 故障注入皆通過；Graphify 成功重建 665 nodes／1535 edges／48 communities。仍待使用者實機核對畫面確認。
-- 發版：尚未推送 GitHub 或建立 v1.7.1 Release。
+- [x] 歷史 v1.7.1 當時自動驗收：v1.7.1 版本一致性、Ruff、pytest 107 passed、Vitest 31 passed、TypeScript／Vite、Windows EXE 與繁中 setup 正式 build、打包後 self-test、portable／installer 更新 E2E、rollback 故障注入皆通過；Graphify 成功重建 665 nodes／1535 edges／48 communities。仍待使用者實機核對畫面確認。
+- 發版：歷史 v1.7.1 未建立 Release，目前在後續開發分支。
 
 ### M17 待討論：設備編號尾端異常備註的安全匹配（尚未實作）
 
@@ -536,7 +536,7 @@ M15 歷史開發版本：v1.6.1（PATCH，修正線上更新器實機失敗）�
 - [ ] 若唯一匹配可核對照片槽位，清冊設備編號保持原值；UI 提示實際資料夾名稱、附註文字與「以尾端備註匹配」，不得把「失壓」直接當成缺照片。
 - [ ] 若多個可能候選、跨月份存在重複編號、或同時有原名與註記版，維持安全的明確匹配優先及待人工確認提示，不能任意選一個；不修改實體資料夾名稱、清冊原文或照片內容。
 - [ ] 同步檢查核對摘要、棟別／月份篩選、補拍清單與 CSV／Excel 匯出，確保匹配結果及實際名稱、提示一致；使用合成 SQLite／照片測試正常、無匹配、重複、多種括號、錯誤前綴與不變更來源資料。
-- [ ] 等使用者提出其他待討論問題並統一定案後，再決定實作範圍、測試、是否沿用 v1.7.1 或另升版。
+- [ ] 等使用者提出其他待討論問題並統一定案後，再決定實作範圍、測試、已決定升至目前開發版本。
 
 ### M17 待討論：清冊核對依設備類別獨立選擇搜尋資料夾（尚未實作）
 
@@ -656,6 +656,20 @@ M15 歷史開發版本：v1.6.1（PATCH，修正線上更新器實機失敗）�
 - [ ] 與 Google Drive 多人共用異常紀錄方案相容：匯出只取當下已驗證且已顯示的統計資料，若同步尚未完成／離線，清楚標示資料時間及同步狀態，不假稱最新。
 - [ ] 以合成資料測試各根目錄、分類、棟別、搜尋複合篩選後 CSV／Excel 的筆數與欄位、UTF-8 中文、0 筆、同名不覆蓋、開檔與資料夾、錯誤路徑阻擋；Windows 桌面打包後實際點擊驗證。
 - [ ] 與前面 M17 待辦統一實作，不在本輪編譯、commit、push 或建立 Release。
+
+### M17 階段 A 實作紀錄（目前 v1.8.0 開發分支，尚未驗收／發布）
+
+- [x] 施工前以 Git commit `0f9bc7d`、本機 tag `backup/pre-m17-20261107` 建立還原點，並切換至 `feature/m17-improvements` 分支。
+- [x] 清冊核對後端新增滅火器／放置盒／燈具類別條件，保留只顯示匯入清冊列；尾端括號備註安全匹配並保留原資料夾名稱，跨類別及多候選不會自動亂配。補上合成 SQLite 測試。
+- [x] 清冊教學改模態視窗、檔名辨識改清單編輯與說明視窗、異常統計改名、暗色 UI 初步改善；前端 TypeScript/Vite 建置通過，尚待實際 Windows UI 驗證。
+- [x] 異常統計新增 CSV/XLSX 匯出與篩選；清冊及異常匯出共用安全儲存與以不透明 token 開啟檔案／資料夾，完成合成檔案與錯誤路徑測試。
+- [x] 樹狀資料夾新增懸停「＋」、右鍵操作及依層級建立視窗，並新增年份 API 與資料夾 catalog；沿用月份、棟別、設備新增 API。新測試對年份隔離資料夾驗證通過。
+- [ ] Windows pywebview 實機 UI 驗證：模態焦點／Esc、樹狀右鍵與新增路徑、深淺色對比、兩類匯出後真實開檔／Explorer。
+- [ ] Google Drive 同步多人異常紀錄與本機多版本備份、雲端誤刪恢復：**尚未接入現場同步，避免未處理衝突就上線**，需先完成合成多用戶端事件合併與復原測試。
+- [ ] Google Drive 公開資料夾試算表清單與內嵌「查看更換資料」：**尚未實作**；公開資料夾可用 Drive API Key（無需使用者 OAuth），但實際 API Key 尚未配置，需先完成唯讀列表、權限與嵌入失敗替代方案。
+- [x] 已執行版本一致性 v1.8.0 PASS、Ruff check PASS（排序修正後）、pytest 111 passed、Vitest 31 passed、TypeScript/Vite PASS、Windows EXE 與繁中 FireLens-1.8.0-setup.exe 正式 build Exit Code 0；打包後 self-test、portable/installer READY/HEALTHY、rollback/故障注入 E2E 均 PASS。
+- [ ] 尚待 Windows 實際操作 UI 完整驗收，及 Google Drive 兩項功能；未推送 GitHub 或 Release。
+- 原有各小節保留完整需求與驗收範圍，其「待實作／只討論」文字為原始需求記錄；以上階段紀錄為最新施工事實，只有完成測試及實機驗收後才可勾選剩餘項目。
 
 ## 11. 完成條件
 

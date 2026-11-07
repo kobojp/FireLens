@@ -5,6 +5,7 @@ import { photosForSlot, slotAllowsAdditional, unmappedPhotos } from './slots'
 import { scanSummaryText, shouldAutoScan } from './scanPolicy'
 import { countByStatus, countItems } from './tree'
 import { TreeView } from './TreeView'
+import type { TreeCreatePath } from './TreeView'
 import { ReconcileView } from './ReconcileView'
 import { OrganizerView } from './OrganizerView'
 import { SettingsView } from './SettingsView'
@@ -244,6 +245,9 @@ export default function App() {
   const [error, setError] = useState('')
   const [newRootPath, setNewRootPath] = useState('')
   const [showNewItem, setShowNewItem] = useState(initialNewItemPanelOpen(undefined))
+  const [treeCreatePath, setTreeCreatePath] = useState<TreeCreatePath | null>(null)
+  const [treeCreateName, setTreeCreateName] = useState('')
+  const [expandTreeAfterCreate, setExpandTreeAfterCreate] = useState(false)
   const [showNewPeriod, setShowNewPeriod] = useState(false)
   const [showNewBuilding, setShowNewBuilding] = useState(false)
   const [newPeriodName, setNewPeriodName] = useState('')
@@ -824,6 +828,56 @@ export default function App() {
     }
   }
 
+  const TREE_CREATE_LABELS: Record<string, string> = {
+    category: '新增年份',
+    year: '新增月份／批次',
+    period: '新增棟別',
+    building: '新增設備編號',
+  }
+
+  async function createFolderFromTree() {
+    if (!treeCreatePath || rootId === null) return
+    const last = treeCreatePath[treeCreatePath.length - 1]
+    const name = treeCreateName.trim()
+    if (!last || !name) return
+    if (busy || scanRunning) {
+      setError('掃描或其他操作進行中，無法建立資料夾')
+      return
+    }
+    const category = treeCreatePath[0]?.key ?? ''
+    const year = treeCreatePath[1]?.label ?? ''
+    const period = treeCreatePath[2]?.label ?? ''
+    const building = treeCreatePath[3]?.label ?? ''
+    setBusy(true)
+    setError('')
+    try {
+      if (last.type === 'category') {
+        await api.createYearFolder({ root_id: rootId, category_code: category, year: name })
+      } else if (last.type === 'year') {
+        await api.createPeriodFolder({ root_id: rootId, category_code: category, year, period: name })
+      } else if (last.type === 'period') {
+        await api.createBuildingFolder({ root_id: rootId, category_code: category, year, period, building: name })
+      } else if (last.type === 'building') {
+        const created = await api.createItem({
+          root_id: rootId, category_code: category, year, period, building, code: name,
+        })
+        setSelected({ type: 'item', id: created.id, key: String(created.id), label: created.code })
+        setItem(created)
+      } else {
+        throw new Error('此層級不能建立子資料夾')
+      }
+      await refreshTree(rootId)
+      setExpandTreeAfterCreate(true)
+      setTreeCreatePath(null)
+      setTreeCreateName('')
+      setCacheMessage(`已建立資料夾：${name}`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '新增資料夾失敗')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function createNumberFolder() {
     if (rootId === null) return
     if (scanRunning) {
@@ -919,7 +973,7 @@ export default function App() {
       <header className="topbar">
         <div>
           <strong>FireLens</strong>
-          <span>照片管理、核對與離線工作 · v{appInfo?.version ?? '1.7.1'}</span>
+          <span>照片管理、核對與離線工作 · v{appInfo?.version ?? '1.8.0'}</span>
         </div>
         <div className="root-controls">
           <label htmlFor="root-select">根目錄</label>
@@ -948,7 +1002,7 @@ export default function App() {
       <nav className="mode-tabs" aria-label="FireLens 功能">
         <button type="button" className={view === 'browse' ? 'active' : ''} onClick={() => setView('browse')}>照片瀏覽</button>
         <button type="button" className={view === 'reconcile' ? 'active' : ''} onClick={() => setView('reconcile')}>清冊核對</button>
-        <button type="button" className={view === 'statistics' ? 'active' : ''} onClick={() => setView('statistics')}>統計</button>
+        <button type="button" className={view === 'statistics' ? 'active' : ''} onClick={() => setView('statistics')}>異常統計</button>
         <button type="button" className={view === 'organizer' ? 'active' : ''} onClick={() => setView('organizer')}>整理工具</button>
         <button type="button" className={view === 'settings' ? 'active' : ''} onClick={() => setView('settings')}>設定</button>
       </nav>
@@ -1078,7 +1132,14 @@ export default function App() {
         <aside className="panel tree-panel" aria-label="照片資料夾樹">
           <div className="panel-title"><h2>資料樹</h2><span>{countItems(filteredNodes)} / {countItems(nodes)} 筆</span></div>
           <input className="tree-search" type="search" value={treeQuery} onChange={(event) => setTreeQuery(event.target.value)} placeholder="搜尋棟別、月份或設備編號" aria-label="搜尋照片資料樹" />
-          <TreeView nodes={filteredNodes} selectedId={selected?.id ?? null} onSelectItem={(node) => void selectItem(node)} expandAll={Boolean(deferredTreeQuery.trim())} />
+          <TreeView nodes={filteredNodes} selectedId={selected?.id ?? null}
+            onSelectItem={(node) => void selectItem(node)}
+            expandAll={Boolean(deferredTreeQuery.trim()) || expandTreeAfterCreate}
+            onCreate={(path) => {
+              if (busy || scanRunning) { setError('掃描或其他操作進行中，無法建立資料夾'); return }
+              setTreeCreatePath(path)
+              setTreeCreateName('')
+            }} />
         </aside>
 
         <section className="panel photo-panel" aria-label="照片槽位牆">
@@ -1315,6 +1376,32 @@ export default function App() {
           onRootsChanged={async () => { await refreshRoots(); if (rootId) await refreshCacheState(rootId).catch(() => undefined) }}
           onCategoriesChanged={async () => { setCategories(await api.categories()) }}
         />
+      )}
+
+      {treeCreatePath && (
+        <div className="preview-backdrop" onMouseDown={() => !busy && setTreeCreatePath(null)}
+          onKeyDown={(event) => { if (event.key === 'Escape' && !busy) setTreeCreatePath(null) }}>
+          <section className="prompt-dialog" role="dialog" aria-modal="true"
+            aria-label={TREE_CREATE_LABELS[treeCreatePath[treeCreatePath.length - 1].type] || '新增資料夾'}
+            onMouseDown={(event) => event.stopPropagation()}>
+            <div className="prompt-header">{TREE_CREATE_LABELS[treeCreatePath[treeCreatePath.length - 1].type]}</div>
+            <div className="prompt-body">
+              <p className="muted">新增位置：{treeCreatePath.map((n) => n.label).join(' / ')}</p>
+              <label>{treeCreatePath[treeCreatePath.length - 1].type === 'category' ? '年份' :
+                treeCreatePath[treeCreatePath.length - 1].type === 'year' ? '月份或批次名稱' :
+                  treeCreatePath[treeCreatePath.length - 1].type === 'period' ? '棟別名稱' : '設備編號'}
+                <input className="prompt-input" autoFocus value={treeCreateName} maxLength={120}
+                  onChange={(event) => setTreeCreateName(event.target.value)}
+                  onKeyDown={(event) => { if (event.key === 'Enter') void createFolderFromTree() }} />
+              </label>
+            </div>
+            <div className="prompt-footer">
+              <button type="button" disabled={busy} onClick={() => setTreeCreatePath(null)}>取消</button>
+              <button className="primary-button" type="button" disabled={busy || !treeCreateName.trim()}
+                onClick={() => void createFolderFromTree()}>新增資料夾</button>
+            </div>
+          </section>
+        </div>
       )}
 
       {folderRename && (

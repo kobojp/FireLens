@@ -14,7 +14,7 @@ def _catalog_key(conn: sqlite3.Connection, root_id: int) -> str:
 
 
 def _empty_catalog() -> dict[str, list[dict[str, str]]]:
-    return {"periods": [], "buildings": []}
+    return {"years": [], "periods": [], "buildings": []}
 
 
 def load_folder_catalog(conn: sqlite3.Connection, root_id: int) -> dict[str, list[dict[str, str]]]:
@@ -31,23 +31,18 @@ def load_folder_catalog(conn: sqlite3.Connection, root_id: int) -> dict[str, lis
     if not isinstance(decoded, dict):
         return _empty_catalog()
     result = _empty_catalog()
-    for kind in ("periods", "buildings"):
+    for kind in ("years", "periods", "buildings"):
         rows = decoded.get(kind, [])
         if not isinstance(rows, list):
             continue
         for entry in rows:
             if not isinstance(entry, dict):
                 continue
-            required = (
-                ("category_code", "year", "period")
-                if kind == "periods"
-                else (
-                    "category_code",
-                    "year",
-                    "period",
-                    "building",
-                )
-            )
+            required = {
+                "years": ("category_code", "year"),
+                "periods": ("category_code", "year", "period"),
+                "buildings": ("category_code", "year", "period", "building"),
+            }[kind]
             clean: dict[str, str] = {}
             valid = True
             for key in required:
@@ -81,6 +76,14 @@ def _save_folder_catalog(
     )
 
 
+def register_year(conn: sqlite3.Connection, root_id: int, category_code: str, year: str) -> None:
+    catalog = load_folder_catalog(conn, root_id)
+    entry = {"category_code": category_code, "year": year}
+    if entry not in catalog["years"]:
+        catalog["years"].append(entry)
+    _save_folder_catalog(conn, root_id, catalog)
+
+
 def register_period(
     conn: sqlite3.Connection,
     root_id: int,
@@ -88,6 +91,7 @@ def register_period(
     year: str,
     period: str,
 ) -> None:
+    register_year(conn, root_id, category_code, year)
     catalog = load_folder_catalog(conn, root_id)
     entry = {"category_code": category_code, "year": year, "period": period}
     if entry not in catalog["periods"]:

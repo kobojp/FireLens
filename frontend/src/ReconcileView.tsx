@@ -61,6 +61,7 @@ export function ReconcileView({ roots, defaultRootId }: Props) {
   const [ledgers, setLedgers] = useState<LedgerRecord[]>([])
   const [ledgerId, setLedgerId] = useState<number | null>(null)
   const [period, setPeriod] = useState('')
+  const [categoryCode, setCategoryCode] = useState<'extinguisher' | 'box' | 'lamp'>('extinguisher')
   const [result, setResult] = useState<ReconcileResult | null>(null)
   const [classificationFilter, setClassificationFilter] = useState('')
   const [sectionFilter, setSectionFilter] = useState('')
@@ -81,6 +82,7 @@ export function ReconcileView({ roots, defaultRootId }: Props) {
   const [error, setError] = useState('')
   const [exporting, setExporting] = useState<'csv' | 'xlsx' | null>(null)
   const [exportMessage, setExportMessage] = useState('')
+  const [exportToken, setExportToken] = useState('')
 
   useEffect(() => {
     setRootId((current) => current ?? defaultRootId ?? roots[0]?.id ?? null)
@@ -144,7 +146,7 @@ export function ReconcileView({ roots, defaultRootId }: Props) {
       await refreshLedgers()
       setLedgerId(created.id)
       if (rootId !== null) {
-        const next = await api.reconcile(rootId, created.id, period.trim() || undefined)
+        const next = await api.reconcile(rootId, created.id, period.trim() || undefined, categoryCode)
         setResult(next)
         setClassificationFilter('')
         setSectionFilter('')
@@ -167,7 +169,7 @@ export function ReconcileView({ roots, defaultRootId }: Props) {
     setBusy(true)
     setError('')
     try {
-      const next = await api.reconcile(rootId, ledgerId, period.trim() || undefined)
+      const next = await api.reconcile(rootId, ledgerId, period.trim() || undefined, categoryCode)
       setResult(next)
       setClassificationFilter('')
       setSectionFilter('')
@@ -229,13 +231,15 @@ export function ReconcileView({ roots, defaultRootId }: Props) {
     if (!result || exporting) return
     setError('')
     setExportMessage('')
+    setExportToken('')
     setExporting(format)
     try {
       const saved = await api.saveReconcileExport(
-        result.root_id, result.ledger_id, format, result.period ?? undefined,
+        result.root_id, result.ledger_id, format, result.period ?? undefined, result.category_code ?? categoryCode,
       )
       if (!saved.saved || saved.size === 0) throw new Error('匯出未產生有效檔案')
       setExportMessage(`已儲存 ${saved.filename}（${saved.size} bytes），位置：${saved.path}`)
+      setExportToken(saved.open_token)
     } catch (err) {
       setError(err instanceof Error ? err.message : '匯出失敗，請重新操作')
     } finally {
@@ -269,23 +273,28 @@ export function ReconcileView({ roots, defaultRootId }: Props) {
       {error && <div className="error-banner" role="alert">{error}</div>}
 
       {tutorialOpen && (
-        <section className="panel-card reconcile-tutorial" aria-label="清冊使用教學">
-          <div className="panel-title"><h2>清冊核對快速教學</h2><span>M13</span></div>
+        <div className="preview-backdrop" onMouseDown={closeTutorial} onKeyDown={(event) => { if (event.key === 'Escape') closeTutorial() }}>
+          <section className="panel-card reconcile-tutorial" role="dialog" aria-modal="true" aria-label="清冊使用教學" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="panel-title"><h2>清冊核對快速教學</h2><button type="button" aria-label="關閉教學" onClick={closeTutorial}>×</button></div>
           <ol>
             <li>準備一行一個完整設備編號，或「棟別樓層 + 設備編號」兩欄資料。</li>
             <li>直接貼上文字，或選擇 .xlsx Excel 清冊。</li>
             <li>先看解析預覽，確認有效、重複與無法辨識的資料。</li>
-            <li>儲存清冊後按「開始核對」，FireLens 會依設備編號找照片並列出缺漏。</li>
+            <li>選擇滅火器、放置盒或燈具，可設定月份／批次限制搜尋範圍。</li>
+            <li>儲存清冊後按「開始核對」，系統只核對清冊內的設備，並將結果分成完整、缺照片及找不到資料夾等狀態。</li>
+            <li>確認結果後，可匯出 CSV 或 Excel 缺失清單。</li>
           </ol>
           <div className="tutorial-examples">
             <div><b>單欄</b><pre>動-01-15{`\n`}致-B1-67{`\n`}中-B2-05</pre></div>
             <div><b>雙欄</b><pre>致德樓8F{`\t`}致-08-19{`\n`}中正樓B2F{`\t`}中-B2-05</pre></div>
           </div>
           <div className="tutorial-actions">
+            <button type="button" onClick={() => void navigator.clipboard.writeText('致德樓8F\t致-08-19\n中正樓B2F\t中-B2-05').catch(() => setError('複製範例失敗'))}>複製雙欄範例</button>
             <label><input type="checkbox" checked={tutorialDontShow} onChange={(event) => setTutorialDontShow(event.target.checked)} /> 下次不再自動顯示</label>
             <button type="button" onClick={closeTutorial}>我知道了</button>
           </div>
-        </section>
+          </section>
+        </div>
       )}
 
       <section className="reconcile-controls panel-card">
@@ -295,12 +304,19 @@ export function ReconcileView({ roots, defaultRootId }: Props) {
         </div>
         <div className="control-grid">
           <label>照片根目錄
-            <select value={rootId ?? ''} onChange={(event) => setRootId(Number(event.target.value))}>
+            <select value={rootId ?? ''} onChange={(event) => { setRootId(Number(event.target.value)); setResult(null); setExportMessage(''); setExportToken('') }}>
               {roots.map((root) => <option key={root.id} value={root.id}>{root.label}</option>)}
             </select>
           </label>
+          <label>設備類別／搜尋資料夾
+            <select value={categoryCode} onChange={(event) => { setCategoryCode(event.target.value as typeof categoryCode); setResult(null); setExportMessage(''); setExportToken('') }}>
+              <option value="extinguisher">滅火器</option>
+              <option value="box">放置盒</option>
+              <option value="lamp">燈具</option>
+            </select>
+          </label>
           <label>清冊版本
-            <select value={ledgerId ?? ''} onChange={(event) => setLedgerId(Number(event.target.value))}>
+            <select value={ledgerId ?? ''} onChange={(event) => { setLedgerId(Number(event.target.value)); setResult(null); setExportMessage(''); setExportToken('') }}>
               {ledgers.length === 0 && <option value="">尚未匯入</option>}
               {ledgers.map((ledger) => (
                 <option key={ledger.id} value={ledger.id}>{ledger.name} · {ledger.row_count} 筆</option>
@@ -308,7 +324,7 @@ export function ReconcileView({ roots, defaultRootId }: Props) {
             </select>
           </label>
           <label>月份/批次（選填）
-            <input value={period} onChange={(event) => setPeriod(event.target.value)} placeholder="留空＝跨所有月份" />
+            <input value={period} onChange={(event) => { setPeriod(event.target.value); setResult(null); setExportMessage(''); setExportToken('') }} placeholder="留空＝跨所有月份" />
           </label>
           <button type="button" className="primary-button" disabled={busy || rootId === null || ledgerId === null} onClick={() => void runReconcile()}>
             {busy ? '處理中…' : '開始核對'}
@@ -438,9 +454,8 @@ export function ReconcileView({ roots, defaultRootId }: Props) {
               <label>缺少照片
                 <select value={missingSlot} onChange={(event) => setMissingSlot(event.target.value)}>
                   <option value="">全部</option>
-                  <option value="編號">缺編號</option>
-                  <option value="藥劑">缺藥劑</option>
-                  <option value="完成">缺完成</option>
+                  {(categoryCode === 'extinguisher' ? ['編號', '藥劑', '完成'] : ['前', '中', '後'])
+                    .map((slot) => <option key={slot} value={slot}>缺{slot}</option>)}
                 </select>
               </label>
               <label>類別
@@ -462,7 +477,13 @@ export function ReconcileView({ roots, defaultRootId }: Props) {
                 {exporting === 'xlsx' ? '正在匯出 Excel…' : '匯出缺失 Excel'}
               </button>
             </div>
-            {exportMessage && <p className="stats-message export-success" role="status">{exportMessage}</p>}
+            {exportMessage && <div className="export-feedback" role="status">
+              <p className="stats-message export-success">{exportMessage}</p>
+              {exportToken && <>
+                <button type="button" onClick={() => void api.openExport(exportToken, 'file').catch((err) => setError(String(err)))}>開啟檔案</button>
+                <button type="button" onClick={() => void api.openExport(exportToken, 'folder').catch((err) => setError(String(err)))}>開啟所在資料夾</button>
+              </>}
+            </div>}
             <div className="result-table-wrap">
               <table className="result-table">
                 <thead><tr><th>類別</th><th>設備編號</th><th>棟別樓層</th><th>核對結果</th><th>缺少照片</th><th>找到月份</th><th>實際棟別</th><th>提示</th><th>補拍</th></tr></thead>
@@ -481,7 +502,7 @@ export function ReconcileView({ roots, defaultRootId }: Props) {
                         className={row.marked_reshot ? 'marked-reshot' : ''}
                       >
                         <td>{CATEGORY_LABELS[row.category] ?? row.category}</td>
-                        <td><b>{row.device_no}</b></td>
+                        <td><b>{row.device_no}</b>{row.matched_by_note && row.matched_folder_name && <small title="以尾端備註匹配">　↳ {row.matched_folder_name}</small>}</td>
                         <td>{row.section || '—'}</td>
                         <td><span className={`status-pill status-${row.classification}`}>{CLASSIFICATION_LABELS[row.classification] ?? row.classification}</span></td>
                         <td>{row.missing_slots.join('、') || '—'}</td>

@@ -707,7 +707,10 @@ def build_reconciliation(
     root_id: int,
     ledger_id: int,
     period: str | None = None,
+    category_code: str = "extinguisher",
 ) -> dict[str, object]:
+    if category_code not in {"extinguisher", "box", "lamp"}:
+        raise ReconcileError("不支援的設備類別")
     seed_default_aliases(conn)
     root = conn.execute("SELECT id FROM root WHERE id=?", (root_id,)).fetchone()
     if root is None:
@@ -729,12 +732,12 @@ def build_reconciliation(
     )
     item_query = """
         SELECT i.id, i.code, i.year, i.period, i.building, i.relative_path,
-               i.status, i.photo_count
+               i.status, i.photo_count, c.code AS category_code, c.slots_json
         FROM item AS i
         JOIN category AS c ON c.id=i.category_id
-        WHERE i.root_id=? AND c.code='extinguisher'
+        WHERE i.root_id=? AND c.code=?
     """
-    params: list[object] = [root_id]
+    params: list[object] = [root_id, category_code]
     if period:
         item_query += " AND i.period=?"
         params.append(period)
@@ -744,17 +747,27 @@ def build_reconciliation(
     for item in items:
         items_by_code[item["code"]].append(item)
     item_codes = list(items_by_code)
-    ledger_ids = [row["device_no"] for row in ledger_rows]
-    ledger_id_counts = Counter(ledger_ids)
+    ledger_id_counts = Counter(row["device_no"] for row in ledger_rows)
+    annotated_candidates: dict[str, list[sqlite3.Row]] = defaultdict(list)
+    for item in items:
+        # Only a complete terminal parenthetical note may be stripped;
+        # never perform prefix matching or rename source folders.
+        match = re.fullmatch(r"(.+?)[\s]*[（(]([^()（）]+)[）)]", str(item["code"]))
+        if match:
+            annotated_candidates[normalize_device_no(match.group(1))].append(item)
     rows: list[dict[str, object]] = []
 
     for ledger_row in ledger_rows:
         device_no = ledger_row["device_no"]
         expected_building = normalize_building(ledger_row["section"] or "", aliases)
         matches = items_by_code.get(device_no, [])
+        matched_by_note = False
+        if not matches:
+            matches = annotated_candidates.get(normalize_device_no(device_no), [])
+            matched_by_note = bool(matches)
         base: dict[str, object] = {
             "kind": "ledger",
-            "category": "extinguisher",
+            "category": category_code,
             "row_no": ledger_row["row_no"],
             "section": ledger_row["section"] or "",
             "expected_building": expected_building,
@@ -765,7 +778,9 @@ def build_reconciliation(
             "missing_slots": [],
             "naming_suggestions": [],
             "near_candidates": [],
-            "marked_reshot": ("extinguisher", device_no) in marked_pairs,
+            "marked_reshot": (category_code, device_no) in marked_pairs,
+            "matched_by_note": matched_by_note,
+            "matched_folder_name": str(matches[0]["code"]) if len(matches) == 1 else None,
         }
         if ledger_id_counts[device_no] > 1 or len(matches) > 1:
             base["status"] = "duplicate_number"
@@ -775,7 +790,11 @@ def build_reconciliation(
             base["near_candidates"] = near
             base["status"] = "near_number" if near else "no_folder"
         else:
-            payload = _item_payload(conn, matches[0])
+            payload = (
+                _item_payload(conn, matches[0])
+                if category_code == "extinguisher"
+                else _slot_only_payload(conn, matches[0])
+            )
             base["status"] = payload["status"]
             base["found"] = [payload]
             base["missing_slots"] = payload["missing_slots"]
@@ -812,6 +831,7 @@ def build_reconciliation(
         "root_id": root_id,
         "ledger_id": ledger_id,
         "ledger_name": ledger["name"],
+        "category_code": category_code,
         "period": period,
         "total": total,
         "complete": complete_count,
@@ -840,7 +860,14 @@ def reshoot_text(result: dict[str, object]) -> str:
         )
         detail = f"缺：{missing}" if missing else classification_label
         category = CATEGORY_LABELS.get(str(row.get("category", "")), str(row.get("category", "")))
-        lines.append(f"{category}\t{row['device_no']}\t{row.get('section', '')}\t{detail}")
+        name_hint = (
+            f"（實際資料夾：{row['matched_folder_name']}）"
+            if row.get("matched_by_note") and row.get("matched_folder_name")
+            else ""
+        )
+        lines.append(
+            f"{category}\t{row['device_no']}\t{row.get('section', '')}\t{detail}{name_hint}"
+        )
     return "\n".join(lines)
 
 
@@ -857,6 +884,8 @@ def export_reconciliation(result: dict[str, object], file_format: str) -> tuple[
         "相對路徑",
         "近似編號",
         "已補拍",
+        "實際資料夾名稱",
+        "匹配方式",
     ]
     body_rows: list[list[str]] = []
     for row in rows:
@@ -879,6 +908,8 @@ def export_reconciliation(result: dict[str, object], file_format: str) -> tuple[
                 paths,
                 "、".join(row.get("near_candidates", [])),
                 "是" if row.get("marked_reshot") else "否",
+                str(row.get("matched_folder_name") or ""),
+                "忽略尾端備註" if row.get("matched_by_note") else "精確匹配",
             ]
         )
 

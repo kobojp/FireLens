@@ -107,6 +107,8 @@ export type ExportSaveResult = {
   filename: string
   path: string
   size: number
+  open_token: string
+  row_count?: number
 }
 
 export type ScanSummary = {
@@ -243,12 +245,15 @@ export type ReconcileRow = {
   near_candidates: string[]
   building_match?: boolean
   marked_reshot: boolean
+  matched_by_note?: boolean
+  matched_folder_name?: string | null
 }
 
 export type ReconcileResult = {
   root_id: number
   ledger_id: number
   ledger_name: string
+  category_code?: 'extinguisher' | 'box' | 'lamp'
   period: string | null
   total: number
   complete: number

@@ -465,13 +465,18 @@ def photo_file(conn: sqlite3.Connection, photo_id: int) -> Path:
 
 
 def _plain_component(value: str, label: str) -> str:
-    value = value.strip()
-    if not value or value in {".", ".."}:
-        raise StorageError(f"{label}不可為空")
-    if "/" in value or "\\" in value or "\x00" in value:
-        raise StorageError(f"{label}不可包含路徑分隔符號")
-    if any(ord(character) < 32 for character in value):
-        raise StorageError(f"{label}包含不可使用的控制字元")
+    if not value or value != value.strip() or value.endswith("."):
+        raise StorageError(f"{label}不可為空、不可有前後空白或尾端句點")
+    if len(value) > 120 or value in {".", ".."}:
+        raise StorageError(f"{label}長度超出限制")
+    if any(char in '<>:"/\\|?*' or ord(char) < 32 for char in value):
+        raise StorageError(f"{label}包含 Windows 不允許的字元")
+    stem = value.split(".")[0].upper()
+    reserved = {"CON", "PRN", "AUX", "NUL"}
+    reserved.update(f"COM{i}" for i in range(1, 10))
+    reserved.update(f"LPT{i}" for i in range(1, 10))
+    if stem in reserved:
+        raise StorageError(f"{label}使用 Windows 保留名稱")
     return value
 
 
@@ -492,6 +497,32 @@ def _structure_context(
     if not root_path.is_dir():
         raise StorageError("照片根目錄不存在或目前無法讀取")
     return root_path, str(category_row["name"])
+
+
+def create_year_folder(
+    conn: sqlite3.Connection, root_id: int, category_code: str, year: str
+) -> dict[str, object]:
+    from .folder_catalog import register_year
+
+    root_path, category_name = _structure_context(conn, root_id, category_code)
+    clean_year = _plain_component(year, "年份")
+    target = (root_path / category_name / clean_year).resolve()
+    if not target.is_relative_to(root_path):
+        raise StorageError("新增資料夾路徑超出根目錄")
+    if target.exists() and not target.is_dir():
+        raise StorageConflict("同名路徑已存在，但不是資料夾")
+    created = not target.exists()
+    target.mkdir(parents=True, exist_ok=True)
+    with conn:
+        register_year(conn, root_id, category_code, clean_year)
+        _audit(conn, "create_year_folder", None, target.relative_to(root_path).as_posix(), None)
+    return {
+        "root_id": root_id,
+        "category_code": category_code,
+        "year": clean_year,
+        "relative_path": target.relative_to(root_path).as_posix(),
+        "created": created,
+    }
 
 
 def create_period_folder(

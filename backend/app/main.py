@@ -1,12 +1,9 @@
 from __future__ import annotations
 
 import json
-import os
 import sqlite3
 import sys
-import tempfile
 from contextlib import asynccontextmanager
-from datetime import datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -32,6 +29,7 @@ from .cache import (
     thumbnail_file,
 )
 from .db import database, initialize_database
+from .export_files import ExportActionError, ExportRegistry, export_issue_rows
 from .issues import (
     IssueConflict,
     IssueError,
@@ -89,6 +87,7 @@ from .storage import (
     create_building_folder,
     create_item_folder,
     create_period_folder,
+    create_year_folder,
     delete_item_folder,
     delete_photo,
     import_photo,
@@ -142,6 +141,26 @@ class ReconcileExportSave(BaseModel):
     ledger_id: int
     format: str = "xlsx"
     period: str | None = None
+    category_code: str = "extinguisher"
+
+
+class IssueExportSave(BaseModel):
+    format: str = "xlsx"
+    root_id: int | None = None
+    label_id: int | None = None
+    building: str = ""
+    query: str = Field(default="", max_length=200)
+
+
+class OpenExportRequest(BaseModel):
+    open_token: str = Field(min_length=12, max_length=100)
+    mode: str
+
+
+class YearFolderCreate(BaseModel):
+    root_id: int
+    category_code: str = Field(min_length=1)
+    year: str = Field(min_length=1)
 
 
 class PeriodFolderCreate(BaseModel):
@@ -174,6 +193,7 @@ class ReconcileRequest(BaseModel):
     root_id: int
     ledger_id: int
     period: str | None = None
+    category_code: str = "extinguisher"
 
 
 class ReshootMarkUpdate(BaseModel):
@@ -244,6 +264,7 @@ def create_app() -> FastAPI:
             logger.info("application shutdown version=%s", __version__)
 
     app = FastAPI(title="FireLens API", version=__version__, lifespan=lifespan)
+    export_registry = ExportRegistry()
     app.add_middleware(DesktopSecurityMiddleware)
     app.add_middleware(RequestLoggingMiddleware)
     app.add_middleware(
@@ -404,6 +425,39 @@ def create_app() -> FastAPI:
     def issues_stats(root_id: int | None = None) -> dict[str, object]:
         with database() as conn:
             return issue_statistics(conn, root_id)
+
+    @app.post("/api/issues/export/save")
+    def issue_export_save(payload: IssueExportSave) -> dict[str, object]:
+        with database() as conn:
+            stats = issue_statistics(conn, payload.root_id)
+        try:
+            content, count = export_issue_rows(
+                stats,
+                label_id=payload.label_id,
+                building=payload.building,
+                query=payload.query.strip(),
+                file_format=payload.format.casefold(),
+            )
+            return {
+                **export_registry.save(
+                    prefix="異常設備清單", content=content, extension=payload.format.casefold()
+                ),
+                "row_count": count,
+            }
+        except ExportActionError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except OSError as exc:
+            raise HTTPException(status_code=500, detail=f"檔案儲存失敗：{exc}") from exc
+
+    @app.post("/api/exports/open")
+    def open_export(payload: OpenExportRequest) -> dict[str, bool]:
+        try:
+            export_registry.open(token=payload.open_token, mode=payload.mode)
+        except ExportActionError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except OSError as exc:
+            raise HTTPException(status_code=500, detail=f"開啟檔案失敗：{exc}") from exc
+        return {"opened": True}
 
     @app.get("/api/items/{item_id}/issue")
     def get_item_issue(item_id: int) -> dict[str, object]:
@@ -582,6 +636,18 @@ def create_app() -> FastAPI:
             except StorageError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
             return _item_detail(conn, item_id)
+
+    @app.post("/api/folders/year", status_code=201)
+    def add_year_folder(payload: YearFolderCreate) -> dict[str, object]:
+        with database() as conn:
+            try:
+                return create_year_folder(
+                    conn, payload.root_id, payload.category_code, payload.year
+                )
+            except StorageConflict as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            except StorageError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.post("/api/folders/period", status_code=201)
     def add_period_folder(payload: PeriodFolderCreate) -> dict[str, object]:
@@ -771,6 +837,7 @@ def create_app() -> FastAPI:
                     root_id=payload.root_id,
                     ledger_id=payload.ledger_id,
                     period=payload.period.strip() if payload.period else None,
+                    category_code=payload.category_code,
                 )
             except ReconcileError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -843,6 +910,7 @@ def create_app() -> FastAPI:
         ledger_id: int,
         format: str = "csv",
         period: str | None = None,
+        category_code: str = "extinguisher",
     ) -> Response:
         with database() as conn:
             try:
@@ -851,6 +919,7 @@ def create_app() -> FastAPI:
                     root_id=root_id,
                     ledger_id=ledger_id,
                     period=period.strip() if period else None,
+                    category_code=category_code,
                 )
                 content, media_type, filename = export_reconciliation(result, format.casefold())
             except ReconcileError as exc:
@@ -876,37 +945,15 @@ def create_app() -> FastAPI:
                     root_id=payload.root_id,
                     ledger_id=payload.ledger_id,
                     period=payload.period.strip() if payload.period else None,
+                    category_code=payload.category_code,
                 )
                 content, _, _ = export_reconciliation(result, file_format)
             except ReconcileError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
-        # 桌面 WebView 不依賴 attachment 超連結；真正寫入本機下載資料夾。
-        directory = Path(
-            os.environ.get("FIRELENS_EXPORT_DIR") or Path.home() / "Downloads" / "FireLens"
-        )
-        temporary: Path | None = None
         try:
-            directory.mkdir(parents=True, exist_ok=True)
-            from uuid import uuid4
-
-            timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-            filename = f"FireLens-缺失清單-{timestamp}-{uuid4().hex[:8]}.{file_format}"
-            target = directory / filename
-            with tempfile.NamedTemporaryFile(
-                dir=directory, prefix=".firelens-", delete=False
-            ) as handle:
-                temporary = Path(handle.name)
-                handle.write(content)
-                handle.flush()
-                os.fsync(handle.fileno())
-            # Windows 同層 rename 是原子操作，且目標存在時會拒絕覆蓋。
-            os.rename(temporary, target)
+            return export_registry.save(prefix="缺失清單", content=content, extension=file_format)
         except OSError as exc:
             raise HTTPException(status_code=500, detail=f"檔案儲存失敗：{exc}") from exc
-        finally:
-            if temporary is not None:
-                temporary.unlink(missing_ok=True)
-        return {"saved": True, "path": str(target), "filename": filename, "size": len(content)}
 
     frontend_dist = _frontend_dist_dir()
     if frontend_dist.is_dir():
