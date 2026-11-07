@@ -232,3 +232,76 @@ def test_install_api_schedules_exit_only_after_ready(
     assert response.status_code == 200
     assert response.json()["ready"] is True
     assert started == [0.75]
+
+
+def test_atomic_json_retries_transient_windows_replace_lock(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import desktop.update_protocol as protocol
+
+    target = tmp_path / "state.json"
+    protocol.atomic_write_json(target, {"phase": "old"})
+    original_replace = protocol.os.replace
+    calls = 0
+
+    def intermittent_replace(source, destination) -> None:
+        nonlocal calls
+        calls += 1
+        if calls <= 2:
+            raise PermissionError(13, "simulated WinError 5 file lock")
+        original_replace(source, destination)
+
+    monkeypatch.setattr(protocol, "_is_temporary_windows_lock", lambda exc: True)
+    monkeypatch.setattr(protocol.os, "replace", intermittent_replace)
+    monkeypatch.setattr(protocol.time, "sleep", lambda seconds: None)
+    protocol.atomic_write_json(target, {"phase": "success"})
+    assert calls == 3
+    assert json.loads(target.read_text(encoding="utf-8")) == {"phase": "success"}
+    assert not list(tmp_path.glob(".*.tmp"))
+
+
+def test_atomic_json_nonretryable_error_keeps_old_and_removes_stage(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import desktop.update_protocol as protocol
+
+    target = tmp_path / "state.json"
+    protocol.atomic_write_json(target, {"phase": "old"})
+    calls = 0
+
+    def forbidden_replace(source, destination) -> None:
+        nonlocal calls
+        calls += 1
+        raise OSError(22, "invalid target")
+
+    monkeypatch.setattr(protocol.os, "replace", forbidden_replace)
+    monkeypatch.setattr(protocol, "_is_temporary_windows_lock", lambda exc: False)
+    with pytest.raises(OSError):
+        protocol.atomic_write_json(target, {"phase": "bad"})
+    assert calls == 1
+    assert json.loads(target.read_text(encoding="utf-8")) == {"phase": "old"}
+    assert not list(tmp_path.glob(".*.tmp"))
+
+
+def test_atomic_json_persistent_lock_fails_without_overwriting_state(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import desktop.update_protocol as protocol
+
+    target = tmp_path / "state.json"
+    protocol.atomic_write_json(target, {"phase": "old"})
+    calls = 0
+
+    def always_locked(source, destination) -> None:
+        nonlocal calls
+        calls += 1
+        raise PermissionError(13, "simulated persistent file lock")
+
+    monkeypatch.setattr(protocol.os, "replace", always_locked)
+    monkeypatch.setattr(protocol, "_is_temporary_windows_lock", lambda exc: True)
+    monkeypatch.setattr(protocol, "REPLACE_RETRY_TIMEOUT", 0.0)
+    with pytest.raises(PermissionError):
+        protocol.atomic_write_json(target, {"phase": "new"})
+    assert calls == 1
+    assert json.loads(target.read_text(encoding="utf-8")) == {"phase": "old"}
+    assert not list(tmp_path.glob(".*.tmp"))

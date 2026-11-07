@@ -544,3 +544,19 @@ html[data-theme="dark"] .alias-test span { color: #bdc7d3; }
 html[data-theme="dark"] .paste-photo-button { background: #35495a; color: #edf2f9; border-color: #697e92; }
 html[data-theme="dark"] .paste-photo-button:disabled { background: #2a2f37; color: #8d99a7; border-color: #4b5664; }
 @media (prefers-color-scheme: dark) { html:not([data-theme]) .paste-photo-button { background: #35495a; color: #edf2f9; border-color: #697e92; } }
+
+/* M17 safe photo slot move/swap dialog */
+.photo-tile[draggable="true"] { cursor: grab; }
+.photo-tile[draggable="true"]:active { cursor: grabbing; }
+.slot-transfer-dialog { width: min(560px, 92vw); max-height: 88vh; overflow-y: auto; }
+.slot-transfer-dialog .prompt-body { display: grid; gap: 10px; }
+.slot-transfer-dialog .prompt-body p { margin: 4px 0; }
+.slot-transfer-dialog label { display: grid; gap: 6px; }
+.slot-transfer-dialog select { width: 100%; min-height: 36px; }
+.transfer-thumb { display: block; margin: 0 auto; width: min(240px, 100%); max-height: 190px; object-fit: contain; border-radius: 8px; }
+html[data-theme="dark"] .slot-transfer-dialog { background: #272e38; color: #edf2f9; }
+@media (prefers-color-scheme: dark) { html:not([data-theme]) .slot-transfer-dialog { background: #272e38; color: #edf2f9; } }
+
+.transfer-images { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+.transfer-images figure { flex: 1 1 150px; min-width: 140px; max-width: 225px; margin: 0; text-align: center; }
+.transfer-images figcaption { margin-top: 4px; font-size: 12px; }

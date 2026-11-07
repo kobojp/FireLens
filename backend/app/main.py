@@ -53,6 +53,7 @@ from .organizer import (
     rename_history,
     undo_rename,
 )
+from .photo_transfer import execute_slot_transfer, preview_slot_transfer, undo_slot_transfer
 from .reconcile import (
     ReconcileError,
     build_reconciliation,
@@ -210,6 +211,13 @@ class RenameSelection(BaseModel):
 
 class ReorderPhotos(BaseModel):
     photo_ids: list[int]
+
+
+class SlotTransferRequest(BaseModel):
+    target_slot: str = Field(min_length=1, max_length=100)
+    target_photo_id: int | None = None
+    expected_source_sha256: str | None = None
+    expected_target_sha256: str | None = None
 
 
 class PhotoRenameRequest(BaseModel):
@@ -602,6 +610,88 @@ def create_app() -> FastAPI:
                     expected_sha256=payload.expected_sha256,
                     reason=payload.reason,
                 )
+                result["item"] = _item_detail(conn, int(result["item_id"]))
+                return result
+            except OrganizerConflict as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            except OrganizerError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/photos/{photo_id}/transfer/preview")
+    def preview_photo_transfer(photo_id: int, payload: SlotTransferRequest) -> dict[str, object]:
+        with database() as conn:
+            root = conn.execute(
+                "SELECT i.root_id FROM photo p JOIN item i ON i.id=p.item_id WHERE p.id=?",
+                (photo_id,),
+            ).fetchone()
+            if root is None:
+                raise HTTPException(status_code=404, detail="找不到指定照片")
+            if scan_job_status(int(root["root_id"]))["state"] == "running":
+                raise HTTPException(status_code=409, detail="掃描進行中，請稍後再交換")
+            try:
+                return preview_slot_transfer(
+                    conn, photo_id, payload.target_slot, payload.target_photo_id
+                )
+            except OrganizerConflict as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            except OrganizerError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/photos/{photo_id}/transfer")
+    def transfer_photo(photo_id: int, payload: SlotTransferRequest) -> dict[str, object]:
+        if not payload.expected_source_sha256:
+            raise HTTPException(status_code=400, detail="請先確認預覽中的照片 SHA-256")
+        with database() as conn:
+            root = conn.execute(
+                "SELECT i.root_id FROM photo p JOIN item i ON i.id=p.item_id WHERE p.id=?",
+                (photo_id,),
+            ).fetchone()
+            if root is None:
+                raise HTTPException(status_code=404, detail="找不到指定照片")
+            if scan_job_status(int(root["root_id"]))["state"] == "running":
+                raise HTTPException(status_code=409, detail="掃描進行中，請稍後再交換")
+            try:
+                result = execute_slot_transfer(
+                    conn,
+                    photo_id,
+                    payload.target_slot,
+                    payload.target_photo_id,
+                    payload.expected_source_sha256,
+                    payload.expected_target_sha256,
+                )
+                result["item"] = _item_detail(conn, int(result["item_id"]))
+                return result
+            except OrganizerConflict as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            except OrganizerError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/items/{item_id}/slot-transfers")
+    def recent_slot_transfers(item_id: int) -> list[dict[str, object]]:
+        with database() as conn:
+            item = conn.execute(
+                "SELECT root_id, relative_path FROM item WHERE id=?", (item_id,)
+            ).fetchone()
+            if item is None:
+                raise HTTPException(status_code=404, detail="找不到指定設備")
+            return [
+                dict(row)
+                for row in conn.execute(
+                    """SELECT id, root_id, created_at, source_before, source_after,
+                              target_before, target_after, reverted_at
+                       FROM slot_transfer_log WHERE root_id=? AND item_relative_path=?
+                       ORDER BY id DESC LIMIT 20""",
+                    (item["root_id"], item["relative_path"]),
+                )
+            ]
+
+    @app.post("/api/slot-transfers/{root_id}/undo/{transfer_log_id}")
+    def undo_photo_slot_transfer(root_id: int, transfer_log_id: int) -> dict[str, object]:
+        if scan_job_status(root_id)["state"] == "running":
+            raise HTTPException(status_code=409, detail="掃描進行中，請稍後再復原")
+        with database() as conn:
+            try:
+                result = undo_slot_transfer(conn, root_id, transfer_log_id)
                 result["item"] = _item_detail(conn, int(result["item_id"]))
                 return result
             except OrganizerConflict as exc:

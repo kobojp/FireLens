@@ -376,6 +376,33 @@ export type RenameHistoryRecord = {
   reverted_at: string | null
 }
 
+export type SlotTransferHistoryRecord = {
+  id: number
+  root_id: number
+  created_at: string
+  source_before: string
+  source_after: string
+  target_before: string | null
+  target_after: string | null
+  reverted_at: string | null
+}
+
+export type PhotoSlotTransferPreview = {
+  mode: 'move' | 'swap'
+  item_id: number
+  root_id: number
+  source_photo_id: number
+  target_photo_id: number | null
+  source_slot: string
+  target_slot: string
+  source_name: string
+  target_name: string
+  target_source_name: string | null
+  target_new_name: string | null
+  source_sha256: string
+  target_sha256: string | null
+}
+
 export type PhotoRenamePreview = {
   photo_id: number
   item_id: number

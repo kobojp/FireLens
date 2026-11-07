@@ -465,7 +465,7 @@ def _photo_row_for_rename(conn: sqlite3.Connection, photo_id: int) -> sqlite3.Ro
     row = conn.execute(
         """
         SELECT p.id, p.item_id, p.filename, p.relative_path, p.extension, p.sha256,
-               p.cloud_placeholder, i.root_id, i.relative_path AS item_relative_path,
+               p.slot, p.cloud_placeholder, i.root_id, i.relative_path AS item_relative_path,
                c.code AS category_code
         FROM photo AS p
         JOIN item AS i ON i.id=p.item_id

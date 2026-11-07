@@ -1,6 +1,6 @@
 # 滅火器燈具照片管理系統 任務文件
 
-狀態：**M0～M16 為歷史功能、M17 階段 A 開發中（僅部分功能已通過程式測試，尚未完成 Windows UI／打包驗收）**。目前版本 v1.8.0；尚未正式 Release。開發前還原點：Git commit 0f9bc7d / backup/pre-m17-20261107。歷史 v1.7.0 已正式發布至 GitHub Release。歷史 v1.6.0 與 v1.5.0 已正式發布至 GitHub Release。
+狀態：**M0～M16 為歷史功能、M17 階段 B 開發中（照片交換已通過合成測試，仍待 Windows UI／打包及 Drive 實機驗收）**。目前版本 v1.8.0；尚未正式 Release。開發前還原點：Git commit 0f9bc7d / backup/pre-m17-20261107。歷史 v1.7.0 已正式發布至 GitHub Release。歷史 v1.6.0 與 v1.5.0 已正式發布至 GitHub Release。
 M14 歷史開發版本：v1.6.0。
 M15 歷史開發版本：v1.6.1（PATCH，修正線上更新器實機失敗）。
 
@@ -708,6 +708,38 @@ M15 歷史開發版本：v1.6.1（PATCH，修正線上更新器實機失敗）�
 - [ ] Windows 11 實機 LINE → FireLens WebView2：確認 Ctrl+V、按鈕剪貼簿權限、圖片格式、檔案預覽／實際成功匯入及視窗交互；尚未看到實際輸出，不得宣稱實機通過。
 - [ ] Windows 剪貼簿狀態確定性：Clipboard API 權限拒絕／不支援時目前採漸進退化（狀態未知時不禁用按鈕，沒有支援圖片時才灰色）；若 WebView2 無法可靠辨識 LINE 來源，另實作 Windows 原生橋接與格式相容、DIB 轉換及針對性測試。
 - [ ] 貼上多照片與槽位衝突的視覺及 Windows UI 驗收、打包後 EXE self-test；未 GitHub push 或 Release。
+
+### 開發流程確認（2026-11-07）
+
+- [x] 使用者再次明確要求：**新功能必須先寫入 TASKS.md，確認任務與驗收條件，才可以修改程式。** 已在 `AGENTS.md` 增列開發前強制閘門。
+- [ ] 後續每項新需求嚴格依「先 TASKS → 後施工 → 測試 → 回寫 TASKS」執行，不得用事後補寫取代前置規劃。
+
+### M17 階段 B 施工單（2026-11-07，先寫 TASKS 再開發）
+
+本輪從尚未完成的「照片槽位間左右拖曳交換」開始，範圍限制同一 item、單張來源圖片與明確選定的目標槽位，不碰真實 Google Drive；已有 M11 未對應照片歸槽流程不重做。歷史章節的「尚未實作」為原始需求，請以本施工單驗收實情為準。
+
+- [x] 實作受控的「預覽移動／交換」資料模型與後端 API，只接受 photo_id、指定 slot、可選 target_photo_id；區分空槽移動與有照片交換，禁止跨設備、不合法槽位、名稱碰撞、佔位照片及離線。
+- [x] 實作雙照片安全交換與失敗回滾：保留原始副檔名及位元內容，以暫存路徑交換實際檔名；執行前再次驗證 SHA-256／預覽識別碼，失敗不留下混亂索引；稽核並提供安全復原或明確限制。
+- [x] 在照片牆加入明確的拖曳目標、確認對話框與取消；多張照片必須指定要交換哪張，不能隨機選；不修改 M11 舊制照片歸槽。
+- [x] 用合成 SQLite/檔案測試空槽移動、雙向交換、衝突、不同副檔名、取消、SHA-256 改變、掃描/離線防護及故障回滾。
+- [x] SQLite 由 v8→v9 增量 migration 與升級前備份，建立 `slot_transfer_log`；歷史紀錄可在重新開啟設備後找到未復原的交換，復原前比對兩張 SHA-256 與原始檔名是否衝突，重複復原拒絕。
+- [x] 合成失敗注入與保護驗證：空槽移動、雙照交換、不同副檔名、錯誤設備、SHA-256 變更拒絕、Google Drive 占位標記、掃描中保護、第二步 rename 故障回滾、回復原狀與 migration v8→v9 保留資料。
+- [x] 已通過 Ruff、pytest、Vitest、TypeScript／Vite、版本一致性；Windows `packaging/build.ps1` 最終 Exit Code 0，EXE／繁中 setup 及 portable／installed 更新 E2E 成功。
+- [ ] 尚待 pywebview 實機拖曳與 Google Drive 多人協作驗證；完成前不推送正式 Release。
+- [ ] 實機補驗收：UI 槽位多照片選擇、交換前兩張縮圖預覽、深淺色與 Esc／鍵盤，Windows 真正拖曳、Drive 同步時的跨電腦衝突；合成測試不等於 Google Drive 多人同時安全交易。
+
+### M17 階段 B 補充缺陷：Windows 更新交易狀態 JSON 偶發 WinError 5（先記錄後施工）
+
+2026-11-07 正式 Windows build 第二輪：EXE 與繁中 setup 編譯完成，但 installed update E2E 在 `desktop/update_protocol.py:atomic_write_json` 的 `os.replace(temp, transaction.json)` 遇到 `[WinError 5] 存取被拒`，交易進入 `rolled_back`，整體 build Exit Code 1。這可能是 Windows 檔案讀取器、更新器或安全軟體對 JSON 的短暫檔案鎖，不可未驗證就視為無害。**此施工單先於任何更新器修改寫入，僅修復狀態 JSON 原子替換的短暫競爭；不得降低 READY／HEALTHY 與 rollback 保護。**
+
+- [x] `atomic_write_json` 僅針對 Windows 短暫共享鎖錯誤（WinError 5／32／33，或對應 errno）在短時間內限次／限時重試 `os.replace`；其他錯誤立即拋出，維持先寫暫存、fsync、成功後原子替換、失敗清理 tmp。
+- [x] 單元測試：第一次替換遇 WinError 5、之後成功；持續錯誤超時後安全失敗；非鎖定類錯誤不重試、不產生半寫 JSON；重試過程不變更 transaction id／安全檢核。
+- [x] 重跑 `packaging/build.ps1`，必須看到真實 packaged `FireLens.exe` 啟動的 portable + Inno Setup installed READY／HEALTHY 與 rollback／故障注入 E2E 全部成功，且整體 Exit Code 0，才能標記完成。
+- [x] 初次重跑曾在 installed update 交易發生 WinError 5 並回滾；加入受限 retry 後再次重跑，真實打包 E2E PASS、最終 Exit Code 0；正式 GitHub push／Release 仍未執行。
+
+### M17 後續安全與相容性查核
+
+- [ ] 正式發布前檢查前端 npm audit 回報的 1 項 high severity 開發依賴漏洞及 Node 版本相容性；不得直接使用 npm audit fix --force 破壞 lockfile，需先辨識受影響套件、是否進入發佈 bundle，再規劃修補與回歸測試。
 
 ## 11. 完成條件
 

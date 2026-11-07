@@ -19,6 +19,7 @@ import type {
   ItemFolderCreate,
   IssueLabel,
   PhotoRenamePreview,
+  PhotoSlotTransferPreview,
   PhotoRecord,
   RootRecord,
   RootStatus,
@@ -52,6 +53,8 @@ function PhotoTile({
   onDelete,
   onMoveLeft,
   onMoveRight,
+  onTransfer,
+  canDrag,
 }: {
   photo: PhotoRecord
   slot: string
@@ -63,9 +66,16 @@ function PhotoTile({
   onDelete?: (photo: PhotoRecord) => void
   onMoveLeft?: (photoId: number) => void
   onMoveRight?: (photoId: number) => void
+  onTransfer?: (photo: PhotoRecord) => void
+  canDrag?: boolean
 }) {
   return (
-    <article className="photo-tile">
+    <article className="photo-tile" draggable={canDrag}
+      onDragStart={(event) => {
+        if (!canDrag) { event.preventDefault(); return }
+        event.dataTransfer.setData(INTERNAL_PHOTO_DRAG_TYPE, String(photo.id))
+        event.dataTransfer.effectAllowed = 'move'
+      }}>
       <button
         className="photo-preview-button"
         type="button"
@@ -99,6 +109,8 @@ function PhotoTile({
           {onRename && (
             <button type="button" className="secondary-button" onClick={() => onRename(photo)}>重新命名</button>
           )}
+          {onTransfer && <button type="button" className="secondary-button"
+            onClick={() => onTransfer(photo)}>移動／交換</button>}
           {onDelete && (
             <button type="button" className="danger-button" onClick={() => onDelete(photo)}>刪除</button>
           )}
@@ -119,6 +131,7 @@ function SlotCard({
   onReorder,
   onAssignExisting,
   onRename,
+  onTransfer,
   onError,
   onChooseSlot,
   onPasteImage,
@@ -135,6 +148,7 @@ function SlotCard({
   onReorder: (slot: string, photoIds: number[]) => void
   onAssignExisting: (slot: string, photoId: number) => void
   onRename: (photo: PhotoRecord) => void
+  onTransfer: (photo: PhotoRecord) => void
   onError: (message: string) => void
   onChooseSlot: (slot: string) => void
   onPasteImage: (slot: string) => void
@@ -238,6 +252,8 @@ function SlotCard({
               onPreview={onPreview}
               onReplace={onReplace}
               onRename={onRename}
+              onTransfer={!disabled && !photo.cloud_placeholder ? onTransfer : undefined}
+              canDrag={!disabled && !photo.cloud_placeholder}
               onDelete={onDelete}
               onMoveLeft={photos.length > 1 ? moveLeft : undefined}
               onMoveRight={photos.length > 1 ? moveRight : undefined}
@@ -282,6 +298,13 @@ export default function App() {
   const [pendingPaste, setPendingPaste] = useState<{ rootId: number, itemId: number, slot: string, file: File, previewUrl: string } | null>(null)
   const [photoToDelete, setPhotoToDelete] = useState<PhotoRecord | null>(null)
   const [renameDialog, setRenameDialog] = useState<RenameDialogState | null>(null)
+  const [lastTransfer, setLastTransfer] = useState<{ rootId: number, itemId: number, logId: number } | null>(null)
+  const [slotTransfer, setSlotTransfer] = useState<{
+    source: PhotoRecord
+    targetSlot: string
+    targetPhotoId: number | null
+    preview: PhotoSlotTransferPreview | null
+  } | null>(null)
   const [lastRename, setLastRename] = useState<{
     logId: number; itemId: number; rootId: number; source: string; target: string
   } | null>(null)
@@ -317,6 +340,22 @@ export default function App() {
     newItem.year,
     newItem.period,
   ])
+  useEffect(() => { setSlotTransfer(null) }, [item?.id, rootId])
+
+  useEffect(() => {
+    const selected = item
+    if (!selected || rootId === null) { setLastTransfer(null); return }
+    let active = true
+    setLastTransfer(null)
+    void api.recentSlotTransfers(selected.id).then((rows) => {
+      if (!active) return
+      const latest = rows.find((row) => !row.reverted_at)
+      setLastTransfer(latest ? { rootId: latest.root_id, itemId: selected.id, logId: latest.id } : null)
+    }).catch((err) => { if (active) setError(err instanceof Error ? err.message : '無法載入照片交換紀錄') })
+    return () => { active = false }
+  }, [item?.id, rootId])
+
+
   const orderedSlots = useMemo(() => {
     if (!item) return []
     const preferred = appSettings?.slot_order[item.category_code]
@@ -862,13 +901,83 @@ export default function App() {
     }
   }
 
+  async function previewTransfer(source: PhotoRecord, slot: string, targetId: number | null) {
+    if (!item || busy || scanRunning) return
+    setSlotTransfer({ source, targetSlot: slot, targetPhotoId: targetId, preview: null })
+    setError('')
+    try {
+      const preview = await api.previewSlotTransfer(source.id, slot, targetId)
+      if (preview.item_id !== item.id) throw new Error('設備已切換，請重新選擇')
+      setSlotTransfer((current) => current?.source.id === source.id &&
+        current.targetSlot === slot && current.targetPhotoId === targetId
+        ? { ...current, preview } : current)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '無法預覽交換照片')
+    }
+  }
+
+  function chooseTransferTarget(photo: PhotoRecord, targetSlot?: string) {
+    if (!item || !photo.slot || busy || scanRunning) return
+    const target = targetSlot ?? orderedSlots.find((slot) => slot !== photo.slot)
+    if (!target || target === photo.slot) return
+    const candidates = item.photos.filter((candidate) => candidate.slot === target)
+    setSlotTransfer({ source: photo, targetSlot: target, targetPhotoId: null, preview: null })
+    if (candidates.length <= 1) void previewTransfer(photo, target, candidates[0]?.id ?? null)
+  }
+
   function assignExistingToSlot(slot: string, photoId: number) {
     const photo = item?.photos.find((candidate) => candidate.id === photoId)
     if (!photo) {
       setError('找不到拖曳的照片，請重新整理後再試。')
       return
     }
+    if (photo.slot) {
+      if (photo.slot === slot) return
+      chooseTransferTarget(photo, slot)
+      return
+    }
     void preparePhotoRename(photo, `${slot}${photo.extension}`, `拖曳歸槽：${slot}`)
+  }
+
+  async function confirmSlotTransfer() {
+    const current = slotTransfer
+    if (!current?.preview || !item || current.preview.item_id !== item.id ||
+      busy || scanRunning) return
+    setBusy(true)
+    setError('')
+    try {
+      const result = await api.executeSlotTransfer(current.preview)
+      setItem(result.item)
+      if (rootId !== null) {
+        setLastTransfer({ rootId, itemId: result.item.id, logId: result.transfer_log_id })
+        await refreshTree(rootId)
+      }
+      setSlotTransfer(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '交換照片失敗')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function undoLastSlotTransfer() {
+    if (!lastTransfer || busy || scanRunning) return
+    if (rootId !== lastTransfer.rootId || item?.id !== lastTransfer.itemId) {
+      setLastTransfer(null)
+      return
+    }
+    setBusy(true)
+    setError('')
+    try {
+      const result = await api.undoSlotTransfer(lastTransfer.rootId, lastTransfer.logId)
+      setItem(result.item)
+      await refreshTree(lastTransfer.rootId)
+      setLastTransfer(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '無法安全復原照片交換')
+    } finally {
+      setBusy(false)
+    }
   }
 
   async function confirmPhotoRename() {
@@ -1266,6 +1375,11 @@ export default function App() {
                       ))}
                     </select>
                   </label>
+                  {lastTransfer?.rootId === rootId && lastTransfer?.itemId === item.id && (
+                    <button type="button" className="secondary-button"
+                      disabled={busy || scanRunning}
+                      onClick={() => void undoLastSlotTransfer()}>復原上次照片交換</button>
+                  )}
                   <button type="button" className="danger-button" onClick={() => setFolderToDelete(item)} disabled={busy || scanRunning}>
                     刪除
                   </button>
@@ -1291,6 +1405,7 @@ export default function App() {
                     onReorder={(targetSlot, photoIds) => void reorderSlotPhotos(targetSlot, photoIds)}
                     onAssignExisting={assignExistingToSlot}
                     onRename={openManualRename}
+                    onTransfer={(photo) => chooseTransferTarget(photo)}
                     onError={setError}
                     selectedForPaste={pasteSlot === slot}
                     onChooseSlot={setPasteSlot}
@@ -1407,6 +1522,62 @@ export default function App() {
             </div>
             <div className="preview-canvas">
               <img src={api.photoUrl(preview)} alt={preview.filename} style={{ transform: `scale(${zoom})` }} />
+            </div>
+          </section>
+        </div>
+      )}
+
+      {slotTransfer && item && (
+        <div className="preview-backdrop" onMouseDown={() => !busy && setSlotTransfer(null)}
+          onKeyDown={(event) => { if (event.key === 'Escape' && !busy) setSlotTransfer(null) }}>
+          <section className="prompt-dialog slot-transfer-dialog" role="dialog" aria-modal="true"
+            aria-label="確認照片移動或交換" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="prompt-header">確認照片移動／交換</div>
+            <div className="prompt-body">
+              <p>設備：<b>{item.code}</b></p>
+              <p>來源：<b>{slotTransfer.source.slot}／{slotTransfer.source.filename}</b></p>
+              <div className="transfer-images">
+                <figure><img className="transfer-thumb" src={api.thumbnailUrl(slotTransfer.source)}
+                  alt={slotTransfer.source.filename} /><figcaption>來源照片</figcaption></figure>
+                {item.photos.find((photo) => photo.id === slotTransfer.targetPhotoId) && (
+                  <figure><img className="transfer-thumb"
+                    src={api.thumbnailUrl(item.photos.find((photo) => photo.id === slotTransfer.targetPhotoId)!)}
+                    alt="欲交換的目的照片" /><figcaption>目的照片</figcaption></figure>
+                )}
+              </div>
+              <label>移到槽位
+                <select value={slotTransfer.targetSlot}
+                  onChange={(event) => chooseTransferTarget(slotTransfer.source, event.target.value)}>
+                  {orderedSlots.filter((slot) => slot !== slotTransfer.source.slot)
+                    .map((slot) => <option key={slot} value={slot}>{slot}</option>)}
+                </select>
+              </label>
+              {item.photos.filter((photo) => photo.slot === slotTransfer.targetSlot).length > 1 && (
+                <label>選擇要交換的目的照片
+                  <select value={slotTransfer.targetPhotoId ?? ''}
+                    onChange={(event) => void previewTransfer(slotTransfer.source,
+                      slotTransfer.targetSlot, Number(event.target.value))}>
+                    <option value="">請選擇照片</option>
+                    {item.photos.filter((photo) => photo.slot === slotTransfer.targetSlot)
+                      .map((photo) => <option key={photo.id} value={photo.id}>{photo.filename}</option>)}
+                  </select>
+                </label>
+              )}
+              {slotTransfer.preview && (
+                <div className="rename-preview-box safe">
+                  <p>{slotTransfer.preview.mode === 'swap' ? '交換兩張照片' : '移至空槽位'}</p>
+                  <p>{slotTransfer.preview.source_name} → {slotTransfer.preview.target_name}</p>
+                  {slotTransfer.preview.target_source_name && <p>
+                    {slotTransfer.preview.target_source_name} → {slotTransfer.preview.target_new_name}
+                  </p>}
+                  <small>執行前會再次驗證檔案內容及檔名，不會覆蓋其他照片。</small>
+                </div>
+              )}
+            </div>
+            <div className="prompt-footer">
+              <button type="button" disabled={busy} onClick={() => setSlotTransfer(null)}>取消</button>
+              <button type="button" className="primary-button" disabled={busy || !slotTransfer.preview}
+                onClick={() => void confirmSlotTransfer()}>確認移動／交換</button>
             </div>
           </section>
         </div>

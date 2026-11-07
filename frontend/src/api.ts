@@ -8,6 +8,8 @@ import type {
   RenameExecutionResult,
   RenameHistoryRecord,
   PhotoRenamePreview,
+  PhotoSlotTransferPreview,
+  SlotTransferHistoryRecord,
   PhotoRenameResult,
   RenamePreview,
   AliasRecord,
@@ -177,6 +179,26 @@ export const api = {
       reason,
     }),
   }),
+  previewSlotTransfer: (photoId: number, targetSlot: string, targetPhotoId?: number | null) =>
+    request<PhotoSlotTransferPreview>(`/api/photos/${photoId}/transfer/preview`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target_slot: targetSlot, target_photo_id: targetPhotoId ?? null }),
+    }),
+  executeSlotTransfer: (preview: PhotoSlotTransferPreview) =>
+    request<PhotoSlotTransferPreview & { item: ItemDetail, transfer_log_id: number }>(`/api/photos/${preview.source_photo_id}/transfer`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        target_slot: preview.target_slot, target_photo_id: preview.target_photo_id,
+        expected_source_sha256: preview.source_sha256,
+        expected_target_sha256: preview.target_sha256,
+      }),
+    }),
+  recentSlotTransfers: (itemId: number) =>
+    request<SlotTransferHistoryRecord[]>(`/api/items/${itemId}/slot-transfers`),
+  undoSlotTransfer: (rootId: number, logId: number) =>
+    request<{ reverted: boolean, transfer_log_id: number, item: ItemDetail }>(
+      `/api/slot-transfers/${rootId}/undo/${logId}`, { method: 'POST' },
+    ),
   reorderPhotos: (itemId: number, slot: string, photoIds: number[]) => request<ItemDetail>(`/api/items/${itemId}/slots/${encodeURIComponent(slot)}/reorder`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

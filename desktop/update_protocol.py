@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import os
 import re
 import tempfile
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -36,6 +38,19 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+REPLACE_RETRY_TIMEOUT = 2.5
+REPLACE_RETRY_INTERVAL = 0.05
+
+
+def _is_temporary_windows_lock(exc: OSError) -> bool:
+    if os.name != "nt":
+        return False
+    return getattr(exc, "winerror", None) in {5, 32, 33} or exc.errno in {
+        errno.EACCES,
+        errno.EBUSY,
+    }
+
+
 def atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, raw_temp = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
@@ -46,7 +61,15 @@ def atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
             stream.write("\n")
             stream.flush()
             os.fsync(stream.fileno())
-        os.replace(temp, path)
+        deadline = time.monotonic() + REPLACE_RETRY_TIMEOUT
+        while True:
+            try:
+                os.replace(temp, path)
+                break
+            except OSError as exc:
+                if not _is_temporary_windows_lock(exc) or time.monotonic() >= deadline:
+                    raise
+                time.sleep(REPLACE_RETRY_INTERVAL)
     finally:
         temp.unlink(missing_ok=True)
 
