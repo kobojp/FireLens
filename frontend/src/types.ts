@@ -108,6 +108,21 @@ export type PublicSheet = {
   url: string
   embed_url: string
 }
+export type PrivateDriveStatus = {
+  authenticated: boolean
+  login_state: 'idle' | 'pending' | 'success' | 'error'
+  error: string
+  folder_id: string
+  scopes: string[]
+}
+export type PrivateSheet = { id: string, name: string }
+export type PrivateTab = { id: number, title: string }
+export type PrivateValues = {
+  rows: string[][]
+  start_row: number
+  next_row: number | null
+}
+
 export type PublicSheetListing = {
   configured: boolean
   folder_id: string

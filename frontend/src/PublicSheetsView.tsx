@@ -1,102 +1,185 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { api } from './api'
-import { extractSheetId, PUBLIC_FOLDER_EMBED, PUBLIC_FOLDER_URL, sheetEmbedUrl, sheetUrl } from './publicSheets'
-import type { PublicSheetListing } from './types'
+import type { PrivateDriveStatus, PrivateSheet, PrivateTab, PrivateValues } from './types'
 
 export function PublicSheetsView() {
-  const [sheetListing, setSheetListing] = useState<PublicSheetListing | null>(null)
-  const [sheetLoading, setSheetLoading] = useState(false)
-  const [sheetError, setSheetError] = useState('')
-  const [sheetUrlDraft, setSheetUrlDraft] = useState('')
-  const [selectedSheet, setSelectedSheet] = useState<{ id: string, name: string } | null>(null)
-  const [showPublicFolder, setShowPublicFolder] = useState(false)
+  const [status, setStatus] = useState<PrivateDriveStatus | null>(null)
+  const [sheets, setSheets] = useState<PrivateSheet[]>([])
+  const [tabs, setTabs] = useState<PrivateTab[]>([])
+  const [selectedSheet, setSelectedSheet] = useState('')
+  const [selectedTab, setSelectedTab] = useState('')
+  const [data, setData] = useState<PrivateValues | null>(null)
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
 
-  async function loadPublicSheets() {
-    setSheetLoading(true)
-    setSheetError('')
+  const refreshStatus = useCallback(async () => {
     try {
-      const listing = await api.publicSheets()
-      setSheetListing(listing)
+      setStatus(await api.privateDriveStatus())
     } catch (err) {
-      setSheetError(err instanceof Error ? err.message : '無法讀取公開試算表清單')
-    } finally { setSheetLoading(false) }
+      setError(err instanceof Error ? err.message : '無法確認 Google 登入狀態')
+    }
+  }, [])
+
+  useEffect(() => { void refreshStatus() }, [refreshStatus])
+
+  useEffect(() => {
+    if (status?.login_state !== 'pending') return
+    const poll = window.setInterval(() => void refreshStatus(), 1500)
+    return () => window.clearInterval(poll)
+  }, [status?.login_state, refreshStatus])
+
+  useEffect(() => {
+    if (!status?.authenticated) {
+      setSheets([])
+      setTabs([])
+      setSelectedSheet('')
+      setSelectedTab('')
+      setData(null)
+    }
+  }, [status?.authenticated])
+
+  async function login() {
+    if (busy) return
+    setBusy(true)
+    setError('')
+    try {
+      await api.privateDriveLogin()
+      await refreshStatus()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Google 登入無法開始')
+    } finally { setBusy(false) }
   }
 
-  function useSheetLink() {
-    const id = extractSheetId(sheetUrlDraft)
-    if (!id) {
-      setSheetError('請貼上有效的 Google 試算表連結，格式為 https://docs.google.com/spreadsheets/d/...')
-      return
-    }
-    setSheetError('')
-    setSelectedSheet({ id, name: '手動指定的 Google 試算表' })
-    setShowPublicFolder(false)
+  async function logout() {
+    if (busy) return
+    setBusy(true)
+    setError('')
+    try {
+      const result = await api.privateDriveLogout()
+      await refreshStatus()
+      if (!result.remote_revocation_confirmed) {
+        setError('本機已登出，但 Google 遠端撤銷可能未完成；必要時請至 Google 帳號安全性頁面撤銷 FireLens。')
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '登出失敗')
+    } finally { setBusy(false) }
+  }
+
+  async function loadSheets() {
+    if (busy) return
+    setBusy(true)
+    setError('')
+    try {
+      setSheets(await api.privateDriveSheets())
+      setTabs([])
+      setSelectedSheet('')
+      setSelectedTab('')
+      setData(null)
+    } catch (err) { setError(err instanceof Error ? err.message : '無法載入私人試算表') }
+    finally { setBusy(false) }
+  }
+
+  async function chooseSheet(id: string) {
+    setSelectedSheet(id)
+    setSelectedTab('')
+    setTabs([])
+    setData(null)
+    if (!id) return
+    setBusy(true)
+    setError('')
+    try {
+      const response = await api.privateDriveTabs(id)
+      setTabs(response)
+    } catch (err) { setError(err instanceof Error ? err.message : '無法讀取工作表清單') }
+    finally { setBusy(false) }
+  }
+
+  async function loadValues(sheet: string, tab: string, row = 1) {
+    if (!sheet || !tab || busy) return
+    setBusy(true)
+    setError('')
+    setData(null)
+    try { setData(await api.privateDriveValues(sheet, tab, row)) }
+    catch (err) { setError(err instanceof Error ? err.message : '無法載入試算表資料') }
+    finally { setBusy(false) }
   }
 
   return (
-    <section className="settings-page" aria-label="查看滅火器資料">
-      <section className="panel-card settings-card public-sheets-card">
+    <section className="settings-page private-drive-page" aria-label="查看滅火器資料">
+      <section className="panel-card settings-card private-drive-card">
         <div className="panel-title">
-          <h2>查看滅火器更換資料</h2><span>Google Drive 公開試算表（唯讀）</span>
+          <h2>查看滅火器資料</h2>
+          <span>Google Drive 私人資料夾 · 唯讀</span>
         </div>
-        <p className="help-text">不需登入 Google 帳號；公開資料夾可直接查看。自動列出試算表需要在本機設定 Google Drive API Key，分享網址本身不等於 API 授權。</p>
-        <div className="public-sheet-actions">
-          <button type="button" className="secondary-button" disabled={sheetLoading}
-            onClick={() => void loadPublicSheets()}>{sheetLoading ? '查詢中…' : '重新整理試算表清單'}</button>
-          <button type="button" className="secondary-button"
-            onClick={() => { setShowPublicFolder(true); setSelectedSheet(null) }}>瀏覽公開資料夾</button>
-          <a href={PUBLIC_FOLDER_URL} target="_blank" rel="noopener noreferrer">在瀏覽器開啟 Google Drive</a>
+        <p className="help-text">資料夾已設為限制存取。只有 Google Drive 授權的帳號才能查看更換紀錄；登入會在系統瀏覽器完成，FireLens 不會取得你的 Google 密碼。</p>
+        {error && <p className="error-banner" role="alert">{error}</p>}
+        {status?.error && <p className="warning-banner" role="status">{status.error}</p>}
+        <div className="private-drive-auth">
+          {!status?.authenticated && (
+            <button type="button" className="primary-button"
+              disabled={busy || status?.login_state === 'pending'}
+              onClick={() => void login()}>
+              {status?.login_state === 'pending' ? '請在系統瀏覽器完成 Google 授權…' : '使用 Google 帳號登入'}
+            </button>
+          )}
+          {status?.login_state === 'pending' && (
+            <button type="button" onClick={() => void logout()} disabled={busy}>取消登入</button>
+          )}
+          {status?.authenticated && <>
+            <strong>Google 已授權 · 私人唯讀模式</strong>
+            <button type="button" disabled={busy} onClick={() => void loadSheets()}>重新整理試算表清單</button>
+            <button type="button" disabled={busy} onClick={() => void logout()}>登出 Google</button>
+          </>}
         </div>
-        {sheetError && <p role="alert" className="error-banner">{sheetError}</p>}
-        {sheetListing && !sheetListing.configured && (
-          <div className="warning-banner" role="status">
-            {sheetListing.message}
-            <span>Windows 可設定環境變數 <code>FIRELENS_DRIVE_API_KEY</code> 後重新啟動 FireLens，以開啟自動清單功能。</span>
-          </div>
+        {status?.authenticated && (
+          <>
+            <p className="help-text">只顯示指定資料夾中、此帳號有權限讀取的 Google 試算表。首次登入請按「重新整理試算表清單」。</p>
+            <label className="public-sheet-selector">選擇試算表（{sheets.length} 份）
+              <select value={selectedSheet} disabled={busy}
+                onChange={(event) => void chooseSheet(event.target.value)}>
+                <option value="">請選擇</option>
+                {sheets.map((sheet) => <option key={sheet.id} value={sheet.id}>{sheet.name}</option>)}
+              </select>
+            </label>
+            {!!selectedSheet && (
+              <label className="public-sheet-selector">工作表
+                <select value={selectedTab} disabled={busy}
+                  onChange={(event) => {
+                    setSelectedTab(event.target.value)
+                    void loadValues(selectedSheet, event.target.value)
+                  }}>
+                  <option value="">請選擇工作表</option>
+                  {tabs.map((tab) => <option value={tab.title} key={tab.id}>{tab.title}</option>)}
+                </select>
+              </label>
+            )}
+            {busy && <p role="status">正在讀取資料…</p>}
+            {data && (
+              <div className="private-sheet-table-wrap">
+                <table className="private-sheet-table">
+                  <tbody>
+                    {data.rows.map((row, idx) => (
+                      <tr key={idx}>
+                        <th scope="row">{data.start_row + idx}</th>
+                        {row.map((value, column) => <td key={column}>{value}</td>)}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {data.rows.length === 0 && <p className="help-text">這個範圍沒有資料。</p>}
+                <div className="private-sheet-pagination">
+                  <button type="button" disabled={busy || data.start_row === 1}
+                    onClick={() => void loadValues(selectedSheet, selectedTab, Math.max(1, data.start_row - 100))}>上一頁</button>
+                  <span>第 {data.start_row} 列起，每頁最多 100 列 × 30 欄</span>
+                  <button type="button" disabled={busy || data.next_row === null}
+                    onClick={() => void loadValues(selectedSheet, selectedTab, data.next_row!)}>下一頁</button>
+                </div>
+              </div>
+            )}
+          </>
         )}
-        {sheetListing?.configured && (
-          <label className="public-sheet-selector">選擇雲端試算表（{sheetListing.sheets.length} 份）
-            <select value={selectedSheet?.id ?? ''}
-              onChange={(event) => {
-                const found = sheetListing.sheets.find((entry) => entry.id === event.target.value)
-                setSelectedSheet(found ? { id: found.id, name: found.name } : null)
-                setShowPublicFolder(false)
-              }}>
-              <option value="">請選擇試算表</option>
-              {sheetListing.sheets.map((entry) => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
-            </select>
-            {sheetListing.truncated && <span>資料夾項目較多，清單只顯示前 500 筆掃描範圍。</span>}
-            {sheetListing.sheets.length === 0 && <span>資料夾中沒有可公開讀取的 Google 試算表。</span>}
-          </label>
-        )}
-        <div className="public-sheet-link-input">
-          <label>或直接貼上 Google 試算表網址
-            <input type="url" value={sheetUrlDraft} onChange={(event) => setSheetUrlDraft(event.target.value)}
-              placeholder="https://docs.google.com/spreadsheets/d/..." />
-          </label>
-          <button type="button" onClick={useSheetLink} disabled={!sheetUrlDraft.trim()}>查看試算表</button>
-        </div>
-        {selectedSheet && sheetUrl(selectedSheet.id) && (
-          <div className="public-sheet-preview">
-            <div className="public-sheet-preview-title">
-              <b>{selectedSheet.name}</b>
-              <a href={sheetUrl(selectedSheet.id)!} target="_blank" rel="noopener noreferrer">在瀏覽器開啟試算表</a>
-            </div>
-            <iframe title={'Google 試算表：' + selectedSheet.name} src={sheetEmbedUrl(selectedSheet.id)!}
-              referrerPolicy="no-referrer" loading="lazy" allowFullScreen />
-            <p className="help-text">若 Google 拒絕內嵌、顯示登入畫面或空白，請點「在瀏覽器開啟試算表」。</p>
-          </div>
-        )}
-        {showPublicFolder && (
-          <div className="public-sheet-preview">
-            <b>Google Drive 公開資料夾</b>
-            <iframe title="滅火器更換資料公開資料夾" src={PUBLIC_FOLDER_EMBED}
-              referrerPolicy="no-referrer" loading="lazy" />
-            <p className="help-text">此畫面是 Google 提供的資料夾嵌入檢視；若瀏覽器阻擋，請使用上方連結開啟。</p>
-          </div>
-        )}
+        <p className="help-text">Google 測試版 OAuth 授權可能需定期重新登入；若出現未驗證應用程式警告，請確認你在 Google Cloud 測試使用者名單，並只授權自己建立的 FireLens。</p>
       </section>
-
     </section>
   )
 }

@@ -30,7 +30,10 @@ class DesktopSecurityMiddleware(BaseHTTPMiddleware):
         if (
             self.enabled
             and request.url.path.startswith("/api/")
-            and request.method.upper() in MUTATING_METHODS
+            and (
+                request.method.upper() in MUTATING_METHODS
+                or request.url.path.startswith("/api/private-drive/")
+            )
         ):
             origin = request.headers.get("origin")
             if origin and not _loopback_origin(origin):

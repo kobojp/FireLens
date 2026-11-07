@@ -102,8 +102,8 @@ def test_public_drive_errors_return_safe_api_response(monkeypatch, tmp_path: Pat
     monkeypatch.setattr(public_sheets.urllib.request, "urlopen", forbidden)
     with TestClient(create_app()) as client:
         result = client.get("/api/public-sheets")
-    assert result.status_code == 502
-    assert "API Key" in result.json()["detail"]
+    # Public endpoint was intentionally retired once folder became restricted.
+    assert result.status_code == 404
     assert "synthetic-test-key" not in result.text
 
 

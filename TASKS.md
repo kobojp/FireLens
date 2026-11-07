@@ -666,7 +666,7 @@ M15 歷史開發版本：v1.6.1（PATCH，修正線上更新器實機失敗）�
 - [x] 樹狀資料夾新增懸停「＋」、右鍵操作及依層級建立視窗，並新增年份 API 與資料夾 catalog；沿用月份、棟別、設備新增 API。新測試對年份隔離資料夾驗證通過。
 - [ ] Windows pywebview 實機 UI 驗證：模態焦點／Esc、樹狀右鍵與新增路徑、深淺色對比、兩類匯出後真實開檔／Explorer。
 - [ ] Google Drive 同步多人異常紀錄與本機多版本備份、雲端誤刪恢復：**尚未接入現場同步，避免未處理衝突就上線**，需先完成合成多用戶端事件合併與復原測試。
-- [ ] Google Drive 公開資料夾試算表清單與內嵌「查看更換資料」：**尚未實作**；公開資料夾可用 Drive API Key（無需使用者 OAuth），但實際 API Key 尚未配置，需先完成唯讀列表、權限與嵌入失敗替代方案。
+- 歷史公開資料夾 API Key／iframe 需求：**已由使用者取消**，改以 M17 階段 D「限制存取 + Google OAuth」取代。
 - [x] 已執行版本一致性 v1.8.0 PASS、Ruff check PASS（排序修正後）、pytest 111 passed、Vitest 31 passed、TypeScript/Vite PASS、Windows EXE 與繁中 FireLens-1.8.0-setup.exe 正式 build Exit Code 0；打包後 self-test、portable/installer READY/HEALTHY、rollback/故障注入 E2E 均 PASS。
 - [ ] 尚待 Windows 實際操作 UI 完整驗收，及 Google Drive 兩項功能；未推送 GitHub 或 Release。
 - 原有各小節保留完整需求與驗收範圍，其「待實作／只討論」文字為原始需求記錄；以上階段紀錄為最新施工事實，只有完成測試及實機驗收後才可勾選剩餘項目。
@@ -741,7 +741,7 @@ M15 歷史開發版本：v1.6.1（PATCH，修正線上更新器實機失敗）�
 
 - [ ] 正式發布前檢查前端 npm audit 回報的 1 項 high severity 開發依賴漏洞及 Node 版本相容性；不得直接使用 npm audit fix --force 破壞 lockfile，需先辨識受影響套件、是否進入發佈 bundle，再規劃修補與回歸測試。
 
-### M17 階段 C 施工單（2026-11-07：Google Drive 公開試算表清單與內嵌瀏覽）
+### M17 階段 C 歷史紀錄（公開試算表清單，現由私人 OAuth 取代）
 
 使用者要在「設定」右側加入「查看滅火器更換資料」，來源為 https://drive.google.com/drive/folders/1iEgsrIVmFdwC4sgLjDWOZZSfA9-xNgpU?usp=drive_link，可從公開雲端資料夾挑選試算表、在應用內嵌閱讀，不需 OAuth／登入。官方 Drive 文件確認公開資料夾列檔仍需 **Google Cloud Drive API Key**（非 Google 帳號 OAuth）；尚未提供 Key。採可用的分階段唯讀方案：有金鑰列清單／選取／內嵌，沒金鑰可內嵌公開資料夾檢視及手動輸入試算表網址並顯示設定說明；不可假裝免金鑰也可透過 API 列清單。此施工單必須先寫入 TASKS 再改程式。
 
@@ -752,17 +752,49 @@ M15 歷史開發版本：v1.6.1（PATCH，修正線上更新器實機失敗）�
 - [x] 合成 HTTP 回應測試：公開資料夾多頁、只有 Sheets、惡意 ID 與名稱、無 Key、403／404／429／逾時；前端正常清單選擇／網址解析測試、深淺色排版與連結安全。
 - [x] 程式驗證：Ruff PASS、pytest 125 passed、Vitest 36 passed、TypeScript／Vite PASS、v1.8.0 一致性 PASS。
 - [x] Windows EXE／繁中 setup 正式建置及更新器 portable／installed E2E（READY／HEALTHY、rollback、故障注入）全部通過，packaging/build.ps1 Exit Code 0。
-- [ ] 未取得真實 Drive API Key 或 WebView2 實機畫面前不標記實際公開清單或 iframe 已驗收，不 GitHub push／Release。
-- [ ] 實機待驗：使用真實 Google Drive API Key 列出指定資料夾實際 Sheets；公開資料夾／特定 Sheet iframe 在 WebView2 中是否允許顯示。若 Google 拒絕 iframe，保留「外部開啟」入口。
+- 歷史公開資料夾測試驗收：**已取消**，改驗證限制存取 OAuth 私人清單及表格讀取。
+- 歷史公開 API Key／iframe 實機待驗：**已取消**，不再是當前驗收條件。
 
-### M17 階段 C 修正：查看滅火器資料應為「設定」右側的獨立導覽分頁（2026-11-07）
+### M17 階段 C 歷史頁籤修正（位置保留，內容改用 OAuth）
 
 使用者最新截圖圈出上方導覽列「設定」右側空白，明確要求不是放在設定頁裡，名稱改為「查看滅火器資料」。本任務在改程式碼前先寫 TASKS。原有 Google Drive 唯讀列檔／手動 Sheets URL／內嵌及外部開啟能力要完整移至獨立頁，不能重做後端、不能留重複入口。
 - [x] 導覽列在「設定」右側新增「查看滅火器資料」頁籤，點擊後直接看到原先 Google Drive 公開試算表查看介面；「設定」恢復純系統設定，不放此功能。
 - [x] 抽出獨立 React View，完整保留公開資料夾、試算表下拉、手動 URL、唯讀 iframe 與外部開啟、安全 URL 過濾，排版支援較窄視窗及深淺色；不得把 Google Key 或 token 顯示在前端。
 - [x] 釐清 Google 登入 OAuth 與 API Key：OAuth Windows 桌面需 Google Cloud OAuth Client ID、同意畫面、Google Drive API，仍非「免設定 API」；若未提供合法 client 設定，先保留現有公開唯讀方案，不虛構登入入口。後續如要 OAuth，另寫獨立施工單，採只讀最小 scope、系統瀏覽器 PKCE／loopback、權杖安全儲存及登出。
 - [x] Ruff、pytest（125 passed）、Vitest（36 passed）、TypeScript/Vite、版本一致性、Windows EXE／繁中 setup、更新器 portable／installer E2E 全部通過，packaging/build.ps1 Exit Code 0；文件已同步。
-- [ ] 真實 Google Drive 權限／試算表內嵌顯示在 WebView2 實機驗收；本輪不推送 GitHub Release。
+- 歷史 iframe 真實權限驗收：**已取消**，改為階段 D Google OAuth 實機驗收。
+
+### M17 階段 D 新需求：限制存取 Google Drive + Google OAuth 2.0 私人試算表（2026-11-07）
+
+使用者已親自在 Google Drive 將資料夾 `1iEgsrIVmFdwC4sgLjDWOZZSfA9-xNgpU` 改為「限制存取」，不希望未受邀者看到消防更換紀錄。**先在 TASKS 記錄此次需求與風險，才開始開發，原有公開 API Key 清單和匿名 iframe 機制不再適合作為正式私人存取流程。** 已存在的「查看滅火器資料」獨立頂部分頁保留；此段記錄原始需求；程式實作與未驗收項目請見下方本輪施工單。
+
+- [ ] Google Cloud 配置：建立/選擇專案、啟用 Drive API 與 Sheets API、完成 OAuth 同意畫面（internal/external 依使用者 Google 帳號與組織限制判斷），建立 **Desktop app OAuth Client ID**；Client ID 可列於非敏感設定，但不可將 refresh/access token 寫入 Git 或一般明文設定。使用者需在 Google 同意頁自行授權，不得要求提供帳密。
+- [x] Windows OAuth 登入：系統預設瀏覽器開啟授權碼流程 + PKCE（S256）+ 本機 loopback callback／state／nonce 或符合官方桌面應用規範的回呼；短時憑證、取消授權、拒絕、逾時、離線和多視窗併發均安全處理，不用 pywebview iframe 蒐集 Google 密碼。
+- [x] 權限最小化：預設唯讀，優先評估 `drive.file` 搭配 Google Picker 的檔案選取能力；若需求必須直接列出受邀私人資料夾所有試算表，依 Google 官方 scope 定義評估 `drive.metadata.readonly`／`drive.readonly` 以及 Sheets 的唯讀 scope、Google 敏感／受限制權限驗證成本；沒有適用 scope 不得擅自擴大授權。
+- [x] 登入後僅對已授權帳號及目標資料夾執行分頁列檔；遭 401／403／404、權限被撤銷、token 過期時即時拒絕並提供重新登入／刷新；不得退回公開清單或將未授權的私人 Sheet 網址曝露給其他人。
+- [x] 不依賴私人 Sheets iframe 登入狀態（WebView2 第三方 Cookie／X-Frame-Options 可能限制），應以 Google Sheets API 唯讀取值並由 React 繪製表格；欄列上限、分頁、公式/超連結防注入、載入與錯誤提示、完整資料不意外寫入日誌。
+- [x] 安全儲存憑證：優先 Windows Credential Manager／DPAPI 以使用者身分加密，明確登出／撤銷與清除快取；每人獨立帳號與憑證，不與其他 Windows 使用者或 Google Drive 同步資料夾共享。
+- [ ] 驗收：僅受邀 Google 帳號可登入讀取；非授權帳號、已移除權限者無法列檔/讀值；token 續期、取消、登出、多帳號、無網路；以合成 HTTP + Windows 實機流程測試；完成前不得宣稱已安全連線至私人資料夾。
+- [x] 修改時沿用 `AGENTS.md` 先 TASKS 後施工規範，完成後執行 Ruff、pytest、Vitest、Vite、版本一致性、Windows EXE／setup 和更新器 E2E；同步文件，經使用者驗收才正式推送 Release。
+- [x] **施工前必要依賴（Desktop Client ID 已取得）**：取得使用者自行建立的 Google Cloud OAuth Desktop Client ID／應用程式同意畫面狀態；在缺少配置前可用合成憑證開發與測試流程，但**不得**聲稱真實 Google OAuth 已完成，也不要求使用者傳送 Client Secret 或任何 Token 至聊天室。
+
+### M17 階段 D 本輪施工單（已取得 Desktop OAuth Client ID，2026-11-07）
+本節的 [x] 表示**程式與合成自動驗證通過**，不代表真實帳號已完成 OAuth 授權。Google Cloud Drive/Sheets API 啟用、同意畫面權限與真實登入仍待使用者端確認。
+
+
+- [x] 使用固定 Desktop Client ID（非秘密、禁止寫入 Token），於 Windows 系統瀏覽器執行 OAuth 授權碼 + PKCE S256 + 隨機 state + 本機 IPv4 loopback 回呼，取消、逾時與重複登入安全處理；不能要求 Client Secret、不可透過內嵌 WebView 收集 Google 密碼。
+- [x] 限制存取資料夾的授權狀態、Sheets 清單／工作表／有限範圍值的只讀 API；Google Drive Metadata readonly 和 Google Sheets readonly scope 需在同意畫面宣告，並註明 Drive metadata 是 restricted scope。對 401/403/404、撤銷與離線顯示安全錯誤，不得匿名退回舊公開端點。
+- [x] Windows DPAPI 使用者綁定加密 token 儲存與安全清除；登出時撤銷權杖（網路失敗時仍清除本機），不得存於 Git、資料夾同步區或回傳 UI。
+- [x] 上方獨立「查看滅火器資料」分頁改為登入／登出、試算表下拉、工作表選取、React 唯讀表格；移除公開資料夾 iframe/匿名模式與 API Key 提示，且 API 不接受任意私人 Sheet ID；所有表格內容當文字顯示，限制欄列與回應大小。
+- [x] 合成 OAuth/Token/Drive/Sheets HTTP 錯誤、狀態比對、PKCE、資料範圍、未授權阻擋、token 存取與 logout 測試；再跑 Ruff、pytest、Vitest、TS/Vite、版本一致性及 Windows 打包／更新器 E2E。
+- [x] 本輪合成驗證：Windows DPAPI 加密檔不含明文 Token、callback state 及 PKCE 隨機挑戰、OAuth scope 不足拒絕、過期 Token 更新、未登入/跨來源/缺桌面 cookie 被拒、受限資料夾列檔與 Sheets API 值讀取；Python 134 passed、Vitest 36 passed、Ruff 和 TypeScript/Vite PASS、v1.8.0 版本一致性 PASS。
+- [x] Windows EXE／繁中 setup／更新器 portable 和 installed E2E／READY、HEALTHY、rollback、故障注入通過，packaging/build.ps1 Exit Code 0；Graphify 重建 796 nodes／1886 edges／55 communities，產物只保留本機不納入 Git。
+- [ ] 真實 Google OAuth 登入與限制資料夾實機權限驗證由使用者在自己的 Windows 登入授權；未親自驗證前不標為已驗證、不推 GitHub Release。若 Google OAuth 測試應用 7 天重新授權或權限驗證限制，必須清楚顯示。
+
+### M17 階段 D 補充安全閘門（私人試算表本機讀取保護）
+
+- [x] 在 Windows 正式桌面安全模式下，所有 `/api/private-drive/` GET／POST 都需要既有 HttpOnly 桌面 session cookie，且不接受非 loopback Origin；不能因 GET 原本不屬於修改操作就允許未持有工作階段的程序讀取私人 Sheet。
+- [x] 合成安全測試驗證無 cookie 私人 API 拒絕、已有桌面 session 可查看登入狀態、未登入時仍不能讀取 Sheets；不影響一般 `/api/health`／初始化頁面建立 session 的流程。
 
 ## 11. 完成條件
 

@@ -36,7 +36,10 @@ import type {
   ItemIssue,
   IssueStatistics,
   ExportSaveResult,
-  PublicSheetListing,
+  PrivateDriveStatus,
+  PrivateSheet,
+  PrivateTab,
+  PrivateValues,
 } from './types'
 
 export class ApiError extends Error {
@@ -60,7 +63,22 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   settings: () => request<AppSettings>('/api/settings'),
-  publicSheets: () => request<PublicSheetListing>('/api/public-sheets'),
+  privateDriveStatus: () => request<PrivateDriveStatus>('/api/private-drive/status'),
+  privateDriveLogin: () => request<{ started: boolean, message: string }>('/api/private-drive/login', {
+    method: 'POST',
+  }),
+  privateDriveLogout: () => request<{ logged_out: boolean, remote_revocation_confirmed: boolean }>(
+    '/api/private-drive/logout', { method: 'POST' },
+  ),
+  privateDriveSheets: () => request<PrivateSheet[]>('/api/private-drive/sheets'),
+  privateDriveTabs: (sheetId: string) =>
+    request<PrivateTab[]>(`/api/private-drive/sheets/${encodeURIComponent(sheetId)}/tabs`),
+  privateDriveValues: (sheetId: string, tab: string, row = 1) =>
+    request<PrivateValues>(
+      `/api/private-drive/sheets/${encodeURIComponent(sheetId)}/values?${new URLSearchParams({
+        tab, start_row: String(row),
+      })}`,
+    ),
   saveSettings: (settings: AppSettings) => request<AppSettings>('/api/settings', {
     method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(settings),
   }),

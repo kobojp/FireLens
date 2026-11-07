@@ -54,7 +54,7 @@ from .organizer import (
     undo_rename,
 )
 from .photo_transfer import execute_slot_transfer, preview_slot_transfer, undo_slot_transfer
-from .public_sheets import PublicSheetError, list_public_sheets
+from .private_drive import PrivateDriveError, PrivateDriveService
 from .reconcile import (
     ReconcileError,
     build_reconciliation,
@@ -274,6 +274,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(title="FireLens API", version=__version__, lifespan=lifespan)
     export_registry = ExportRegistry()
+    private_drive = PrivateDriveService()
     app.add_middleware(DesktopSecurityMiddleware)
     app.add_middleware(RequestLoggingMiddleware)
     app.add_middleware(
@@ -294,12 +295,45 @@ def create_app() -> FastAPI:
     def health() -> dict[str, str]:
         return {"status": "ok"}
 
-    @app.get("/api/public-sheets")
-    def public_sheets() -> dict[str, object]:
+    @app.get("/api/private-drive/status")
+    def drive_auth_status() -> dict[str, object]:
+        return private_drive.status()
+
+    @app.post("/api/private-drive/login")
+    def drive_auth_login() -> dict[str, object]:
         try:
-            return list_public_sheets()
-        except PublicSheetError as exc:
-            raise HTTPException(status_code=502, detail=str(exc)) from exc
+            return private_drive.login()
+        except PrivateDriveError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    @app.post("/api/private-drive/logout")
+    def drive_auth_logout() -> dict[str, object]:
+        return private_drive.logout()
+
+    @app.get("/api/private-drive/sheets")
+    def drive_private_sheets() -> list[dict[str, str]]:
+        try:
+            return private_drive.sheets()
+        except PrivateDriveError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    @app.get("/api/private-drive/sheets/{sheet_id}/tabs")
+    def drive_private_sheet_tabs(sheet_id: str) -> list[dict[str, str | int]]:
+        try:
+            return private_drive.sheet_tabs(sheet_id)
+        except PrivateDriveError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    @app.get("/api/private-drive/sheets/{sheet_id}/values")
+    def drive_private_sheet_values(
+        sheet_id: str,
+        tab: str = Query(min_length=1, max_length=200),
+        start_row: int = Query(default=1, ge=1, le=100000),
+    ) -> dict[str, object]:
+        try:
+            return private_drive.values(sheet_id, tab, start_row)
+        except PrivateDriveError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
     @app.get("/api/roots")
     def list_roots() -> list[dict[str, object]]:

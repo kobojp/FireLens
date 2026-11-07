@@ -21,13 +21,17 @@ FireLens 是一套以 Windows 桌面環境為主的消防設備照片管理工�
 - Windows pywebview / WebView2 桌面介面
 - PyInstaller x64 打包
 
-## Google Drive 公開更換資料
+## Google Drive 限制存取更換資料（OAuth 唯讀）
 
-在上方導覽列「設定」右側的獨立「查看滅火器資料」頁籤，可以開啟公開 Google Drive 資料夾、輸入公開 Google 試算表網址並嘗試內嵌閱讀。若 Google 限制 iframe，可使用「在瀏覽器開啟」。
+使用者已把目標 Google Drive 資料夾設為「限制存取」。上方導覽列「設定」右側的「查看滅火器資料」獨立頁籤，改用 **FireLens Desktop OAuth**：
+1. 在 Google Cloud 專案啟用 **Google Drive API**、**Google Sheets API**；設定 OAuth 同意畫面的「外部／測試」、加入使用者自己的 Google 帳號為測試使用者。
+2. 在 Google Auth Platform **Data Access / 資料存取**設定 `https://www.googleapis.com/auth/drive.metadata.readonly` 和 `https://www.googleapis.com/auth/spreadsheets.readonly`。前者屬 restricted scope，後者為 sensitive scope，未來公開給其他人使用前需要評估驗證限制。因需直接列出已共用私人資料夾的所有 Sheet，目前不採無法列出所有檔案的 `drive.file` 權限。
+3. FireLens 內點「使用 Google 帳號登入」，系統瀏覽器會顯示 Google 授權頁；完成後回到 FireLens，點重新整理清單，選試算表、工作表，以 React 唯讀表格瀏覽（每頁最多 100 列、30 欄）。
+4. 只受邀帳號能讀取私人資料。可隨時按「登出 Google」清除本機加密 Token；網路正常時會嘗試遠端撤銷授權。使用者密碼、Token 和內容均不放 GitHub。
 
-自動列出資料夾所有 Google 試算表需有 Google Cloud 專案的 Drive API Key，不需要使用者 Google OAuth 登入。設定 Windows 環境變數 `FIRELENS_DRIVE_API_KEY` 後重新啟動 FireLens，再按「重新整理試算表清單」；建議限制 API Key 的 Drive API 使用權與配額，不要提交金鑰到 Git。資料夾與試算表只讀取，不會修改雲端內容。
+FireLens 使用 OAuth **Desktop Client ID**（公開識別碼），不需要將 Client Secret 提交給專案。採 Windows DPAPI 將 Token 加密到使用者的 LocalAppData。舊公開 API Key、自動公開清單與 iframe 模式均已停用。Google OAuth 測試模式的授權可能在數天後需要重新登入。
 
-目前 v1.8.0 開發版尚待真實公開資料夾金鑰與 WebView2 的內嵌顯示驗收。
+**狀態：** v1.8.0 開發版目前已通過合成 OAuth／API 測試，**尚未**經使用者本機真實 Google 帳號、私人資料夾權限驗收，不得宣稱正式上線。
 
 ## 清冊核對
 

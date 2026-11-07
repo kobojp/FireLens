@@ -583,3 +583,18 @@ html[data-theme="dark"] .public-sheet-actions a, html[data-theme="dark"] .public
 /* Standalone public sheet tab, next to settings */
 .mode-tabs { flex-wrap: wrap; }
 .mode-tabs button { white-space: nowrap; }
+
+
+/* Private read-only Google Sheets viewer */
+.private-drive-auth { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.private-drive-auth button { border: 1px solid #aab6c2; border-radius: 7px; padding: 9px 16px; }
+.private-drive-card { min-width: 0; }
+.private-sheet-table-wrap { border: 1px solid #c7cdd5; border-radius: 9px; overflow: auto; max-height: 70vh; }
+.private-sheet-table { border-collapse: separate; border-spacing: 0; font-size: 13px; white-space: pre-wrap; min-width: 100%; }
+.private-sheet-table :is(th, td) { border-bottom: 1px solid #dce1e7; border-right: 1px solid #dce1e7; padding: 7px 10px; max-width: 350px; min-width: 95px; vertical-align: top; overflow-wrap: anywhere; }
+.private-sheet-table th { position: sticky; left: 0; background: #eef2f6; font-variant-numeric: tabular-nums; min-width: 46px; text-align: right; }
+.private-sheet-pagination { display: flex; gap: 10px; justify-content: space-between; align-items: center; padding: 10px; font-size: 12px; }
+.private-sheet-pagination button { border: 1px solid #adb7c2; border-radius: 6px; padding: 7px 10px; }
+html[data-theme="dark"] .private-sheet-table th { background: #374352; color: #edf2f9; }
+html[data-theme="dark"] .private-sheet-table :is(th,td) { border-color: #596878; }
+@media (prefers-color-scheme: dark) { html:not([data-theme]) .private-sheet-table th { background: #374352; color: #edf2f9; } }

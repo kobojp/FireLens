@@ -146,12 +146,15 @@ TASKS.md            需求與里程碑
 - 多步改名必須使用不覆蓋的暫存檔名與反向復原，更新 SQLite 索引、audit_log 與 slot_transfer_log；Schema v9 migration 必須於升級前備份舊資料庫，後續不可破壞性重建既有資料。
 - 使用者可從本機交換紀錄復原，但復原前必須重驗原檔是否已由其他人修改／占用；Google Drive 桌面同步不是跨電腦交易鎖，正式多人協作安全性不能只靠本地 rollback 測試宣稱驗證。
 
-## M17 公開 Google Drive 試算表唯讀限制
+## M17 Google Drive 限制存取與 OAuth 唯讀規則
 
-- Google OAuth 桌面登入不是免設定 API 的替代捷徑：仍須 Google Cloud OAuth Client ID、同意畫面、Drive API 與相應 scope。未有合法 client 設定及相應安全測試前，不能放假登入按鈕；若日後實作需先在 TASKS 加施工單，採系統瀏覽器 PKCE／loopback、最小範圍與安全權杖儲存／登出。
-- 公開分享 Google Drive 資料夾的試算表清單使用 Google Drive v3 `files.list` 及本機環境變數 `FIRELENS_DRIVE_API_KEY`，不是使用者 OAuth。未配置金鑰時不得宣稱能自動列檔，須顯示公開資料夾／特定試算表網址後備方案。
-- 試算表內嵌與外部連結僅限 Google `docs.google.com/spreadsheets/d/<ID>` 之有效 ID；不可把任意使用者輸入 URL 直接當 iframe src。後端代理只可請求固定的 `www.googleapis.com/drive/v3/files`，對結果限筆數、逾時及 Google Sheet MIME 過濾，禁止列出其他類型內容或使用 API 金鑰於 UI／日誌。
-- 這項功能永遠唯讀，不存 Google 帳號／密碼、不修改檔案或權限；Google iframe 可能因提供方限制而拒絕顯示，需保留外部開啟且不得假裝嵌入實機已驗收。
+- 上方「查看滅火器資料」頁籤僅允許使用 Google Desktop OAuth 身分讀取已限制存取的特定 Drive 資料夾；舊公開 API Key／匿名 iframe 與手動網址存取已停用，絕不在授權失敗時自動退回公開模式。
+- 使用 Google 官方桌面 OAuth 授權碼、PKCE S256、隨機 state 與系統瀏覽器 loopback callback；不使用內嵌 WebView 蒐集 Google 登入資訊，不需 Client Secret。已設定的 Client ID 為公開識別碼，Google 帳號密碼／Access Token／Refresh Token 絕不可寫入 Git、UI、一般日誌或同步資料夾。
+- 為了「列出私人資料夾裡所有 Sheets」且唯讀，使用 Google Drive `drive.metadata.readonly`（**restricted scope**）及 Sheets `spreadsheets.readonly`（sensitive scope），只顯示指定資料夾內有權限的清單。正式發佈前須確認同意畫面 Data Access scopes、測試使用者與 Google 驗證要求；若採 Google Picker／drive.file 改造也要先寫新 TASKS。
+- 在本機讀取 Google API 僅限官方 HTTPS 網域、固定目標資料夾、有限的頁數／表格列數和大小；禁止任意 spreadsheet ID 繞過清單權限檢查。Google 表格內容以 React 純文字顯示，不能插入 HTML。
+- OAuth Refresh Token 以 Windows 使用者 DPAPI 加密，儲存在使用者本機 LocalAppData，不與同步相片、SQLite 內容共享；登出立即清除本機存檔，遠端撤銷若因網路失敗須清楚提醒。Google 測試版授權可能有期限限制。
+- Windows 正式桌面安全模式下，所有私人 Google API（讀取 GET 或寫入 POST）必須具備 FireLens 原有 HttpOnly session cookie，並拒絕非 loopback Origin；不以「GET 不修改資料」為由放寬私人資料存取。
+- 任何「真實 Google 登入、私人資料夾列檔、讀取」之完成宣稱，都需本人 Windows 環境實機授權與驗收；合成 HTTP 測試只能證明程式邏輯，不代表真實帳號連線成功。
 
 ## M17 圖片剪貼簿匯入安全規則
 
@@ -163,7 +166,7 @@ TASKS.md            需求與里程碑
 - FastAPI 內部服務只綁 loopback 隨機埠。
 - 保留 session cookie、Host、Origin 檢查。
 - SQLite 為各台 Windows 電腦本機索引，不允許多台電腦直接共同寫入同一 SQLite；Google Drive 共用異常紀錄需等到獨立事件合併、衝突偵測及多版本備份通過驗證後才可開啟。
-- 錯誤訊息使用繁體中文；日誌寫 `%LOCALAPPDATA%\<應用名>\logs\`。
+- 錯誤訊息使用繁體中文；日誌寫 `%LOCALAPPDATA%\<應用名>\logs`。
 - 線上更新 UI 可以簡化成一鍵流程，但不得降低安全鏈：正式 Release 必須通過 Ed25519 manifest 簽章、版本／檔名／大小、SHA-256 與下載後 EXE self-test；真正替換 EXE 前 `schedule_install` 還必須再次驗證本機 manifest 簽章、檔案 SHA-256 與 EXE self-test。
 - 更新下載／驗證同時間只允許一個工作；任一階段失敗或使用者取消最終確認時不得關閉或替換目前 EXE。正式安裝版線上更新不得修改 `{app}\data`、`.firelens-installed` 或安裝資訊；沒有 installer marker 的 portable/raw EXE 仍維持既有 LocalAppData DB 相容路徑。
 - 正式線上更新必須由獨立 `FireLensUpdater.exe` 執行替換；主程式只有在 transaction-bound `ready` handshake 驗證成功後才可退出，禁止恢復成「啟動背景程序後固定延遲、無條件 `os._exit`」的舊同步方式。PyInstaller one-file 的 bootloader PID 與 Python helper PID 可能不同，不得以兩者必須相等作為 READY 判定。
