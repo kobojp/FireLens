@@ -23,7 +23,7 @@ FireLens 是一套以 Windows 桌面環境為主的消防設備照片管理工�
 
 ## Google Drive 公開更換資料
 
-在「設定 → 查看滅火器更換資料」可以開啟公開 Google Drive 資料夾、輸入公開 Google 試算表網址並嘗試內嵌閱讀。若 Google 限制 iframe，可使用「在瀏覽器開啟」。
+在上方導覽列「設定」右側的獨立「查看滅火器資料」頁籤，可以開啟公開 Google Drive 資料夾、輸入公開 Google 試算表網址並嘗試內嵌閱讀。若 Google 限制 iframe，可使用「在瀏覽器開啟」。
 
 自動列出資料夾所有 Google 試算表需有 Google Cloud 專案的 Drive API Key，不需要使用者 Google OAuth 登入。設定 Windows 環境變數 `FIRELENS_DRIVE_API_KEY` 後重新啟動 FireLens，再按「重新整理試算表清單」；建議限制 API Key 的 Drive API 使用權與配額，不要提交金鑰到 Git。資料夾與試算表只讀取，不會修改雲端內容。
 

@@ -579,3 +579,7 @@ html[data-theme="dark"] .public-sheet-actions a, html[data-theme="dark"] .public
   html:not([data-theme]) .public-sheet-selector select, html:not([data-theme]) .public-sheet-link-input input { background: #2b3440; color: #f2f6fa; border-color: #637485; }
   html:not([data-theme]) .public-sheet-actions a, html:not([data-theme]) .public-sheet-preview-title a { color: #8fc5ff; }
 }
+
+/* Standalone public sheet tab, next to settings */
+.mode-tabs { flex-wrap: wrap; }
+.mode-tabs button { white-space: nowrap; }

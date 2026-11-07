@@ -10,6 +10,7 @@ import type { TreeCreatePath } from './TreeView'
 import { ReconcileView } from './ReconcileView'
 import { OrganizerView } from './OrganizerView'
 import { SettingsView } from './SettingsView'
+import { PublicSheetsView } from './PublicSheetsView'
 import { StatisticsView } from './StatisticsView'
 import { filterTree } from './treeSearch'
 import { normalizeQuickCreate, quickCreateOptions } from './quickCreate'
@@ -315,7 +316,7 @@ export default function App() {
   const [issueLabels, setIssueLabels] = useState<IssueLabel[]>([])
   const [issueSelection, setIssueSelection] = useState<number | null>(null)
   const [zoom, setZoom] = useState(1)
-  const [view, setView] = useState<'browse' | 'reconcile' | 'statistics' | 'organizer' | 'settings'>('browse')
+  const [view, setView] = useState<'browse' | 'reconcile' | 'statistics' | 'organizer' | 'settings' | 'publicSheets'>('browse')
   const [rootStatusInfo, setRootStatusInfo] = useState<RootStatus | null>(null)
   const [offlineQueue, setOfflineQueue] = useState<OfflineQueueEntry[]>([])
   const [cacheMessage, setCacheMessage] = useState('')
@@ -1214,6 +1215,7 @@ export default function App() {
         <button type="button" className={view === 'statistics' ? 'active' : ''} onClick={() => setView('statistics')}>異常統計</button>
         <button type="button" className={view === 'organizer' ? 'active' : ''} onClick={() => setView('organizer')}>整理工具</button>
         <button type="button" className={view === 'settings' ? 'active' : ''} onClick={() => setView('settings')}>設定</button>
+        <button type="button" className={view === 'publicSheets' ? 'active' : ''} onClick={() => setView('publicSheets')}>查看滅火器資料</button>
       </nav>
 
       {view === 'browse' ? (
@@ -1662,6 +1664,8 @@ export default function App() {
         />
       ) : view === 'organizer' ? (
         <OrganizerView roots={roots} defaultRootId={rootId} />
+      ) : view === 'publicSheets' ? (
+        <PublicSheetsView />
       ) : (
         <SettingsView
           roots={roots}
