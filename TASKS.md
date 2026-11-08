@@ -1,8 +1,16 @@
 # 滅火器燈具照片管理系統 任務文件
 
-狀態：**M0～M16 為歷史功能；M17 第 4 項安全備註匹配與第 5 項多人異常事件同步／本機備份已通過合成／回歸測試及 Windows 打包；真實 Google Drive 兩機驗收待確認；先前功能仍各有實機待驗收項目**。目前版本 v1.8.0；尚未正式 Release。開發前還原點：Git commit 0f9bc7d / backup/pre-m17-20261107。歷史 v1.7.0 已正式發布至 GitHub Release。歷史 v1.6.0 與 v1.5.0 已正式發布至 GitHub Release。
+狀態：**M0～M16 為歷史功能；M17 第 4 項安全備註匹配與第 5 項多人異常事件同步／本機備份已通過合成／回歸測試及 Windows 打包；真實 Google Drive 兩機驗收待確認；先前功能仍各有實機待驗收項目**。目前版本 v1.8.0（2026-11-08 已由 GitHub Actions 正式發布）。開發前還原點：Git commit 0f9bc7d / backup/pre-m17-20261107。歷史 v1.7.0 已正式發布至 GitHub Release。歷史 v1.6.0 與 v1.5.0 已正式發布至 GitHub Release。
 M14 歷史開發版本：v1.6.0。
 M15 歷史開發版本：v1.6.1（PATCH，修正線上更新器實機失敗）。
+
+## M17 正式 GitHub Release v1.8.0（2026-11-08）
+
+- [x] 將本機 feature/m17-improvements 安全快轉至 main，推送 origin/main：提交 518f562；GitHub 專案 kobojp/FireLens。
+- [x] 發版前 Python 193 passed、Vitest 58 passed、Ruff check/format、TypeScript/Vite 與 packaging/check_version_consistency.py --tag v1.8.0 全部通過。
+- [x] 發版前確認 FIRELENS_UPDATE_PRIVATE_KEY_B64 為 GitHub Actions Secret（僅檢查是否存在、不讀取內容），且 Git 無追蹤 .dpapi／.env／SQLite／真實照片或清冊資料。
+- [x] 推送 v1.8.0 Git Tag，GitHub Actions run 42494489173 結果 success；Windows EXE + 繁中 installer、Ed25519 update-manifest.json/update-manifest.sig、SHA256SUMS.txt、五個 Release 資產均成功上傳；正式 Latest Release： https://github.com/kobojp/FireLens/releases/tag/v1.8.0 。
+- [ ] 真實 Windows 歷史 v1.7.0 → v1.8.0 線上更新及兩台 Google Drive Desktop 異常同步／衝突／備份復原，仍需使用者實機驗收（正式發布不等於實機操作已通過）。
 
 ## 1. 目標
 
