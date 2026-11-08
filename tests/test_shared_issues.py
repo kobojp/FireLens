@@ -368,3 +368,34 @@ def test_shared_issue_api_endpoints_are_explicit_opt_in(tmp_path, monkeypatch):
         assert disabled.status_code == 200
         assert disabled.json()["enabled"] is False
         assert (root_path / "FireLens-共享異常資料").is_dir()
+
+
+def test_windows_desktop_ini_is_ignored_but_unknown_files_still_fail(tmp_path, monkeypatch):
+    shared = tmp_path / "synced-drive-root"
+    shared.mkdir()
+    local_dir, conn, root_id, item_id = _client(tmp_path, shared, "pc-windows", monkeypatch)
+    try:
+        _as(monkeypatch, local_dir)
+        sync.configure(conn, root_id, True)
+        events = shared / "FireLens-共享異常資料" / "events"
+        # Windows metadata is an ordinary system sidecar, NOT an event.
+        (events / "desktop.ini").write_text("[.ShellClassInfo]\n", encoding="utf-8")
+        result = sync.synchronize(conn, root_id)
+        assert result["verified_events"] >= 3
+        assert not result["conflicts"]
+        assert (events / "desktop.ini").is_file()  # never delete metadata
+        assert sync.synchronize(conn, root_id)["conflicts"] == []
+
+        # Names that look like other metadata aren't silently ignored.
+        unknown = events / "random.txt"
+        unknown.write_text("unrelated", encoding="utf-8")
+        with pytest.raises(sync.SyncError, match="非同步資料"):
+            sync.synchronize(conn, root_id)
+        unknown.unlink()
+
+        invalid = events / ("f" * 32 + ".json")
+        invalid.write_text("{}", encoding="utf-8")
+        with pytest.raises(sync.SyncError, match="完整性"):
+            sync.synchronize(conn, root_id)
+    finally:
+        conn.close()

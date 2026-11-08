@@ -139,13 +139,22 @@ def _events(root: Path) -> dict[str, dict]:
         raise SyncError("共享事件目錄不可為符號連結")
     result: dict[str, dict] = {}
     files = list(directory.iterdir())
-    if len(files) > _LIMIT:
-        raise SyncError("共享事件超過安全上限，請匯出封存後再處理")
+    # Windows and Google Drive Desktop may create desktop.ini in this folder.
+    # Ignore ONLY this known metadata file; never ignore unexpected JSON,
+    # directories, symlinks/reparse points, or malformed event files.
+    events_count = 0
     for path in files:
-        if path.name.startswith(".") and path.suffix == ".tmp":
+        if path.name.casefold() == "desktop.ini" and path.is_file() and not path.is_symlink():
+            continue
+        if path.name.startswith(".") and path.suffix == ".tmp" and path.is_file():
             continue  # uncommitted atomic temporary file
-        if not _EVENT_RE.fullmatch(path.name) or path.is_symlink():
-            raise SyncError("共享資料夾包含不認識的檔案，停止同步")
+        if not _EVENT_RE.fullmatch(path.name) or path.is_symlink() or not path.is_file():
+            raise SyncError(
+                "共享事件目錄存在非同步資料檔案（已排除 Windows desktop.ini），停止同步"
+            )
+        events_count += 1
+        if events_count > _LIMIT:
+            raise SyncError("共享事件超過安全上限，請匯出封存後再處理")
         try:
             payload = _load(path)
             digest = payload.pop("sha256")

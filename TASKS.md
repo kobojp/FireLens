@@ -525,6 +525,19 @@ M15 歷史開發版本：v1.6.1（PATCH，修正線上更新器實機失敗）�
 - [x] 歷史 v1.7.1 當時自動驗收：v1.7.1 版本一致性、Ruff、pytest 107 passed、Vitest 31 passed、TypeScript／Vite、Windows EXE 與繁中 setup 正式 build、打包後 self-test、portable／installer 更新 E2E、rollback 故障注入皆通過；Graphify 成功重建 665 nodes／1535 edges／48 communities。仍待使用者實機核對畫面確認。
 - 發版：歷史 v1.7.1 未建立 Release，目前在後續開發分支。
 
+### M17-K 修正 Windows desktop.ini 誤觸共享事件格式阻擋（2026-11-08）
+
+使用者 Windows 11 實際操作回報「共享資料夾包含不認識的檔案，停止同步」。使用唯讀檢查本機已啟用 root 1 的 FireLens-共享異常資料/events，確認只有 Windows 系統檔 desktop.ini。既有 events 解析對所有不符 UUID4 JSON 的檔案均拒絕，導致正常 Windows metadata 被錯誤阻擋；不可刪除現場 desktop.ini、雲端事件、照片、清冊或受保護 SQLite。
+
+- [x] 同步事件讀取器僅跳過已知 Windows 系統附屬檔 desktop.ini（大小寫不敏感、確定為一般檔案）；未知副檔名、無關 JSON、子目錄／連結、格式錯誤 UUID 事件與 SHA256 失敗仍停止同步。
+- [x] 事件數量上限只統計真正的事件及異常未知檔，desktop.ini 不計入；不讀取或改動 Windows metadata 內容。
+- [x] 使用合成資料驗證 desktop.ini 共存時可同步；無關未知檔仍安全阻擋，受損事件仍拒絕且本機異常不清空。
+- [x] Ruff check/format、pytest、Vitest、TS/Vite、版本一致性、Windows build+繁中 installer/更新器 E2E，AGENTS／README／TASKS 同步與本機 commit；不推 GitHub 或 Release，實際 Google Drive 多機驗收仍保留待驗收。
+
+驗證結果：唯讀查到 root 1 的共享 events 目錄存在 Windows 系統檔 desktop.ini（未修改）。只跳過明確普通檔案 desktop.ini，未知檔與損壞 JSON 仍拒絕；合成同步 9 passed、完整 Python 193 passed、前端 Vitest 58 passed、Ruff check/format／TypeScript／Vite／版本一致性 v1.8.0 PASS。Windows packaging/build.ps1 Exit Code 0，繁中 FireLens-1.8.0-setup.exe、portable／installer updater READY/HEALTHY、rollback／故障注入 E2E PASS。不推 GitHub/Release；Google Drive 實際上傳與兩台電腦 UI 仍待驗收。
+
+- [ ] 使用者 Windows 安裝新版後點「立即同步」，觀察正常 desktop.ini 不再誤擋及 Google Drive 真正上傳狀態。
+
 ### M17-I＋M17-J 合併施工驗證（2026-11-08）
 
 本輪實際驗證：M17-I 原有括號備註匹配沿用，新增 4 項合成 SQLite／CSV／XLSX 回歸；M17-J 加入共享事件 journal、兩個模擬 Windows 用戶端、異常分類與單設備標記同步、手動衝突解決、離線 outbox、雲端事件缺失檢出與本機 archive 人工補回、備份預覽／復原、資料夾更名路徑遷移、啟用 API 和 UI。完整 pytest **192 passed**、Vitest **58 passed**、Ruff check/format、TS/Vite、版本一致性 **v1.8.0** PASS。Windows packaging/build.ps1 Exit Code 0，繁中 FireLens-1.8.0-setup.exe、portable/installer 更新器、READY/HEALTHY、rollback、故障注入 E2E PASS。合成測試無法證明 Google Drive 官方實際上傳／下載已完成。

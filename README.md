@@ -73,6 +73,12 @@ FireLens 左側「資料樹」可直接點擊年份、月份／批次、棟別�
 
 ## Google Drive 多人異常紀錄同步與本機備份（M17-J）
 
+### Windows 同步資料夾的 desktop.ini
+
+Google Drive 電腦版或 Windows 檔案總管可能在 FireLens-共享異常資料/events 目錄建立 desktop.ini。此檔為 Windows 資料夾設定，不是 FireLens 同步事件。FireLens 會自動略過此已知檔案，不需也不應手動刪除它；真正未知的檔案或損壞 JSON 事件仍會停止匯入，以保護本機資料。
+
+
+
 此功能透過已安裝的 Google Drive 電腦版同步資料夾，不使用 Google Sheets OAuth，也不直接共用 SQLite。先確保兩台 Windows 都能存取同一個 Google Drive 共用照片根目錄，然後各自在「異常統計」選擇根目錄，點「啟用此根目錄同步」並確認。程式只會新增獨立 FireLens-共享異常資料/events，原本照片與清冊不修改。
 
 首次啟用會保存原本單選異常標記和自訂異常分類為獨立事件，並備份本機資料。新異常、清除異常、分類修改或設備資料夾更名均建立具因果關係的 UUID JSON 事件，每台電腦有獨立 device_id、SHA256 校驗。開機時及約每兩分鐘檢查本機 Google Drive 同步目錄，也可以按「立即同步」。顯示「本機已讀取」不代表 Google Drive 伺服器已確認上傳，仍須查看 Google Drive 電腦版同步圖示。
