@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from './api'
 import { filterReconcileRows } from './reconcile'
+import { createReconcileRequestGuard, DEVICE_CATEGORY_LABELS, isDeviceCategory, periodsForCategory } from './reconcileScope'
+import type { DeviceCategory } from './reconcileScope'
 import { LedgerManager } from './LedgerManager'
 import type {
   AliasRecord,
@@ -8,6 +10,7 @@ import type {
   LedgerRecord,
   ReconcileResult,
   RootRecord,
+  TreeNode,
 } from './types'
 
 const STATUS_LABELS: Record<string, string> = {
@@ -61,7 +64,7 @@ export function ReconcileView({ roots, defaultRootId }: Props) {
   const [ledgers, setLedgers] = useState<LedgerRecord[]>([])
   const [ledgerId, setLedgerId] = useState<number | null>(null)
   const [period, setPeriod] = useState('')
-  const [categoryCode, setCategoryCode] = useState<'extinguisher' | 'box' | 'lamp'>('extinguisher')
+  const [categoryCode, setCategoryCode] = useState<DeviceCategory>('extinguisher')
   const [result, setResult] = useState<ReconcileResult | null>(null)
   const [classificationFilter, setClassificationFilter] = useState('')
   const [sectionFilter, setSectionFilter] = useState('')
@@ -83,10 +86,55 @@ export function ReconcileView({ roots, defaultRootId }: Props) {
   const [exporting, setExporting] = useState<'csv' | 'xlsx' | null>(null)
   const [exportMessage, setExportMessage] = useState('')
   const [exportToken, setExportToken] = useState('')
+  const [scopeTree, setScopeTree] = useState<TreeNode[]>([])
+  const [loadingScopeTree, setLoadingScopeTree] = useState(false)
+  const resultRequestVersion = useRef(createReconcileRequestGuard())
+  const treeRequestVersion = useRef(0)
+
+  function clearStaleResults() {
+    resultRequestVersion.current.invalidate()
+    setResult(null)
+    setClassificationFilter('')
+    setSectionFilter('')
+    setCategoryFilter('')
+    setMissingOnly(false)
+    setMissingSlot('')
+    setExportMessage('')
+    setExportToken('')
+  }
+
 
   useEffect(() => {
     setRootId((current) => current ?? defaultRootId ?? roots[0]?.id ?? null)
   }, [defaultRootId, roots])
+
+  useEffect(() => {
+    const request = ++treeRequestVersion.current
+    setScopeTree([])
+    if (rootId === null) return
+    let active = true
+    setLoadingScopeTree(true)
+    void api.tree(rootId).then((tree) => {
+      if (active && request === treeRequestVersion.current) setScopeTree(tree)
+    }).catch((err) => {
+      if (active && request === treeRequestVersion.current) {
+        setError(err instanceof Error ? err.message : '讀取分類月份失敗')
+      }
+    }).finally(() => {
+      if (active && request === treeRequestVersion.current) setLoadingScopeTree(false)
+    })
+    return () => { active = false; treeRequestVersion.current++ }
+  }, [rootId])
+
+  useEffect(() => () => {
+    resultRequestVersion.current.invalidate()
+    treeRequestVersion.current++
+  }, [])
+
+  const categoryPeriods = useMemo(
+    () => periodsForCategory(scopeTree, categoryCode),
+    [scopeTree, categoryCode],
+  )
 
   async function refreshLedgers(preferredId?: number | null) {
     const next = await api.ledgers()
@@ -143,18 +191,21 @@ export function ReconcileView({ roots, defaultRootId }: Props) {
       const created = pendingImport.kind === 'text'
         ? await api.importTextLedger(name, textLedger)
         : await api.importExcelLedger(pendingImport.file!, name)
-      await refreshLedgers()
-      setLedgerId(created.id)
+      const version = resultRequestVersion.current.next()
+      setResult(null)
+      setExportMessage('')
+      setExportToken('')
+      await refreshLedgers(created.id)
       if (rootId !== null) {
-        const next = await api.reconcile(rootId, created.id, period.trim() || undefined, categoryCode)
-        setResult(next)
-        setClassificationFilter('')
-        setSectionFilter('')
-        setCategoryFilter('')
-        setMissingOnly(false)
-        setMissingSlot('')
-      } else {
-        setResult(null)
+        const next = await api.reconcile(rootId, created.id, period || undefined, categoryCode)
+        if (resultRequestVersion.current.isCurrent(version)) {
+          setResult(next)
+          setClassificationFilter('')
+          setSectionFilter('')
+          setCategoryFilter('')
+          setMissingOnly(false)
+          setMissingSlot('')
+        }
       }
       setPendingImport(null)
     } catch (err) {
@@ -166,10 +217,15 @@ export function ReconcileView({ roots, defaultRootId }: Props) {
 
   async function runReconcile() {
     if (rootId === null || ledgerId === null) return
+    const version = resultRequestVersion.current.next()
     setBusy(true)
     setError('')
+    setResult(null)
+    setExportMessage('')
+    setExportToken('')
     try {
-      const next = await api.reconcile(rootId, ledgerId, period.trim() || undefined, categoryCode)
+      const next = await api.reconcile(rootId, ledgerId, period || undefined, categoryCode)
+      if (!resultRequestVersion.current.isCurrent(version)) return
       setResult(next)
       setClassificationFilter('')
       setSectionFilter('')
@@ -177,7 +233,9 @@ export function ReconcileView({ roots, defaultRootId }: Props) {
       setMissingOnly(false)
       setMissingSlot('')
     } catch (err) {
-      setError(err instanceof Error ? err.message : '核對失敗')
+      if (resultRequestVersion.current.isCurrent(version)) {
+        setError(err instanceof Error ? err.message : '核對失敗')
+      }
     } finally {
       setBusy(false)
     }
@@ -232,16 +290,20 @@ export function ReconcileView({ roots, defaultRootId }: Props) {
     setError('')
     setExportMessage('')
     setExportToken('')
+    const version = resultRequestVersion.current.next()
     setExporting(format)
     try {
       const saved = await api.saveReconcileExport(
         result.root_id, result.ledger_id, format, result.period ?? undefined, result.category_code ?? categoryCode,
       )
+      if (!resultRequestVersion.current.isCurrent(version)) return
       if (!saved.saved || saved.size === 0) throw new Error('匯出未產生有效檔案')
       setExportMessage(`已儲存 ${saved.filename}（${saved.size} bytes），位置：${saved.path}`)
       setExportToken(saved.open_token)
     } catch (err) {
-      setError(err instanceof Error ? err.message : '匯出失敗，請重新操作')
+      if (resultRequestVersion.current.isCurrent(version)) {
+        setError(err instanceof Error ? err.message : '匯出失敗，請重新操作')
+      }
     } finally {
       setExporting(null)
     }
@@ -304,40 +366,60 @@ export function ReconcileView({ roots, defaultRootId }: Props) {
         </div>
         <div className="control-grid">
           <label>照片根目錄
-            <select value={rootId ?? ''} onChange={(event) => { setRootId(Number(event.target.value)); setResult(null); setExportMessage(''); setExportToken('') }}>
+            <select value={rootId ?? ''} disabled={busy || exporting !== null}
+              onChange={(event) => { clearStaleResults(); setRootId(Number(event.target.value)); setPeriod('') }}>
               {roots.map((root) => <option key={root.id} value={root.id}>{root.label}</option>)}
             </select>
           </label>
           <label>設備類別／搜尋資料夾
-            <select value={categoryCode} onChange={(event) => { setCategoryCode(event.target.value as typeof categoryCode); setResult(null); setExportMessage(''); setExportToken('') }}>
+            <select value={categoryCode} disabled={busy || exporting !== null}
+              onChange={(event) => {
+                if (!isDeviceCategory(event.target.value)) return
+                clearStaleResults()
+                setCategoryCode(event.target.value)
+                setPeriod('')
+              }}>
               <option value="extinguisher">滅火器</option>
               <option value="box">放置盒</option>
               <option value="lamp">燈具</option>
             </select>
           </label>
           <label>清冊版本
-            <select value={ledgerId ?? ''} onChange={(event) => { setLedgerId(Number(event.target.value)); setResult(null); setExportMessage(''); setExportToken('') }}>
+            <select value={ledgerId ?? ''} disabled={busy || exporting !== null}
+              onChange={(event) => { clearStaleResults(); setLedgerId(Number(event.target.value)) }}>
               {ledgers.length === 0 && <option value="">尚未匯入</option>}
               {ledgers.map((ledger) => (
                 <option key={ledger.id} value={ledger.id}>{ledger.name} · {ledger.row_count} 筆</option>
               ))}
             </select>
           </label>
-          <label>月份/批次（選填）
-            <input value={period} onChange={(event) => { setPeriod(event.target.value); setResult(null); setExportMessage(''); setExportToken('') }} placeholder="留空＝跨所有月份" />
+          <label>月份／批次（依設備類別）
+            <select value={period} disabled={busy || exporting !== null || loadingScopeTree}
+              onChange={(event) => { clearStaleResults(); setPeriod(event.target.value) }}>
+              <option value="">全部月份／批次</option>
+              {categoryPeriods.map((name) => <option key={name} value={name}>{name}</option>)}
+            </select>
           </label>
-          <button type="button" className="primary-button" disabled={busy || rootId === null || ledgerId === null} onClick={() => void runReconcile()}>
+          <button type="button" className="primary-button" disabled={busy || exporting !== null || rootId === null || ledgerId === null || loadingScopeTree} onClick={() => void runReconcile()}>
             {busy ? '處理中…' : '開始核對'}
           </button>
         </div>
-        <p className="help-text">預設跨所有月份尋找相同編號；只有填入月份/批次時才限制單一批次。</p>
+        <p className="help-text" role="status">
+          目前搜尋：{roots.find((root) => root.id === rootId)?.label ?? '未選根目錄'} ／
+          {DEVICE_CATEGORY_LABELS[categoryCode]} ／ {period || '全部月份／批次'}。
+          {loadingScopeTree
+            ? ' 正在載入此類別可用的月份／批次…'
+            : categoryPeriods.length === 0
+              ? ' 此類別目前沒有已掃描的月份；仍可跨月份核對清冊。'
+              : ' 可用月份只從目前根目錄及此設備類別列出。'}
+        </p>
       </section>
 
       <LedgerManager
         ledgers={ledgers}
         selectedId={ledgerId}
-        onSelect={(id) => { setLedgerId(id); setResult(null) }}
-        onChanged={async (preferredId) => { await refreshLedgers(preferredId); setResult(null) }}
+        onSelect={(id) => { clearStaleResults(); setLedgerId(id) }}
+        onChanged={async (preferredId) => { clearStaleResults(); await refreshLedgers(preferredId) }}
         onError={setError}
       />
 
@@ -419,6 +501,12 @@ export function ReconcileView({ roots, defaultRootId }: Props) {
 
       {result && (
         <>
+          <p className="help-text" role="status">
+            本次核對範圍：{roots.find((root) => root.id === result.root_id)?.label ?? '照片根目錄'} ／
+            {DEVICE_CATEGORY_LABELS[result.category_code as DeviceCategory] ?? result.category_code} ／
+            {result.period || '全部月份／批次'} ／
+            清冊「{result.ledger_name}」，共 {result.total} 筆。僅核對此清冊內設備。
+          </p>
           <section className="reconcile-summary">
             <div className="summary-main"><strong>{result.completion_rate}%</strong><span>清冊完成率</span><small>{result.complete} / {result.total}</small></div>
             {Object.entries(result.classification_counts).map(([classification, count]) => (
@@ -458,14 +546,7 @@ export function ReconcileView({ roots, defaultRootId }: Props) {
                     .map((slot) => <option key={slot} value={slot}>缺{slot}</option>)}
                 </select>
               </label>
-              <label>類別
-                <select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}>
-                  <option value="">全部</option>
-                  <option value="extinguisher">滅火器</option>
-                  <option value="box">放置盒</option>
-                  <option value="lamp">燈具</option>
-                </select>
-              </label>
+
               <label className="missing-only-check"><input type="checkbox" checked={missingOnly} onChange={(event) => setMissingOnly(event.target.checked)} /> 只看缺失</label>
               <span>{filteredRows.length} 筆結果</span>
               <button type="button" onClick={() => void copyReshoot()}>複製補拍清單</button>
