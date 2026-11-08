@@ -331,7 +331,8 @@ export const api = {
       body: JSON.stringify({ root_id: rootId, ledger_id: ledgerId, format, period: period || null, category_code: categoryCode }),
     }),
   saveIssueExport: (format: 'csv' | 'xlsx', filters: {
-    root_id?: number, label_id?: number, building?: string, query?: string
+    root_id?: number, label_id?: number, building?: string,
+    query?: string, expected_row_count: number,
   }) => request<ExportSaveResult>('/api/issues/export/save', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

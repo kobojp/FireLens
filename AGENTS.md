@@ -169,6 +169,12 @@ TASKS.md            需求與里程碑
 - FireLens「設定 → Google OAuth 設定」支援 Client ID 唯讀、Client Secret 密碼欄、儲存／覆寫／清除，使用 Windows DPAPI 加密到目前使用者 LocalAppData 的獨立檔案（不放 SQLite／同步資料夾／前端 bundle）。GET 只回傳是否已設定，POST／DELETE 必須通過 desktop session 與 Origin 保護。OAuth 授權碼交換／Refresh Token 優先讀此設定，再退回相容性環境變數 `FIRELENS_GOOGLE_CLIENT_SECRET`；未設定仍可用 PKCE-only。Client Secret 並非真正安全的桌面端機密，絕不可回傳原文、存入 Git、一般日誌、回呼網址或前端設定。
 - 任何「真實 Google 登入、私人資料夾列檔、讀取」之完成宣稱，都需本人 Windows 環境實機授權與驗收；合成 HTTP 測試只能證明程式邏輯，不代表真實帳號連線成功。
 
+## M17 異常統計匯出安全與一致性規則
+
+- 異常統計 CSV／XLSX 匯出只取畫面所選根目錄、異常分類、棟別與搜尋關鍵字。前端匯出時凍結快照和可見筆數；後端 expected_row_count 在存檔前核對，不符回 409，不建立不一致檔案。切換篩選或刷新需讓舊匯出開檔能力失效。
+- CSV 使用 UTF-8 BOM，XLSX 使用 openpyxl 並設標題、自動篩選與欄寬；防試算表公式注入並保留設備編號與中文。0 筆不匯出；使用安全匯出資料夾與隨機檔名，絕不覆蓋原檔或把敏感來源路徑寫入 Git。
+- 開檔與 Explorer 功能只能使用本機 ExportRegistry 核發的最新不透明 token，不接受任意路徑。真實 Windows UI 與 Explorer 操作仍需實機驗收。
+
 ## M17 圖片剪貼簿匯入安全規則
 
 - LINE 複製圖片貼上需先明確選定設備與槽位；不干擾文字輸入控制項的 Ctrl+V。非圖片剪貼簿不得寫入；圖片必須預覽確認後沿用既有安全照片匯入 API（不得由前端任意寫入檔案或覆蓋）。切換設備或根目錄時取消過期貼上。

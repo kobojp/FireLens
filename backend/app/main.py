@@ -152,6 +152,7 @@ class IssueExportSave(BaseModel):
     label_id: int | None = None
     building: str = ""
     query: str = Field(default="", max_length=200)
+    expected_row_count: int | None = Field(default=None, ge=0, le=1000000)
 
 
 class OpenExportRequest(BaseModel):
@@ -575,6 +576,11 @@ def create_app() -> FastAPI:
                 query=payload.query.strip(),
                 file_format=payload.format.casefold(),
             )
+            if payload.expected_row_count is not None and count != payload.expected_row_count:
+                raise HTTPException(
+                    status_code=409,
+                    detail="異常統計資料或篩選筆數已變更，請重新整理後再次匯出",
+                )
             return {
                 **export_registry.save(
                     prefix="異常設備清單", content=content, extension=payload.format.casefold()

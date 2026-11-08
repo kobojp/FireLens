@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from './api'
 import type { IssueLabel, IssueStatistics, RootRecord } from './types'
 
@@ -22,9 +22,28 @@ export function StatisticsView({ roots, onOpenItem, onLabelsChanged }: Props) {
   const [message, setMessage] = useState('')
   const [exportResult, setExportResult] = useState<{ filename: string, path: string, size: number, open_token: string } | null>(null)
   const [exporting, setExporting] = useState<'csv' | 'xlsx' | null>(null)
+  const exportRequestVersion = useRef(0)
+  const refreshRequestVersion = useRef(0)
+  const [refreshing, setRefreshing] = useState(false)
+
+
+  function invalidateExport() {
+    exportRequestVersion.current++
+    setExportResult(null)
+  }
+
 
   async function refresh(selectedRoot = rootId) {
-    setStats(await api.issueStatistics(selectedRoot ? Number(selectedRoot) : undefined))
+    const version = ++refreshRequestVersion.current
+    invalidateExport()
+    setRefreshing(true)
+    setError('')
+    try {
+      const response = await api.issueStatistics(selectedRoot ? Number(selectedRoot) : undefined)
+      if (version === refreshRequestVersion.current) setStats(response)
+    } finally {
+      if (version === refreshRequestVersion.current) setRefreshing(false)
+    }
   }
 
   useEffect(() => {
@@ -34,7 +53,9 @@ export function StatisticsView({ roots, onOpenItem, onLabelsChanged }: Props) {
   }, [rootId])
 
   async function saveIssueExport(format: 'csv' | 'xlsx') {
-    if (exporting || rows.length === 0) return
+    if (exporting || refreshing || rows.length === 0) return
+    const version = ++exportRequestVersion.current
+    const visibleCount = rows.length
     setExporting(format)
     setExportResult(null)
     setError('')
@@ -44,11 +65,18 @@ export function StatisticsView({ roots, onOpenItem, onLabelsChanged }: Props) {
         label_id: labelId ? Number(labelId) : undefined,
         building: building || undefined,
         query: query.trim() || undefined,
+        expected_row_count: visibleCount,
       })
-      if (!saved.saved || !saved.size || saved.row_count !== rows.length) throw new Error('匯出筆數或檔案內容不符，請重新整理')
+      if (version !== exportRequestVersion.current) return
+      if (!saved.saved || !saved.size || saved.row_count !== visibleCount) {
+        throw new Error('匯出筆數或檔案內容不符，請重新整理')
+      }
       setExportResult(saved)
+      setMessage('成功匯出 ' + visibleCount + ' 筆異常設備')
     } catch (err) {
-      setError(err instanceof Error ? err.message : '匯出失敗')
+      if (version === exportRequestVersion.current) {
+        setError(err instanceof Error ? err.message : '匯出失敗')
+      }
     } finally {
       setExporting(null)
     }
@@ -87,6 +115,11 @@ export function StatisticsView({ roots, onOpenItem, onLabelsChanged }: Props) {
     }
   }
 
+  useEffect(() => () => {
+    exportRequestVersion.current++
+    refreshRequestVersion.current++
+  }, [])
+
   const buildings = useMemo(
     () => Array.from(new Set((stats?.items ?? []).map((x) => x.building).filter((x): x is string => Boolean(x)))).sort(),
     [stats],
@@ -104,7 +137,13 @@ export function StatisticsView({ roots, onOpenItem, onLabelsChanged }: Props) {
       <section className="panel-card">
         <div className="panel-title"><h2>設備異常統計</h2><span>每台設備最多一種異常</span></div>
         <label className="stats-root-select">根目錄
-          <select value={rootId} onChange={(event) => { setRootId(event.target.value); setLabelId(''); setBuilding(''); setExportResult(null) }}>
+          <select value={rootId} disabled={exporting !== null} onChange={(event) => {
+              invalidateExport()
+              setStats(null)
+              setRootId(event.target.value)
+              setLabelId('')
+              setBuilding('')
+            }}>
             <option value="">全部根目錄</option>
             {roots.map((root) => <option key={root.id} value={root.id}>{root.label}</option>)}
           </select>
@@ -112,7 +151,7 @@ export function StatisticsView({ roots, onOpenItem, onLabelsChanged }: Props) {
         {error && <div className="error-banner" role="alert">{error}</div>}
         {message && <p className="stats-message" role="status">{message}</p>}
         <div className="issue-stat-cards">
-          <button className={labelId === '' ? 'active' : ''} type="button" onClick={() => { setLabelId(''); setExportResult(null) }}>
+          <button className={labelId === '' ? 'active' : ''} type="button" disabled={exporting !== null} onClick={() => { invalidateExport(); setLabelId('') }}>
             <b>異常設備總數</b><strong>{stats?.total ?? 0} 台</strong>
           </button>
           {stats?.labels.map((label) => (
@@ -120,7 +159,7 @@ export function StatisticsView({ roots, onOpenItem, onLabelsChanged }: Props) {
               key={label.id}
               className={labelId === String(label.id) ? 'active' : ''}
               type="button"
-              onClick={() => { setLabelId(String(label.id)); setExportResult(null) }}
+              disabled={exporting !== null} onClick={() => { invalidateExport(); setLabelId(String(label.id)) }}
             >
               <b>{label.name}{!label.active && <small>（已停用）</small>}</b>
               <strong>{label.count ?? 0} 台</strong>
@@ -131,19 +170,23 @@ export function StatisticsView({ roots, onOpenItem, onLabelsChanged }: Props) {
 
       <section className="panel-card">
         <div className="panel-title"><h2>異常設備清單</h2><span>{rows.length} 筆</span></div>
+        <p className="help-text" role="status">
+          目前篩選符合 {rows.length} 筆異常設備；CSV／Excel 僅匯出此清單。
+          {exporting ? ' 正在儲存，已暫時鎖定篩選條件。' : refreshing ? ' 正在更新統計資料…' : ''}
+        </p>
         <div className="issue-filters">
           <label>棟別樓層
-            <select value={building} onChange={(event) => { setBuilding(event.target.value); setExportResult(null) }}>
+            <select value={building} disabled={exporting !== null} onChange={(event) => { invalidateExport(); setBuilding(event.target.value) }}>
               <option value="">全部</option>
               {buildings.map((value) => <option key={value} value={value}>{value}</option>)}
             </select>
           </label>
           <label>搜尋設備編號或來源
-            <input value={query} onChange={(event) => { setQuery(event.target.value); setExportResult(null) }} placeholder="例如 中-03-238" />
+            <input value={query} disabled={exporting !== null} onChange={(event) => { invalidateExport(); setQuery(event.target.value) }} placeholder="例如 中-03-238" />
           </label>
-          <button type="button" onClick={() => { setExportResult(null); void refresh().catch((err) => setError(String(err))) }}>重新整理</button>
-          <button type="button" disabled={exporting !== null || rows.length === 0} onClick={() => void saveIssueExport('csv')}>{exporting === 'csv' ? '匯出中…' : '匯出 CSV'}</button>
-          <button type="button" disabled={exporting !== null || rows.length === 0} onClick={() => void saveIssueExport('xlsx')}>{exporting === 'xlsx' ? '匯出中…' : '匯出 Excel'}</button>
+          <button type="button" disabled={exporting !== null} onClick={() => void refresh().catch((err) => setError(String(err)))}>重新整理</button>
+          <button type="button" disabled={exporting !== null || refreshing || rows.length === 0} onClick={() => void saveIssueExport('csv')}>{exporting === 'csv' ? '匯出中…' : '匯出 CSV'}</button>
+          <button type="button" disabled={exporting !== null || refreshing || rows.length === 0} onClick={() => void saveIssueExport('xlsx')}>{exporting === 'xlsx' ? '匯出中…' : '匯出 Excel'}</button>
         </div>
         {exportResult && <div className="export-feedback" role="status">
           <p className="stats-message">已儲存 {exportResult.filename}（{exportResult.size} bytes），位置：{exportResult.path}</p>
@@ -178,16 +221,16 @@ export function StatisticsView({ roots, onOpenItem, onLabelsChanged }: Props) {
         <div className="panel-title"><h2>自訂異常分類</h2><span>所有根目錄共用分類名稱</span></div>
         <div className="issue-label-add">
           <input aria-label="新增異常名稱" value={newName} maxLength={80} onChange={(event) => setNewName(event.target.value)} placeholder="輸入異常名稱，例如 瓶身損傷" />
-          <button type="button" disabled={busy || !newName.trim()} onClick={() => void createLabel()}>新增分類</button>
+          <button type="button" disabled={busy || exporting !== null || !newName.trim()} onClick={() => void createLabel()}>新增分類</button>
         </div>
         <div className="issue-label-list">
           {stats?.labels.map((label) => (
             <div key={label.id} className="issue-label-row">
               <strong>{label.name}</strong>
               <small>{label.count ?? 0} 台{label.active ? '' : ' · 已停用'}</small>
-              <button type="button" disabled={busy} onClick={() => { setEditLabel(label); setEditName(label.name) }}>改名稱</button>
-              <button type="button" disabled={busy} onClick={() => void saveLabel({ active: !label.active }, label.id)}>{label.active ? '停用' : '啟用'}</button>
-              <button type="button" disabled={busy} onClick={() => void saveLabel({ sort_order: Math.max(0, label.sort_order - 1) }, label.id)}>上移</button>
+              <button type="button" disabled={busy || exporting !== null} onClick={() => { setEditLabel(label); setEditName(label.name) }}>改名稱</button>
+              <button type="button" disabled={busy || exporting !== null} onClick={() => void saveLabel({ active: !label.active }, label.id)}>{label.active ? '停用' : '啟用'}</button>
+              <button type="button" disabled={busy || exporting !== null} onClick={() => void saveLabel({ sort_order: Math.max(0, label.sort_order - 1) }, label.id)}>上移</button>
             </div>
           ))}
         </div>
