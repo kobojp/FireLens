@@ -642,3 +642,16 @@ html[data-theme="dark"] .private-editor-body textarea { background: #25313f; col
 .private-sheet-copy-cell { display: block; border: 0; padding: 7px 4px; min-height: 32px; }
 html[data-theme="dark"] .private-sheet-table thead th { background: #3b4b5d; color: #f1f5fa; }
 html[data-theme="dark"] .private-sheet-table :is(td, th).private-copy-selected { background: #245478 !important; color: #fff; }
+
+
+/* Highlight only the newly created folder, without expanding unrelated branches. */
+.tree-newly-created > summary {
+  outline: 2px solid #397db5;
+  outline-offset: -2px;
+  border-radius: 5px;
+  background: rgba(57, 125, 181, .12);
+}
+html[data-theme="dark"] .tree-newly-created > summary {
+  outline-color: #80c4ff;
+  background: rgba(128, 196, 255, .16);
+}

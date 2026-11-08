@@ -1,3 +1,5 @@
+import { useEffect, useRef } from 'react'
+import { branchPathKey } from './tree'
 import type { TreeNode } from './types'
 
 export type TreeCreatePath = TreeNode[]
@@ -8,6 +10,9 @@ type Props = {
   onSelectItem: (node: TreeNode) => void
   onCreate?: (path: TreeCreatePath) => void
   expandAll?: boolean
+  expandedPaths?: readonly string[]
+  onToggle?: (pathKey: string) => void
+  revealPath?: string | null
 }
 
 function statusMark(status?: string): string {
@@ -28,11 +33,13 @@ const ADD_LABELS: Record<string, string> = {
 }
 
 function Branch({
-  node, selectedId, onSelectItem, expandAll, onCreate, parents,
+  node, selectedId, onSelectItem, expandAll, expandedPaths, onToggle, onCreate, parents, revealPath,
 }: { node: TreeNode, parents: TreeCreatePath } & Omit<Props, 'nodes'>) {
+  const path = [...parents, node]
+  const pathKey = branchPathKey(path)
   if (node.type === 'item') {
     return (
-      <button className={`tree-item ${node.id === selectedId ? 'selected' : ''}`}
+      <button data-tree-path={pathKey} className={`tree-item ${node.id === selectedId ? 'selected' : ''}`}
         onClick={() => onSelectItem(node)} aria-pressed={node.id === selectedId}>
         <span aria-hidden="true">{statusMark(node.status)}</span>
         <span>{node.label}</span>
@@ -40,10 +47,18 @@ function Branch({
       </button>
     )
   }
-  const path = [...parents, node]
+  const open = expandAll || (
+    expandedPaths ? expandedPaths.includes(pathKey) : node.type === 'category'
+  )
   return (
-    <details open={expandAll || node.type === 'category' ? true : undefined} className={`tree-branch ${node.type}`}>
-      <summary onContextMenu={(event) => {
+    <details data-tree-path={pathKey} open={open}
+      className={`tree-branch ${node.type}${revealPath === pathKey ? ' tree-newly-created' : ''}`}>
+      <summary aria-current={revealPath === pathKey ? 'location' : undefined}
+        onClick={(event) => {
+        if ((event.target as HTMLElement).closest('button')) return
+        event.preventDefault()
+        if (!expandAll) onToggle?.(pathKey)
+      }} onContextMenu={(event) => {
         if (!onCreate) return
         event.preventDefault()
         onCreate(path)
@@ -56,20 +71,35 @@ function Branch({
       <div className="tree-children">
         {node.children?.map((child) => (
           <Branch key={`${child.type}:${child.key}`} node={child} parents={path}
-            selectedId={selectedId} onSelectItem={onSelectItem} expandAll={expandAll} onCreate={onCreate} />
+            selectedId={selectedId} onSelectItem={onSelectItem} expandAll={expandAll}
+            expandedPaths={expandedPaths} onToggle={onToggle} revealPath={revealPath}
+            onCreate={onCreate} />
         ))}
       </div>
     </details>
   )
 }
 
-export function TreeView({ nodes, selectedId, onSelectItem, onCreate, expandAll = false }: Props) {
+export function TreeView({
+  nodes, selectedId, onSelectItem, onCreate, expandAll = false,
+  expandedPaths, onToggle, revealPath,
+}: Props) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!revealPath) return
+    const element = Array.from(
+      containerRef.current?.querySelectorAll<HTMLElement>('[data-tree-path]') ?? [],
+    ).find((node) => node.dataset.treePath === revealPath)
+    if (element) element.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }, [nodes, revealPath, expandedPaths])
   if (nodes.length === 0) return <p className="muted">尚無掃描結果</p>
   return (
-    <div className="tree-view">
+    <div className="tree-view" ref={containerRef}>
       {nodes.map((node) => (
         <Branch key={`${node.type}:${node.key}`} node={node} parents={[]}
-          selectedId={selectedId} onSelectItem={onSelectItem} expandAll={expandAll} onCreate={onCreate} />
+          selectedId={selectedId} onSelectItem={onSelectItem}
+          expandAll={expandAll} expandedPaths={expandedPaths}
+          onToggle={onToggle} revealPath={revealPath} onCreate={onCreate} />
       ))}
     </div>
   )

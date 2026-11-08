@@ -4,7 +4,10 @@ import { initialNewItemPanelOpen, newItemPanelButtonText } from './newItemPanel'
 import { photosForSlot, slotAllowsAdditional, unmappedPhotos } from './slots'
 import { clipboardHasImage, fromPaste, readClipboardImage } from './clipboardImage'
 import { scanSummaryText, shouldAutoScan } from './scanPolicy'
-import { countByStatus, countItems } from './tree'
+import {
+  branchPathKey, countByStatus, countItems, itemBranchPath,
+  revealCreatedBranch, toggleTreeBranch,
+} from './tree'
 import { TreeView } from './TreeView'
 import type { TreeCreatePath } from './TreeView'
 import { ReconcileView } from './ReconcileView'
@@ -281,7 +284,9 @@ export default function App() {
   const [showNewItem, setShowNewItem] = useState(initialNewItemPanelOpen(undefined))
   const [treeCreatePath, setTreeCreatePath] = useState<TreeCreatePath | null>(null)
   const [treeCreateName, setTreeCreateName] = useState('')
-  const [expandTreeAfterCreate, setExpandTreeAfterCreate] = useState(false)
+  // Each photo root has independent, persistent expanded/collapsed branches.
+  const [expandedByRoot, setExpandedByRoot] = useState<Record<number, string[]>>({})
+  const [treeReveal, setTreeReveal] = useState<{ rootId: number, path: string } | null>(null)
   const [showNewPeriod, setShowNewPeriod] = useState(false)
   const [showNewBuilding, setShowNewBuilding] = useState(false)
   const [newPeriodName, setNewPeriodName] = useState('')
@@ -1038,6 +1043,30 @@ export default function App() {
     }
   }
 
+  function treeCategoryKeys(): string[] {
+    return nodes.filter((node) => node.type === 'category')
+      .map((node) => branchPathKey([node]))
+  }
+
+  function focusCreatedTreePath(
+    targetRootId: number, path: Pick<TreeNode, 'type' | 'key'>[],
+  ) {
+    const defaults = treeCategoryKeys()
+    setExpandedByRoot((previous) => ({
+      ...previous,
+      [targetRootId]: revealCreatedBranch(previous[targetRootId], defaults, path),
+    }))
+    setTreeReveal({ rootId: targetRootId, path: branchPathKey(path) })
+  }
+
+  function toggleExpandedTreePath(targetRootId: number, pathKey: string) {
+    const defaults = treeCategoryKeys()
+    setExpandedByRoot((previous) => ({
+      ...previous,
+      [targetRootId]: toggleTreeBranch(previous[targetRootId], defaults, pathKey),
+    }))
+  }
+
   const TREE_CREATE_LABELS: Record<string, string> = {
     category: '新增年份',
     year: '新增月份／批次',
@@ -1061,23 +1090,28 @@ export default function App() {
     setBusy(true)
     setError('')
     try {
+      let createdPath: Pick<TreeNode, 'type' | 'key'>[]
       if (last.type === 'category') {
         await api.createYearFolder({ root_id: rootId, category_code: category, year: name })
+        createdPath = [...treeCreatePath, { type: 'year', key: name }]
       } else if (last.type === 'year') {
         await api.createPeriodFolder({ root_id: rootId, category_code: category, year, period: name })
+        createdPath = [...treeCreatePath, { type: 'period', key: name }]
       } else if (last.type === 'period') {
         await api.createBuildingFolder({ root_id: rootId, category_code: category, year, period, building: name })
+        createdPath = [...treeCreatePath, { type: 'building', key: name }]
       } else if (last.type === 'building') {
         const created = await api.createItem({
           root_id: rootId, category_code: category, year, period, building, code: name,
         })
         setSelected({ type: 'item', id: created.id, key: String(created.id), label: created.code })
         setItem(created)
+        createdPath = [...treeCreatePath, { type: 'item', key: String(created.id) }]
       } else {
         throw new Error('此層級不能建立子資料夾')
       }
+      focusCreatedTreePath(rootId, createdPath)
       await refreshTree(rootId)
-      setExpandTreeAfterCreate(true)
       setTreeCreatePath(null)
       setTreeCreateName('')
       setCacheMessage(`已建立資料夾：${name}`)
@@ -1098,6 +1132,13 @@ export default function App() {
     setError('')
     try {
       const created = await api.createItem({ root_id: rootId, ...newItem })
+      focusCreatedTreePath(
+        rootId,
+        itemBranchPath(
+          newItem.category_code, newItem.year, newItem.period,
+          newItem.building, created.id,
+        ),
+      )
       await refreshTree(rootId)
       setSelected({
         type: 'item',
@@ -1132,6 +1173,11 @@ export default function App() {
         year: newItem.year,
         period: newPeriodName.trim(),
       })
+      focusCreatedTreePath(rootId, [
+        { type: 'category', key: newItem.category_code },
+        { type: 'year', key: newItem.year },
+        { type: 'period', key: created.period },
+      ])
       await refreshTree(rootId)
       setNewItem((current) => ({ ...current, period: created.period, building: '' }))
       setNewPeriodName('')
@@ -1161,6 +1207,12 @@ export default function App() {
         period: newItem.period,
         building: newBuildingName.trim(),
       })
+      focusCreatedTreePath(rootId, [
+        { type: 'category', key: newItem.category_code },
+        { type: 'year', key: newItem.year },
+        { type: 'period', key: newItem.period },
+        { type: 'building', key: created.building ?? newBuildingName.trim() },
+      ])
       await refreshTree(rootId)
       setNewItem((current) => ({ ...current, building: created.building ?? newBuildingName.trim() }))
       setNewBuildingName('')
@@ -1343,9 +1395,16 @@ export default function App() {
         <aside className="panel tree-panel" aria-label="照片資料夾樹">
           <div className="panel-title"><h2>資料樹</h2><span>{countItems(filteredNodes)} / {countItems(nodes)} 筆</span></div>
           <input className="tree-search" type="search" value={treeQuery} onChange={(event) => setTreeQuery(event.target.value)} placeholder="搜尋棟別、月份或設備編號" aria-label="搜尋照片資料樹" />
-          <TreeView nodes={filteredNodes} selectedId={selected?.id ?? null}
-            onSelectItem={(node) => void selectItem(node)}
-            expandAll={Boolean(deferredTreeQuery.trim()) || expandTreeAfterCreate}
+          <TreeView key={rootId ?? 'no-root'} nodes={filteredNodes}
+            selectedId={selected?.id ?? null}
+            onSelectItem={(node) => { setTreeReveal(null); void selectItem(node) }}
+            expandAll={Boolean(deferredTreeQuery.trim())}
+            expandedPaths={rootId === null ? undefined : expandedByRoot[rootId]}
+            onToggle={(pathKey) => {
+              if (rootId !== null) toggleExpandedTreePath(rootId, pathKey)
+              setTreeReveal(null)
+            }}
+            revealPath={treeReveal?.rootId === rootId ? treeReveal.path : null}
             onCreate={(path) => {
               if (busy || scanRunning) { setError('掃描或其他操作進行中，無法建立資料夾'); return }
               setTreeCreatePath(path)
