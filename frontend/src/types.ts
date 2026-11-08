@@ -1,3 +1,38 @@
+export type SharedIssueCandidate = {
+  event_id: string
+  device: string
+  value: Record<string, unknown>
+  at: string
+}
+export type SharedIssueConflict = {
+  key: string
+  kind: 'issue' | 'label'
+  candidates: SharedIssueCandidate[]
+}
+export type SharedIssueStatus = {
+  enabled: boolean
+  root_id: number
+  pending: number
+  last_read: string | null
+  state: string
+  shared_folder: string
+  warning: string
+  manual_review: boolean
+  applied?: number
+  conflicts?: SharedIssueConflict[]
+  verified_events?: number
+}
+export type SharedIssueBackup = {
+  id: string
+  time: string
+  reason: string
+  labels: number
+  items: number
+  current_items?: number
+  adding?: number
+  removing?: number
+  changing?: number
+}
 export type RootRecord = {
   id: number
   label: string

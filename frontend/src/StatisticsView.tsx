@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from './api'
-import type { IssueLabel, IssueStatistics, RootRecord } from './types'
+import type { IssueLabel, IssueStatistics, RootRecord, SharedIssueStatus, SharedIssueBackup, SharedIssueConflict } from './types'
 
 type Props = {
   roots: RootRecord[]
@@ -25,7 +25,87 @@ export function StatisticsView({ roots, onOpenItem, onLabelsChanged }: Props) {
   const exportRequestVersion = useRef(0)
   const refreshRequestVersion = useRef(0)
   const [refreshing, setRefreshing] = useState(false)
+  const [syncRootId, setSyncRootId] = useState<number | null>(null)
+  const [syncStatus, setSyncStatus] = useState<SharedIssueStatus | null>(null)
+  const [syncBackups, setSyncBackups] = useState<SharedIssueBackup[]>([])
+  const [syncConflicts, setSyncConflicts] = useState<SharedIssueConflict[]>([])
+  const [syncBusy, setSyncBusy] = useState(false)
+  const [syncError, setSyncError] = useState('')
+  const [syncMessage, setSyncMessage] = useState('')
 
+
+
+  useEffect(() => {
+    if (roots.length && !roots.some((root) => root.id === syncRootId)) {
+      setSyncRootId(roots[0].id)
+    }
+  }, [roots, syncRootId])
+
+  async function refreshSharedIssueSync(selectedRoot = syncRootId) {
+    if (selectedRoot === null) return
+    const next = await api.sharedIssueStatus(selectedRoot)
+    setSyncStatus(next)
+    if (next.enabled && next.state !== 'offline') {
+      const [history, pending] = await Promise.all([
+        api.sharedIssueBackups(selectedRoot),
+        api.sharedIssueConflicts(selectedRoot),
+      ])
+      setSyncBackups(history)
+      setSyncConflicts(pending)
+    } else {
+      setSyncBackups([])
+      setSyncConflicts([])
+    }
+  }
+
+  useEffect(() => {
+    setSyncStatus(null)
+    setSyncBackups([])
+    setSyncConflicts([])
+    setSyncMessage('')
+    setSyncError('')
+    if (syncRootId === null) return
+    let active = true
+    void api.sharedIssueStatus(syncRootId)
+      .then((result) => { if (active) setSyncStatus(result) })
+      .catch((err) => { if (active) setSyncError(err instanceof Error ? err.message : '讀取同步狀態失敗') })
+    return () => { active = false }
+  }, [syncRootId])
+
+  useEffect(() => {
+    if (!syncRootId || !syncStatus?.enabled) return
+    // Poll the local API only. The server checks the Drive Desktop folder
+    // independently; we never claim confirmed upload to Google servers.
+    void refreshSharedIssueSync(syncRootId).catch((err) => setSyncError(
+      err instanceof Error ? err.message : '讀取共用資料失敗',
+    ))
+    const poll = window.setInterval(() => {
+      void refreshSharedIssueSync(syncRootId).catch((err) => setSyncError(
+        err instanceof Error ? err.message : '共用資料暫時不可讀',
+      ))
+    }, 60000)
+    return () => window.clearInterval(poll)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [syncRootId, syncStatus?.enabled])
+
+  async function sharedAction(task: () => Promise<unknown>, message: string) {
+    if (syncRootId === null || syncBusy) return
+    setSyncBusy(true)
+    setSyncError('')
+    setSyncMessage('')
+    try {
+      await task()
+      await refreshSharedIssueSync(syncRootId)
+      await refresh()
+      onLabelsChanged()
+      setSyncMessage(message)
+    } catch (err) {
+      setSyncError(err instanceof Error ? err.message : '同步操作失敗')
+      void api.sharedIssueStatus(syncRootId).then(setSyncStatus).catch(() => undefined)
+    } finally {
+      setSyncBusy(false)
+    }
+  }
 
   function invalidateExport() {
     exportRequestVersion.current++
@@ -166,6 +246,119 @@ export function StatisticsView({ roots, onOpenItem, onLabelsChanged }: Props) {
             </button>
           ))}
         </div>
+      </section>
+
+      <section className="panel-card shared-issue-panel">
+        <div className="panel-title">
+          <h2>Google Drive 多人異常同步與本機備份</h2>
+          <span>每台設備只能有一種異常，衝突需人工選擇</span>
+        </div>
+        <p className="help-text">
+          透過 Windows Google Drive 電腦版的照片根目錄共用獨立事件檔，不同步 SQLite，
+          不更動照片及清冊。啟用後本機會在啟動及約每兩分鐘讀取共用資料。
+          <b>「已讀取」僅代表本機已驗證，無法保證 Google Drive 已完成上傳。</b>
+        </p>
+        <label>共用照片根目錄
+          <select value={syncRootId ?? ''} disabled={syncBusy}
+            onChange={(event) => setSyncRootId(event.target.value ? Number(event.target.value) : null)}>
+            {roots.map((root) => <option key={root.id} value={root.id}>{root.label}</option>)}
+          </select>
+        </label>
+        {syncStatus && <p className="help-text" role="status">
+          狀態：{syncStatus.enabled
+            ? syncStatus.state === 'review_required' ? '本機復原後暫停同步，需人工確認'
+              : syncStatus.state === 'offline' ? '共用資料夾離線'
+                : syncStatus.pending ? '待同步事件：' + syncStatus.pending + ' 筆'
+                  : '已在本機讀取／待 Google Drive 傳送'
+            : '未啟用'}。
+          {syncStatus.last_read ? ' 最近本機讀取：' + syncStatus.last_read : ' 尚無成功讀取紀錄。'}
+          {syncStatus.enabled ? ' 共用資料位置：' + syncStatus.shared_folder : ''}
+        </p>}
+        {syncError && <p className="error-banner" role="alert">{syncError}</p>}
+        {syncMessage && <p role="status" className="stats-message">{syncMessage}</p>}
+        <div className="shared-issue-actions">
+          <button type="button" disabled={syncBusy || syncRootId === null} onClick={() => {
+            if (syncRootId === null || !window.confirm(
+              syncStatus?.enabled
+                ? '停用這台電腦的共享同步？共享事件及本機紀錄都不會刪除。'
+                : '確定啟用多人共享？將於選定照片根目錄建立 FireLens-共享異常資料，並保留本機備份。其他電腦必須指定相同的 Google Drive 同步根目錄。',
+            )) return
+            void sharedAction(
+              () => api.configureSharedIssues(syncRootId, !syncStatus?.enabled),
+              syncStatus?.enabled ? '已停用本機共用同步，原始資料保留' : '已啟用共用同步，請檢查並執行同步',
+            )
+          }}>{syncBusy ? '處理中…' : syncStatus?.enabled ? '停用此根目錄同步' : '啟用此根目錄同步'}</button>
+          <button type="button" disabled={syncBusy || !syncStatus?.enabled}
+            onClick={() => {
+              if (syncRootId !== null) void sharedAction(
+                () => api.runSharedIssueSync(syncRootId),
+                '已驗證本機共享事件，請留意 Google Drive 雲端上傳狀態',
+              )
+            }}>立即同步</button>
+          <button type="button" disabled={syncBusy || !syncStatus?.enabled}
+            onClick={() => void refreshSharedIssueSync().catch((err) =>
+              setSyncError(err instanceof Error ? err.message : '讀取狀態失敗'))}>查看備份／衝突</button>
+          {syncStatus?.manual_review && <button type="button" disabled={syncBusy} onClick={() => {
+            if (syncRootId !== null && window.confirm(
+              '本機剛從備份復原。繼續同步會以共用事件版本為準，可能再次改變本機異常紀錄。確定繼續？',
+            )) void sharedAction(() => api.resumeSharedIssues(syncRootId), '已重新開始同步')
+          }}>確認並恢復同步</button>}
+          {syncStatus?.enabled && <button type="button" disabled={syncBusy} onClick={() => {
+            if (syncRootId !== null && window.confirm(
+              '僅當 Google Drive 共享事件被刪除或版本退回才使用。將已驗證的本機事件封存重新放回共用資料夾，確定執行？',
+            )) void sharedAction(
+              () => api.recoverMissingSharedEvents(syncRootId), '已嘗試人工補回共享事件，請再次同步',
+            )
+          }}>修復雲端誤刪事件</button>}
+        </div>
+        {syncConflicts.length > 0 && (
+          <div className="shared-issue-conflicts">
+            <h3>待人工選擇的版本衝突：{syncConflicts.length} 項</h3>
+            {syncConflicts.map((conflict) => <div className="panel-card" key={conflict.key}>
+              <strong>{conflict.kind === 'label' ? '異常分類' : '設備異常'}：{conflict.key}</strong>
+              <p className="help-text">兩台電腦對同一項目有不同版本。請選擇要保留的版本，不會自動覆蓋。</p>
+              {conflict.candidates.map((candidate) => (
+                <div className="shared-issue-candidate" key={candidate.event_id}>
+                  <span>{candidate.at} · 裝置 {candidate.device.slice(0, 8)} · {JSON.stringify(candidate.value)}</span>
+                  <button type="button" disabled={syncBusy} onClick={() => {
+                    if (syncRootId !== null && window.confirm('確定選擇此版本，保留其他版本於歷史事件中？')) {
+                      void sharedAction(
+                        () => api.resolveSharedIssue(syncRootId, conflict.key, candidate.event_id),
+                        '已保存人工衝突選擇',
+                      )
+                    }
+                  }}>採用此版本</button>
+                </div>
+              ))}
+            </div>)}
+          </div>
+        )}
+        {syncStatus?.enabled && <section className="shared-issue-backups">
+          <h3>本機歷史備份（最多顯示 100 份）</h3>
+          {syncBackups.map((backup) => <div key={backup.id} className="shared-issue-backup-row">
+            <span>{backup.time} · {backup.reason} · {backup.items} 台異常／{backup.labels} 個分類</span>
+            <button type="button" disabled={syncBusy} onClick={() => {
+              if (syncRootId === null) return
+              void api.previewSharedIssueBackup(syncRootId, backup.id)
+                .then((preview) => setSyncMessage(
+                  '備份預覽：' + preview.time + '；備份 ' + preview.items +
+                  ' 台／目前 ' + (preview.current_items ?? '—') + ' 台；復原會新增 ' +
+                  (preview.adding ?? 0) + ' 台、移除 ' + (preview.removing ?? 0) +
+                  ' 台、變更 ' + (preview.changing ?? 0) + ' 台異常；分類 ' + preview.labels + ' 個。',
+                )).catch((err) => setSyncError(String(err)))
+            }}>預覽</button>
+            <button type="button" disabled={syncBusy} onClick={() => {
+              if (syncRootId === null || !window.confirm(
+                '確定只復原本機到這個時間點？會先備份目前本機資料並暫停同步，不會自動覆蓋 Google Drive 共用事件。',
+              )) return
+              void sharedAction(
+                () => api.restoreSharedIssueBackup(syncRootId, backup.id),
+                '本機異常已復原，同步暫停，請確認資料再決定是否繼續',
+              )
+            }}>復原本機</button>
+          </div>)}
+          {!syncBackups.length && <p className="help-text">尚未產生本機歷史備份。</p>}
+        </section>}
       </section>
 
       <section className="panel-card">

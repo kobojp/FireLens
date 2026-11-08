@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import sqlite3
 import sys
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Annotated
 
@@ -83,6 +84,45 @@ from .scan_jobs import (
 )
 from .security import DesktopSecurityMiddleware
 from .settings import custom_slots_for
+from .shared_issues import (
+    SyncError,
+    backup_preview,
+    recover_missing_shared_events,
+    resume_after_restore,
+)
+from .shared_issues import (
+    backups as sync_backups,
+)
+from .shared_issues import (
+    configure as configure_shared_issues,
+)
+from .shared_issues import (
+    conflicts as sync_conflicts,
+)
+from .shared_issues import (
+    enabled_roots as enabled_shared_issue_roots,
+)
+from .shared_issues import (
+    record_item as sync_record_item,
+)
+from .shared_issues import (
+    record_label as sync_record_label,
+)
+from .shared_issues import (
+    record_renamed_item as sync_record_renamed_item,
+)
+from .shared_issues import (
+    resolve as resolve_shared_issue,
+)
+from .shared_issues import (
+    restore as restore_shared_issue,
+)
+from .shared_issues import (
+    status as shared_status,
+)
+from .shared_issues import (
+    synchronize as synchronize_shared_issues,
+)
 from .storage import (
     StorageConflict,
     StorageError,
@@ -132,6 +172,19 @@ class IssueLabelUpdate(BaseModel):
     name: str | None = None
     active: bool | None = None
     sort_order: int | None = None
+
+
+class SharedIssueConfigure(BaseModel):
+    enabled: bool
+
+
+class SharedIssueResolution(BaseModel):
+    key: str = Field(min_length=1, max_length=1024)
+    event_id: str = Field(min_length=32, max_length=32)
+
+
+class SharedIssueConfirm(BaseModel):
+    confirm: bool = False
 
 
 class ItemIssueUpdate(BaseModel):
@@ -284,9 +337,29 @@ def create_app() -> FastAPI:
         initialize_database()
         with database() as conn:
             seed_default_aliases(conn)
+
+        def auto_sync_once() -> None:
+            with database() as sync_conn:
+                for sync_root_id in enabled_shared_issue_roots(sync_conn):
+                    try:
+                        synchronize_shared_issues(sync_conn, sync_root_id)
+                    except (SyncError, OSError, sqlite3.Error):
+                        # Never delete or rewrite local records when a Drive
+                        # folder is missing, partially synced or conflicted.
+                        logger.warning("共享異常同步暫停，需查看狀態或人工處理")
+
+        async def auto_sync_loop() -> None:
+            while True:
+                await asyncio.to_thread(auto_sync_once)
+                await asyncio.sleep(120)
+
+        sync_task = asyncio.create_task(auto_sync_loop())
         try:
             yield
         finally:
+            sync_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await sync_task
             logger.info("application shutdown version=%s", __version__)
 
     app = FastAPI(title="FireLens API", version=__version__, lifespan=lifespan)
@@ -522,7 +595,16 @@ def create_app() -> FastAPI:
     def rename_folder(item_id: int, payload: ItemFolderRename) -> dict[str, object]:
         with database() as conn:
             try:
-                return rename_item_folder(conn, item_id, payload.new_name)
+                changed = rename_item_folder(conn, item_id, payload.new_name)
+                sync_record_renamed_item(
+                    conn, item_id, str(changed["old_relative_path"]), str(changed["old_name"])
+                )
+                return changed
+            except SyncError as exc:
+                raise HTTPException(
+                    status_code=503,
+                    detail="資料夾更名已完成，但共享異常事件暫時未寫入：" + str(exc),
+                ) from exc
             except StorageConflict as exc:
                 raise HTTPException(status_code=409, detail=str(exc)) from exc
             except StorageError as exc:
@@ -537,7 +619,13 @@ def create_app() -> FastAPI:
     def add_issue_label(payload: IssueLabelCreate) -> dict[str, object]:
         with database() as conn:
             try:
-                return create_label(conn, payload.name)
+                created = create_label(conn, payload.name)
+                sync_record_label(conn, int(created["id"]))
+                return created
+            except SyncError as exc:
+                raise HTTPException(
+                    status_code=503, detail="已寫入本機，但共享事件暫無法保存：" + str(exc)
+                ) from exc
             except IssueConflict as exc:
                 raise HTTPException(status_code=409, detail=str(exc)) from exc
             except IssueError as exc:
@@ -547,17 +635,105 @@ def create_app() -> FastAPI:
     def edit_issue_label(label_id: int, payload: IssueLabelUpdate) -> dict[str, object]:
         with database() as conn:
             try:
-                return update_label(
+                updated = update_label(
                     conn,
                     label_id,
                     name=payload.name,
                     active=payload.active,
                     sort_order=payload.sort_order,
                 )
+                sync_record_label(conn, label_id)
+                return updated
+            except SyncError as exc:
+                raise HTTPException(
+                    status_code=503, detail="已寫入本機，但共享事件暫無法保存：" + str(exc)
+                ) from exc
             except IssueConflict as exc:
                 raise HTTPException(status_code=409, detail=str(exc)) from exc
             except IssueError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/issues/sync/{root_id}")
+    def get_shared_issue_sync(root_id: int) -> dict[str, object]:
+        with database() as conn:
+            try:
+                return shared_status(conn, root_id)
+            except SyncError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/issues/sync/{root_id}/configure")
+    def configure_issue_sync(root_id: int, payload: SharedIssueConfigure) -> dict[str, object]:
+        with database() as conn:
+            try:
+                return configure_shared_issues(conn, root_id, payload.enabled)
+            except (SyncError, OSError) as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/issues/sync/{root_id}/run")
+    def run_issue_sync(root_id: int) -> dict[str, object]:
+        with database() as conn:
+            try:
+                return synchronize_shared_issues(conn, root_id)
+            except (SyncError, OSError) as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.get("/api/issues/sync/{root_id}/conflicts")
+    def get_issue_sync_conflicts(root_id: int) -> list[dict]:
+        with database() as conn:
+            try:
+                return sync_conflicts(conn, root_id)
+            except (SyncError, OSError) as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.post("/api/issues/sync/{root_id}/resolve")
+    def resolve_issue_sync(root_id: int, payload: SharedIssueResolution) -> dict[str, object]:
+        with database() as conn:
+            try:
+                return resolve_shared_issue(conn, root_id, payload.key, payload.event_id)
+            except (SyncError, OSError) as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.get("/api/issues/sync/{root_id}/backups")
+    def list_issue_sync_backups(root_id: int) -> list[dict]:
+        with database() as conn:
+            try:
+                return sync_backups(conn, root_id)
+            except SyncError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/issues/sync/{root_id}/backups/{backup_id}")
+    def preview_issue_backup(root_id: int, backup_id: str) -> dict:
+        with database() as conn:
+            try:
+                preview = backup_preview(conn, root_id, backup_id)
+                preview.pop("_data", None)
+                return preview
+            except (SyncError, OSError) as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/issues/sync/{root_id}/backups/{backup_id}/restore")
+    def restore_issue_backup(root_id: int, backup_id: str, payload: SharedIssueConfirm) -> dict:
+        with database() as conn:
+            try:
+                return restore_shared_issue(conn, root_id, backup_id, payload.confirm)
+            except (SyncError, OSError, sqlite3.Error) as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.post("/api/issues/sync/{root_id}/recover-shared")
+    def recover_shared_issue_events(root_id: int, payload: SharedIssueConfirm) -> dict:
+        with database() as conn:
+            try:
+                return recover_missing_shared_events(conn, root_id, payload.confirm)
+            except (SyncError, OSError) as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.post("/api/issues/sync/{root_id}/resume")
+    def resume_shared_issue_sync(root_id: int, payload: SharedIssueConfirm) -> dict:
+        with database() as conn:
+            try:
+                return resume_after_restore(conn, root_id, payload.confirm)
+            except (SyncError, OSError) as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @app.get("/api/issues/statistics")
     def issues_stats(root_id: int | None = None) -> dict[str, object]:
@@ -614,7 +790,13 @@ def create_app() -> FastAPI:
     def update_item_issue(item_id: int, payload: ItemIssueUpdate) -> dict[str, object]:
         with database() as conn:
             try:
-                return set_item_issue(conn, item_id, payload.label_id)
+                updated = set_item_issue(conn, item_id, payload.label_id)
+                sync_record_item(conn, item_id, payload.label_id)
+                return updated
+            except SyncError as exc:
+                raise HTTPException(
+                    status_code=503, detail="已寫入本機，但共享事件暫無法保存：" + str(exc)
+                ) from exc
             except IssueError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
 

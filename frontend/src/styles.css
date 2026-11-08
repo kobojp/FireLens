@@ -655,3 +655,17 @@ html[data-theme="dark"] .tree-newly-created > summary {
   outline-color: #80c4ff;
   background: rgba(128, 196, 255, .16);
 }
+
+.shared-issue-panel { display: grid; gap: 12px; }
+.shared-issue-panel > label { display: grid; max-width: 520px; gap: 6px; }
+.shared-issue-actions, .shared-issue-backup-row, .shared-issue-candidate {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+}
+.shared-issue-actions button, .shared-issue-candidate button, .shared-issue-backup-row button {
+  border: 1px solid var(--border, #8fa8bb); border-radius: 6px; padding: 7px 11px;
+}
+.shared-issue-candidate, .shared-issue-backup-row {
+  padding: 8px 0; border-bottom: 1px solid var(--border, #cbd5e1);
+}
+.shared-issue-candidate span { overflow-wrap: anywhere; max-width: 700px; font-size: 12px; }
+.shared-issue-backups, .shared-issue-conflicts { display: grid; gap: 7px; }

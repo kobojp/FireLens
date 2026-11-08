@@ -19,6 +19,9 @@ import type {
   LedgerImportPreview,
   ReconcileResult,
   RootRecord,
+  SharedIssueStatus,
+  SharedIssueConflict,
+  SharedIssueBackup,
   ScanJobStatus,
   ScanSummary,
   TreeNode,
@@ -338,6 +341,43 @@ export const api = {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ format, ...filters }),
   }),
+  sharedIssueStatus: (rootId: number) =>
+    request<SharedIssueStatus>('/api/issues/sync/' + rootId),
+  configureSharedIssues: (rootId: number, enabled: boolean) =>
+    request<SharedIssueStatus>('/api/issues/sync/' + rootId + '/configure', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    }),
+  runSharedIssueSync: (rootId: number) =>
+    request<SharedIssueStatus>('/api/issues/sync/' + rootId + '/run', { method: 'POST' }),
+  sharedIssueConflicts: (rootId: number) =>
+    request<SharedIssueConflict[]>('/api/issues/sync/' + rootId + '/conflicts'),
+  resolveSharedIssue: (rootId: number, key: string, eventId: string) =>
+    request<SharedIssueStatus>('/api/issues/sync/' + rootId + '/resolve', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key, event_id: eventId }),
+    }),
+  sharedIssueBackups: (rootId: number) =>
+    request<SharedIssueBackup[]>('/api/issues/sync/' + rootId + '/backups'),
+  previewSharedIssueBackup: (rootId: number, backupId: string) =>
+    request<SharedIssueBackup>('/api/issues/sync/' + rootId + '/backups/' + backupId),
+  restoreSharedIssueBackup: (rootId: number, backupId: string) =>
+    request<{ restored_locally: boolean, warning: string }>(
+      '/api/issues/sync/' + rootId + '/backups/' + backupId + '/restore', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirm: true }),
+      }),
+  recoverMissingSharedEvents: (rootId: number) =>
+    request<{ restored: number, message: string }>(
+      '/api/issues/sync/' + rootId + '/recover-shared', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirm: true }),
+      }),
+  resumeSharedIssues: (rootId: number) =>
+    request<SharedIssueStatus>('/api/issues/sync/' + rootId + '/resume', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ confirm: true }),
+    }),
   openExport: (token: string, mode: 'file' | 'folder') =>
     request<{ opened: boolean }>('/api/exports/open', {
       method: 'POST',
