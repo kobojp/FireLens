@@ -90,8 +90,16 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .empty-state b { color: #40444a; }
 .empty-state p { max-width: 460px; line-height: 1.65; }
 
-.slot-wall { display: grid; grid-template-columns: repeat(3, minmax(180px, 1fr)); gap: 12px; align-items: start; }
-.slot-card { min-height: 310px; border: 2px dashed #d3d7dc; border-radius: 12px; padding: 12px; background: #fafbfc; transition: border-color .15s, background .15s; }
+/* Slot count follows the actual photo panel width, including resized windows. */
+.photo-panel { container-type: inline-size; }
+.slot-wall { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; align-items: start; }
+@container (max-width: 710px) {
+  .slot-wall { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@container (max-width: 430px) {
+  .slot-wall { grid-template-columns: minmax(0, 1fr); }
+}
+.slot-card { min-width: 0; min-height: 310px; border: 2px dashed #d3d7dc; border-radius: 12px; padding: 12px; background: #fafbfc; transition: border-color .15s, background .15s; }
 .slot-card.filled { border-style: solid; border-color: #dedfe1; background: #fff; }
 .slot-card:hover { border-color: #e18a6f; background: #fffaf7; }
 .slot-card.drag-target { border-color: #e45b31; background: #fff1e9; box-shadow: inset 0 0 0 2px rgba(228, 91, 49, .12); }
@@ -112,7 +120,37 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .photo-tile { overflow: hidden; border: 1px solid #e0e2e5; border-radius: 9px; background: #fafafa; }
 .photo-preview-button { display: block; width: 100%; padding: 0; border: 0; background: #eceef1; }
 .photo-preview-button img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; }
-.photo-meta { padding: 8px; display: flex; gap: 8px; align-items: center; justify-content: space-between; }
+/* Responsive photo controls: filename occupies its own row and buttons
+   flow within their own tile, instead of clipping the trailing Delete action. */
+.photo-meta { min-width: 0; padding: 8px; display: grid; gap: 8px; align-items: stretch; }
+.photo-tile { min-width: 0; container-type: inline-size; }
+.photo-actions {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  gap: 5px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.photo-actions > button, .photo-actions > label {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 36px;
+  padding: 6px 4px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: center;
+}
+.photo-actions > label:focus-within {
+  outline: 2px solid #e45b31;
+  outline-offset: 2px;
+}
+@container (min-width: 410px) {
+  .photo-actions { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@container (max-width: 170px) {
+  .photo-actions { grid-template-columns: minmax(0, 1fr); }
+}
 .photo-meta b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 
 .unmapped-section { margin-top: 18px; padding-top: 14px; border-top: 1px solid #e3e5e8; }
@@ -448,10 +486,10 @@ html[data-theme="dark"] .prompt-footer button.danger:hover:not(:disabled) { back
 .reconcile-tutorial .panel-title button { border: 0; border-radius: 6px; padding: 4px 12px; font-size: 21px; background: transparent; color: inherit; }
 .reconcile-tutorial .panel-title button:hover { background: #7f899033; }
 .control-grid { grid-template-columns: repeat(4,minmax(150px,1fr)) auto; }
-.slot-actions, .photo-meta { flex-wrap: wrap; }
-.photo-meta { align-items: center; }
-.photo-meta button { flex-shrink: 0; white-space: nowrap; min-width: 54px; }
-.photo-meta b { flex: 1; }
+.slot-actions { flex-wrap: wrap; }
+.photo-meta { align-items: stretch; }
+.photo-actions > button { flex-shrink: 1; white-space: normal; min-width: 0; }
+.photo-meta b { display: block; min-width: 0; }
 :where(html[data-theme="dark"]) {
   --fl-dark-bg: #191d24;
   --fl-dark-surface: #272e38;

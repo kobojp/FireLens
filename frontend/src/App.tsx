@@ -90,7 +90,7 @@ function PhotoTile({
       </button>
       <div className="photo-meta">
         <b title={photo.filename}>{photo.filename}</b>
-        <div className="photo-actions" style={{ display: 'flex', gap: '4px' }}>
+        <div className="photo-actions" role="group" aria-label={`${photo.filename} 照片操作`}>
           {onMoveLeft && !isFirst && (
             <button type="button" className="icon-button" onClick={() => onMoveLeft(photo.id)} title="向前移">◀</button>
           )}
@@ -1235,7 +1235,7 @@ export default function App() {
       <header className="topbar">
         <div>
           <strong>FireLens</strong>
-          <span>照片管理、核對與離線工作 · v{appInfo?.version ?? '1.8.0'}</span>
+          <span>照片管理、核對與離線工作 · v{appInfo?.version ?? '1.8.1'}</span>
         </div>
         <div className="root-controls">
           <label htmlFor="root-select">根目錄</label>

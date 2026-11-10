@@ -1,13 +1,13 @@
 # 滅火器燈具照片管理系統 任務文件
 
-狀態：**M0～M16 為歷史功能；M17 第 4 項安全備註匹配與第 5 項多人異常事件同步／本機備份已通過合成／回歸測試及 Windows 打包；真實 Google Drive 兩機驗收待確認；先前功能仍各有實機待驗收項目**。目前版本 v1.8.0（2026-11-08 已由 GitHub Actions 正式發布）。開發前還原點：Git commit 0f9bc7d / backup/pre-m17-20261107。歷史 v1.7.0 已正式發布至 GitHub Release。歷史 v1.6.0 與 v1.5.0 已正式發布至 GitHub Release。
+狀態：**M0～M16 為歷史功能；M17 第 4 項安全備註匹配與第 5 項多人異常事件同步／本機備份已通過合成／回歸測試及 Windows 打包；真實 Google Drive 兩機驗收待確認；先前功能仍各有實機待驗收項目**。目前版本 v1.8.1（PATCH 開發版，尚未正式發布）；歷史 v1.8.0 已於 2026-11-08 由 GitHub Actions 正式發布。開發前還原點：Git commit 0f9bc7d / backup/pre-m17-20261107。歷史 v1.7.0 已正式發布至 GitHub Release。歷史 v1.6.0 與 v1.5.0 已正式發布至 GitHub Release。
 M14 歷史開發版本：v1.6.0。
 M15 歷史開發版本：v1.6.1（PATCH，修正線上更新器實機失敗）。
 
 ## M17 正式 GitHub Release v1.8.0（2026-11-08）
 
 - [x] 將本機 feature/m17-improvements 安全快轉至 main，推送 origin/main：提交 518f562；GitHub 專案 kobojp/FireLens。
-- [x] 發版前 Python 193 passed、Vitest 58 passed、Ruff check/format、TypeScript/Vite 與 packaging/check_version_consistency.py --tag v1.8.0 全部通過。
+歷史開發紀錄：- [x] 發版前 Python 193 passed、Vitest 58 passed、Ruff check/format、TypeScript/Vite 與 packaging/check_version_consistency.py --tag v1.8.0 全部通過。
 - [x] 發版前確認 FIRELENS_UPDATE_PRIVATE_KEY_B64 為 GitHub Actions Secret（僅檢查是否存在、不讀取內容），且 Git 無追蹤 .dpapi／.env／SQLite／真實照片或清冊資料。
 - [x] 推送 v1.8.0 Git Tag，GitHub Actions run 42494489173 結果 success；Windows EXE + 繁中 installer、Ed25519 update-manifest.json/update-manifest.sig、SHA256SUMS.txt、五個 Release 資產均成功上傳；正式 Latest Release： https://github.com/kobojp/FireLens/releases/tag/v1.8.0 。
 - [ ] 真實 Windows 歷史 v1.7.0 → v1.8.0 線上更新及兩台 Google Drive Desktop 異常同步／衝突／備份復原，仍需使用者實機驗收（正式發布不等於實機操作已通過）。
@@ -548,7 +548,7 @@ M15 歷史開發版本：v1.6.1（PATCH，修正線上更新器實機失敗）�
 
 ### M17-I＋M17-J 合併施工驗證（2026-11-08）
 
-本輪實際驗證：M17-I 原有括號備註匹配沿用，新增 4 項合成 SQLite／CSV／XLSX 回歸；M17-J 加入共享事件 journal、兩個模擬 Windows 用戶端、異常分類與單設備標記同步、手動衝突解決、離線 outbox、雲端事件缺失檢出與本機 archive 人工補回、備份預覽／復原、資料夾更名路徑遷移、啟用 API 和 UI。完整 pytest **192 passed**、Vitest **58 passed**、Ruff check/format、TS/Vite、版本一致性 **v1.8.0** PASS。Windows packaging/build.ps1 Exit Code 0，繁中 FireLens-1.8.0-setup.exe、portable/installer 更新器、READY/HEALTHY、rollback、故障注入 E2E PASS。合成測試無法證明 Google Drive 官方實際上傳／下載已完成。
+歷史開發紀錄：本輪實際驗證：M17-I 原有括號備註匹配沿用，新增 4 項合成 SQLite／CSV／XLSX 回歸；M17-J 加入共享事件 journal、兩個模擬 Windows 用戶端、異常分類與單設備標記同步、手動衝突解決、離線 outbox、雲端事件缺失檢出與本機 archive 人工補回、備份預覽／復原、資料夾更名路徑遷移、啟用 API 和 UI。完整 pytest **192 passed**、Vitest **58 passed**、Ruff check/format、TS/Vite、版本一致性 **v1.8.0** PASS。Windows packaging/build.ps1 Exit Code 0，繁中 FireLens-1.8.0-setup.exe、portable/installer 更新器、READY/HEALTHY、rollback、故障注入 E2E PASS。合成測試無法證明 Google Drive 官方實際上傳／下載已完成。
 
 
 使用者要求一次完成第 4 項「設備編號異常備註匹配」與第 5 項「Google Drive 多人同步與備份」。施工前已確認 M17 階段 A 存在尾端括號安全匹配與測試，不重造既有功能；多人異常同步尚未實作。程式與合成兩機測試通過不等於真實 Google Drive 多電腦驗收通過。
@@ -729,11 +729,11 @@ M15 歷史開發版本：v1.6.1（PATCH，修正線上更新器實機失敗）�
 - [x] 修正統計匯出與 UI 篩選一致性及競態：按匯出時鎖定根目錄／異常分類／棟別樓層／關鍵字和畫面筆數快照。後端比較預期筆數，差異時在寫入前回報 409，不留下過時的匯出檔；前端若使用者在等待期間改變篩選、重新整理或改異常分類，不得顯示舊結果可開啟的按鈕，也不得把舊匯出標為目前清單。
 - [x] 核對 CSV UTF-8 BOM 與 Excel XLSX 有效欄位、筆數、順序、中文設備名稱、保留文字設備編號以及公式注入防護；匯出只依既有一設備一異常與篩選順序，不把照片操作按鈕當內容，0 筆時禁用或清楚提示。
 - [x] 共用既有安全 Downloads/FireLens 匯出與不透明 open_token 開檔能力；對不存在檔、任意 token、變更過期、Windows Explorer／預設程式錯誤具體回報。不得直接接受前端路徑，不觸碰現場照片／清冊，不推送個資或憑證。
-- [x] 使用合成統計及隔離 API 資料庫測試：CSV/XLSX 中文與欄位順序、前置零設備編號、Excel 字串格式與公式注入、篩選後 2 筆、0 筆阻擋、HTTP 409 不產生檔案及開檔 token。Python pytest 179 passed、Vitest 48 passed、Ruff check/format、TypeScript/Vite、版本一致性 v1.8.0 全部通過。
+歷史開發紀錄：- [x] 使用合成統計及隔離 API 資料庫測試：CSV/XLSX 中文與欄位順序、前置零設備編號、Excel 字串格式與公式注入、篩選後 2 筆、0 筆阻擋、HTTP 409 不產生檔案及開檔 token。Python pytest 179 passed、Vitest 48 passed、Ruff check/format、TypeScript/Vite、版本一致性 v1.8.0 全部通過。
 - [x] Windows packaging/build.ps1 Exit Code 0，繁中 FireLens-1.8.0-setup.exe、Windows EXE 及 updater portable/installed READY／HEALTHY／rollback／故障注入 E2E 均通過；AGENTS/README/TASKS 已同步，待本機 Git commit。不 push／Release，維持未正式發布的 v1.8.0 版本。
 - [ ] 使用者在 Windows 真正點擊異常統計的 CSV／Excel 匯出，確認檔案能以關聯應用程式開啟、檔案總管可正常開啟所在資料夾；模擬 API/自動更新 E2E 不代表實際 Windows UI 已驗收。
 
-### M17 階段 A 實作紀錄（目前 v1.8.0 開發分支，尚未驗收／發布）
+歷史開發紀錄：### M17 階段 A 實作紀錄（目前 v1.8.0 開發分支，尚未驗收／發布）
 
 - [x] 施工前以 Git commit `0f9bc7d`、本機 tag `backup/pre-m17-20261107` 建立還原點，並切換至 `feature/m17-improvements` 分支。
 - [x] 清冊核對後端新增滅火器／放置盒／燈具類別條件，保留只顯示匯入清冊列；尾端括號備註安全匹配並保留原資料夾名稱，跨類別及多候選不會自動亂配。補上合成 SQLite 測試。
@@ -743,7 +743,7 @@ M15 歷史開發版本：v1.6.1（PATCH，修正線上更新器實機失敗）�
 - [ ] Windows pywebview 實機 UI 驗證：模態焦點／Esc、樹狀右鍵與新增路徑、深淺色對比、兩類匯出後真實開檔／Explorer。
 - [ ] Google Drive 同步多人異常紀錄與本機多版本備份、雲端誤刪恢復：**尚未接入現場同步，避免未處理衝突就上線**，需先完成合成多用戶端事件合併與復原測試。
 - 歷史公開資料夾 API Key／iframe 需求：**已由使用者取消**，改以 M17 階段 D「限制存取 + Google OAuth」取代。
-- [x] 已執行版本一致性 v1.8.0 PASS、Ruff check PASS（排序修正後）、pytest 111 passed、Vitest 31 passed、TypeScript/Vite PASS、Windows EXE 與繁中 FireLens-1.8.0-setup.exe 正式 build Exit Code 0；打包後 self-test、portable/installer READY/HEALTHY、rollback/故障注入 E2E 均 PASS。
+歷史開發紀錄：- [x] 已執行版本一致性 v1.8.0 PASS、Ruff check PASS（排序修正後）、pytest 111 passed、Vitest 31 passed、TypeScript/Vite PASS、Windows EXE 與繁中 FireLens-1.8.0-setup.exe 正式 build Exit Code 0；打包後 self-test、portable/installer READY/HEALTHY、rollback/故障注入 E2E 均 PASS。
 - [ ] 尚待 Windows 實際操作 UI 完整驗收，及 Google Drive 兩項功能；未推送 GitHub 或 Release。
 - 原有各小節保留完整需求與驗收範圍，其「待實作／只討論」文字為原始需求記錄；以上階段紀錄為最新施工事實，只有完成測試及實機驗收後才可勾選剩餘項目。
 
@@ -779,8 +779,8 @@ M15 歷史開發版本：v1.6.1（PATCH，修正線上更新器實機失敗）�
 - [ ] 保留既有「加入照片」「拖曳圖片」「換圖」「重新命名」等功能；鍵盤焦點、按鈕 disabled、拖曳交互與深淺色模式須一致，不新增多餘操作步驟。
 - [ ] 使用合成剪貼簿圖片與 Windows LINE 實機測試：有圖片／純文字／空剪貼簿、PNG/JPEG/DIB、Ctrl+V 指定槽位、三類設備、已有照片單張／多張、取消不寫入、檔名衝突、Google Drive 離線、安全權限及切換設備後不誤貼；並驗證真實 pywebview 上按鈕狀態可用。
 - [x] MVP：React 槽位可被選取，新增「貼上照片」、Ctrl+V 讀取 PNG／JPEG／HEIC／HEIF 圖片；文字／空剪貼簿不寫入；確認預覽後透過現有安全 `api.importPhoto` 複製匯入，取消不寫入。圖片大小上限 100 MB，設備／根目錄切換會清除預覽。
-- [x] 基本前端合成測試：clipboardImage 3 項通過；Vitest 全量 34 passed，TypeScript/Vite build PASS，版本檢查 v1.8.0 PASS。
-- [x] Windows 正式建置 PASS（2026-11-07）：FireLens.exe 與繁中 FireLens-1.8.0-setup.exe，Exit Code 0；包含打包後 self-test、portable/installer 更新 E2E、READY／HEALTHY、rollback 與故障注入；Ruff PASS、Python 111 passed、Vitest 34 passed。
+歷史開發紀錄：- [x] 基本前端合成測試：clipboardImage 3 項通過；Vitest 全量 34 passed，TypeScript/Vite build PASS，版本檢查 v1.8.0 PASS。
+歷史開發紀錄：- [x] Windows 正式建置 PASS（2026-11-07）：FireLens.exe 與繁中 FireLens-1.8.0-setup.exe，Exit Code 0；包含打包後 self-test、portable/installer 更新 E2E、READY／HEALTHY、rollback 與故障注入；Ruff PASS、Python 111 passed、Vitest 34 passed。
 - [ ] Windows 11 實機 LINE → FireLens WebView2：確認 Ctrl+V、按鈕剪貼簿權限、圖片格式、檔案預覽／實際成功匯入及視窗交互；尚未看到實際輸出，不得宣稱實機通過。
 - [ ] Windows 剪貼簿狀態確定性：Clipboard API 權限拒絕／不支援時目前採漸進退化（狀態未知時不禁用按鈕，沒有支援圖片時才灰色）；若 WebView2 無法可靠辨識 LINE 來源，另實作 Windows 原生橋接與格式相容、DIB 轉換及針對性測試。
 - [ ] 貼上多照片與槽位衝突的視覺及 Windows UI 驗收、打包後 EXE self-test；未 GitHub push 或 Release。
@@ -826,7 +826,7 @@ M15 歷史開發版本：v1.6.1（PATCH，修正線上更新器實機失敗）�
 - [x] API Key 由本機環境變數 `FIRELENS_DRIVE_API_KEY`（或安全設定）提供；沒有金鑰時清楚提示「清單需要 API Key」，提供資料夾嵌入及手動貼入 Google Sheets URL 的唯讀後備方案。URL 僅接受 sheets.google.com／docs.google.com/spreadsheets/d/ 合法 ID，防止任意 URL iframe、XSS、外部網域代理。
 - [x] API 使用明確狀態（未設金鑰、空清單、權限拒絕、Google API 速率限制、網路逾時）及無快取敏感資訊；非 2xx 不可宣稱查詢成功，介面不得因第三方拒絕 iframe 而當成已驗證。
 - [x] 合成 HTTP 回應測試：公開資料夾多頁、只有 Sheets、惡意 ID 與名稱、無 Key、403／404／429／逾時；前端正常清單選擇／網址解析測試、深淺色排版與連結安全。
-- [x] 程式驗證：Ruff PASS、pytest 125 passed、Vitest 36 passed、TypeScript／Vite PASS、v1.8.0 一致性 PASS。
+歷史開發紀錄：- [x] 程式驗證：Ruff PASS、pytest 125 passed、Vitest 36 passed、TypeScript／Vite PASS、v1.8.0 一致性 PASS。
 - [x] Windows EXE／繁中 setup 正式建置及更新器 portable／installed E2E（READY／HEALTHY、rollback、故障注入）全部通過，packaging/build.ps1 Exit Code 0。
 - 歷史公開資料夾測試驗收：**已取消**，改驗證限制存取 OAuth 私人清單及表格讀取。
 - 歷史公開 API Key／iframe 實機待驗：**已取消**，不再是當前驗收條件。
@@ -863,7 +863,7 @@ M15 歷史開發版本：v1.6.1（PATCH，修正線上更新器實機失敗）�
 - [x] Windows DPAPI 使用者綁定加密 token 儲存與安全清除；登出時撤銷權杖（網路失敗時仍清除本機），不得存於 Git、資料夾同步區或回傳 UI。
 - [x] 上方獨立「查看滅火器資料」分頁改為登入／登出、試算表下拉、工作表選取、React 唯讀表格；移除公開資料夾 iframe/匿名模式與 API Key 提示，且 API 不接受任意私人 Sheet ID；所有表格內容當文字顯示，限制欄列與回應大小。
 - [x] 合成 OAuth/Token/Drive/Sheets HTTP 錯誤、狀態比對、PKCE、資料範圍、未授權阻擋、token 存取與 logout 測試；再跑 Ruff、pytest、Vitest、TS/Vite、版本一致性及 Windows 打包／更新器 E2E。
-- [x] 本輪合成驗證：Windows DPAPI 加密檔不含明文 Token、callback state 及 PKCE 隨機挑戰、OAuth scope 不足拒絕、過期 Token 更新、未登入/跨來源/缺桌面 cookie 被拒、受限資料夾列檔與 Sheets API 值讀取；Python 134 passed、Vitest 36 passed、Ruff 和 TypeScript/Vite PASS、v1.8.0 版本一致性 PASS。
+歷史開發紀錄：- [x] 本輪合成驗證：Windows DPAPI 加密檔不含明文 Token、callback state 及 PKCE 隨機挑戰、OAuth scope 不足拒絕、過期 Token 更新、未登入/跨來源/缺桌面 cookie 被拒、受限資料夾列檔與 Sheets API 值讀取；Python 134 passed、Vitest 36 passed、Ruff 和 TypeScript/Vite PASS、v1.8.0 版本一致性 PASS。
 - [x] Windows EXE／繁中 setup／更新器 portable 和 installed E2E／READY、HEALTHY、rollback、故障注入通過，packaging/build.ps1 Exit Code 0；Graphify 重建 796 nodes／1886 edges／55 communities，產物只保留本機不納入 Git。
 - [ ] 真實 Google OAuth 登入與限制資料夾實機權限驗證由使用者在自己的 Windows 登入授權；未親自驗證前不標為已驗證、不推 GitHub Release。若 Google OAuth 測試應用 7 天重新授權或權限驗證限制，必須清楚顯示。
 
@@ -917,7 +917,7 @@ M15 歷史開發版本：v1.6.1（PATCH，修正線上更新器實機失敗）�
 - [x] React 「唯讀／編輯」切換：未取得寫入 scope 時引導重新授權（只在使用者明確點選時），可編輯限目前頁面 100 列×30 欄；未儲存修改、模式切換/翻頁/切 Sheet/登出前要確認避免草稿遺失。保留純文字顯示、禁止公式注入（預設以 RAW 寫入），Google 權限失敗時不可標示儲存成功。
 - [x] 合成 Google OAuth+Sheets API 測試：readonly token 禁止 PUT、編輯 scope/檔案檢視者拒絕、錯誤 sheet/tab ID、衝突 409、正常保存與 Google 4xx/5xx、超過範圍拒絕、API 不能回傳 Token/Secret，並驗證現有桌面 session/Origin 防護；前端測試及全量 Ruff/pytest/Vitest/Vite。
 - [x] 版本判定：功能納入尚未正式 Release 的 M17 v1.8.0 開發版本，同版多階段驗收依 AGENTS.md 第 3 條允許，正式 Release 前保持版本來源同步；Windows EXE/繁中 setup + portable/installer 更新 E2E／READY／HEALTHY／rollback／故障注入皆通過，build.ps1 Exit Code 0；已同步 AGENTS/README/TASKS，將建立本機 Git commit，不推送 GitHub/Release。
-- [x] 本輪合成測試：Python pytest 163 passed、Vitest 36 passed、Ruff PASS、TypeScript/Vite PASS、版本一致性 v1.8.0 PASS；Google editor scope、Google ACL 403、衝突 409、單格 RAW 寫入與授權失敗不覆寫舊唯讀 Token 均已測試。
+歷史開發紀錄：- [x] 本輪合成測試：Python pytest 163 passed、Vitest 36 passed、Ruff PASS、TypeScript/Vite PASS、版本一致性 v1.8.0 PASS；Google editor scope、Google ACL 403、衝突 409、單格 RAW 寫入與授權失敗不覆寫舊唯讀 Token 均已測試。
 - [ ] **真實 Google 寫入驗收**：在使用者自己的 Windows 上，先準備一份不含現場資料的測試試算表，確認該 Google 帳號是「編輯者」，於 FireLens 主動切至編輯、完成完整 OAuth 授權、修改測試儲存格再讀回；僅實機驗證後才可標記完成。
 
 ### M17-E 實機回報：編輯框不可見與原生 Google Sheets 操作（2026-11-07）
@@ -927,7 +927,7 @@ M15 歷史開發版本：v1.6.1（PATCH，修正線上更新器實機失敗）�
 - [x] 修正編輯 UX：點選儲存格立即在 viewport 中央開啟可輸入的對話框（原值、文字輸入、取消、儲存），獨立於 70vh 內部表格捲動；保留二次確認原值/新值、RAW 文字寫入、409 原值衝突、403 Google ACL 及離開未儲存草稿提示，完整鍵盤／焦點操作。
 - [x] 選取已驗證的資料夾內試算表後顯示「使用 Google 試算表開啟」：於使用者明確點擊時開啟系統預設瀏覽器中的 Google 官方 docs.google.com/spreadsheets/d/<已選 Sheet ID>/edit#gid=<已選 Tab ID>。只使用後端已列出的 ID 且以嚴格格式檢查，不接受任意 URL 或自訂域名；瀏覽器由 Google Cookie 決定是否登入及是否具有編輯 ACL，FireLens 不傳任何 OAuth Token／Client Secret。
 - [x] 更新 README、AGENTS/TASKS（公開 iframe 與原生 Sheets 差異和資料隱私）；合成測試、Ruff、pytest、Vitest、TS/Vite、版本一致性、Windows EXE／繁中 installer／更新器 E2E；本機 Git checkpoint，不推送 Release。實際瀏覽器登入與真實 Google Sheets 寫入僅由使用者實機測試。
-- [x] 本輪合成驗證：Python pytest 165 passed、前端 Vitest 36 passed、Ruff/TS/Vite 與版本一致性 v1.8.0 PASS。Windows packaging/build.ps1 Exit Code 0，繁中 dist/installer/FireLens-1.8.0-setup.exe 及 portable/installer 更新器 READY/HEALTHY、rollback 與故障注入 E2E 均通過；原生 Sheets 開啟的資料夾成員、gid 和本機 session/Origin 拒絕由合成測試驗證。
+歷史開發紀錄：- [x] 本輪合成驗證：Python pytest 165 passed、前端 Vitest 36 passed、Ruff/TS/Vite 與版本一致性 v1.8.0 PASS。Windows packaging/build.ps1 Exit Code 0，繁中 dist/installer/FireLens-1.8.0-setup.exe 及 portable/installer 更新器 READY/HEALTHY、rollback 與故障注入 E2E 均通過；原生 Sheets 開啟的資料夾成員、gid 和本機 session/Origin 拒絕由合成測試驗證。
 - [ ] 待使用者實機驗收：新版 FireLens 點儲存格確認中央編輯視窗顯示，二次確認並對測試 Sheet 成功儲存；點使用 Google 試算表開啟，確認 Google 登入與完整編輯功能。未實測前不宣稱真實 Google 編輯成功。
 
 
@@ -938,7 +938,7 @@ M15 歷史開發版本：v1.6.1（PATCH，修正線上更新器實機失敗）�
 - [x] React 頁籤初始化取得 Google 授權狀態，若已登入即自動向既有受限制資料夾清單 API 載入 Sheets；未登入不請求清單，成功登入時只載入一次，OAuth 編輯 scope 更新/狀態輪詢不得重複請求。
 - [x] 自動載入不得重設已選取的試算表、工作表、正在檢視的資料或未儲存編輯草稿；手動「重新整理」仍保留明確重選流程，防止過期請求在登出後覆寫清單。載入中顯示清楚提示，出錯可由手動按鈕重試。
 - [x] 前端型別/邏輯測試、Python pytest、Ruff、Vitest、TypeScript/Vite、版本一致性與 Windows EXE/繁中 installer/更新器 E2E；同步 README/TASKS/AGENTS（若長期規則需修訂），本機 Git commit，不推送 GitHub。真實 Google 連線仍需使用者實機驗證。
-- [x] 已觀察：Vitest 39 passed（含本輪自動載入成功／失敗／登出後過期回應 3 項）、Python pytest 165 passed、Ruff PASS、TS/Vite build PASS、版本一致性 v1.8.0 PASS；Windows packaging/build.ps1 Exit Code 0、EXE／繁中 installer／更新器 portable/installed READY／HEALTHY、rollback、故障注入 E2E 通過。
+歷史開發紀錄：- [x] 已觀察：Vitest 39 passed（含本輪自動載入成功／失敗／登出後過期回應 3 項）、Python pytest 165 passed、Ruff PASS、TS/Vite build PASS、版本一致性 v1.8.0 PASS；Windows packaging/build.ps1 Exit Code 0、EXE／繁中 installer／更新器 portable/installed READY／HEALTHY、rollback、故障注入 E2E 通過。
 - [ ] 真實 Google 雲端實機驗收：安裝本輪新版後，在已登入狀態進入「查看滅火器資料」，確認無須按「重新整理」便顯示目前有權限的試算表數量與清單；登出/重新登入後也自動載入，且編輯草稿不因清單更新遺失。未測前不宣稱真實 Google 清單驗收完成。
 
 
@@ -952,8 +952,8 @@ M15 歷史開發版本：v1.6.1（PATCH，修正線上更新器實機失敗）�
 - [x] 明確區分「含第一列標題／不含標題」；保留範圍內空白列的位置，不自動去重、排序或改寫設備編號（例如前置零、連字號、中文異體字）。
 - [x] 成功複製後顯示「已複製 N 列／M 欄」與 A1 範圍；Clipboard 拒絕、網路錯誤、中途取消或只取得部分資料時，必須提示失敗，不能顯示成功；不把設備編號寫入一般日誌或 Git。
 - [ ] 進一步的**整欄貼上／批次寫入**列為後續獨立討論項目，未經使用者確認，不得與本輪複製功能一同實作。
-- [x] 合成與回歸驗證：跨 100/200 列分批讀取、空白列、中英與前置零設備編號、整欄選取、Shift 多格與逆序範圍、A～AD 欄名、TSV 引號／換行／Tab、未授權 session/Google 帳號拒絕、單次超限、Google 回傳不完整、取消後不寫入剪貼簿；Python pytest **177 passed**，前端 Vitest **48 passed**，Ruff check/format、TS/Vite 及版本一致性 v1.8.0 PASS。
-- [x] Windows 安裝版驗證：packaging/build.ps1 Exit Code 0，FireLens.exe、繁中 FireLens-1.8.0-setup.exe、portable/installed 自動更新 READY／HEALTHY／rollback／故障注入 E2E 全數通過。保留 v1.8.0 未正式發布開發版，無需再次升版。
+歷史開發紀錄：- [x] 合成與回歸驗證：跨 100/200 列分批讀取、空白列、中英與前置零設備編號、整欄選取、Shift 多格與逆序範圍、A～AD 欄名、TSV 引號／換行／Tab、未授權 session/Google 帳號拒絕、單次超限、Google 回傳不完整、取消後不寫入剪貼簿；Python pytest **177 passed**，前端 Vitest **48 passed**，Ruff check/format、TS/Vite 及版本一致性 v1.8.0 PASS。
+歷史開發紀錄：- [x] Windows 安裝版驗證：packaging/build.ps1 Exit Code 0，FireLens.exe、繁中 FireLens-1.8.0-setup.exe、portable/installed 自動更新 READY／HEALTHY／rollback／故障注入 E2E 全數通過。保留 v1.8.0 未正式發布開發版，無需再次升版。
 - [ ] **實機操作待驗收**：由使用者在 Windows WebView2 + 真實 Google 帳號選 B 欄（超過 100 列）、按 Ctrl+C 後貼到 Excel／清冊核對，驗證完整筆數、空白列、編輯模式 Ctrl/Shift 選取，以及 Clipboard API 失敗時的重試。未觀察前不標為實機通過。
 
 ### M17 開發優先順序（使用者確認，2026-11-07）
@@ -974,7 +974,7 @@ M15 歷史開發版本：v1.6.1（PATCH，修正線上更新器實機失敗）�
 - [x] 建立資料夾前保留當前資料樹展開集合；成功後只補入新節點路徑上必要的祖先（類別 → 年份 → 月份／批次 → 棟別），並選取、捲動到新建節點。原已展開的其他分支照常展開、原已收合的其他分支保持收合，不能自動全部展開。
 - [x] 同時適用滅火器／放置盒／燈具及使用資料夾樹「＋」、右鍵「新增…」、快速新增等既有入口；取消、同名衝突、非法名稱、權限或離線失敗時，不改變原本展開狀態。
 - [x] 一般重新整理、重新掃描與新增成功後的資料樹更新需避免不必要的全樹展開；多個根目錄切換時不得把其他根目錄的展開狀態錯套進來。只記錄 UI 狀態，不改動磁碟上既有照片／資料夾。
-- [x] 合成測試與回歸：6 項新增 Vitest 測試涵蓋目標父路徑、保留其他展開／收合、年份／月份／棟別／設備四層、三類分支、同名不同年份、不同根目錄狀態隔離及失敗／取消不變。Vitest 54 passed、Python pytest 179 passed、Ruff check PASS、TS/Vite PASS、版本一致性 v1.8.0 PASS。Windows packaging/build.ps1 Exit Code 0，繁中 installer、portable/installed 更新器、READY／HEALTHY、rollback 與故障注入 E2E 全通過。
+歷史開發紀錄：- [x] 合成測試與回歸：6 項新增 Vitest 測試涵蓋目標父路徑、保留其他展開／收合、年份／月份／棟別／設備四層、三類分支、同名不同年份、不同根目錄狀態隔離及失敗／取消不變。Vitest 54 passed、Python pytest 179 passed、Ruff check PASS、TS/Vite PASS、版本一致性 v1.8.0 PASS。Windows packaging/build.ps1 Exit Code 0，繁中 installer、portable/installed 更新器、READY／HEALTHY、rollback 與故障注入 E2E 全通過。
 - [ ] **Windows 實機 UI 待驗收**：以合成目錄或非正式資料，在 pywebview 測試樹上「＋」／右鍵／快速新增、滑鼠展開／收合、建立後自動定位新節點、切換根目錄與搜尋後恢復展開狀態、取消／失敗不變；不得以純 Vitest/打包成功替代實機點擊驗收。
 
 ### M18 待討論與開發：照片異常卡片總覽＋模糊照片自動掃描（2026-11-10）
@@ -1011,6 +1011,15 @@ M15 歷史開發版本：v1.6.1（PATCH，修正線上更新器實機失敗）�
 - [ ] 後端使用隔離 SQLite、暫存合成圖測試分數及覆核持久化；前端 Vitest 驗證篩選、卡片槽位、虛擬清單／分頁、原圖查看、人工標記與匯出一致性。
 - [ ] 真正開發前依專案規定補 AGENTS、持久資料 schema 增量 migration 和安全邊界；實作後依序 Ruff、pytest、Vitest、TypeScript/Vite、版本一致性及 Windows EXE／繁中安裝包與更新器 E2E。實際 Windows UI 點擊另留人工驗收；未經要求不推 GitHub/Release。
 - [ ] 已確認：主導覽「整理工具」右側獨立標籤；手動掃描為唯一預設；增量掃描為預設模式、完整掃描可由使用者切換並手動啟動。其餘「人工拍錯設備／內容錯誤」與偵測門檻仍待實作時校準；不因此啟用自動掃描。
+
+### M18-UI-BUG 照片槽位工具列響應式排版（2026-11-10）
+
+使用者截圖：滅火器「編號／藥劑／完成」三欄照片卡片的「換圖／重新命名／移動／交換／刪除」按鈕過寬，右側「刪除」被裁切無法正常操作。診斷：PhotoTile 的 photo-actions 內聯固定 flex 未換行，photo-tile overflow:hidden；slot-wall 為固定最小欄寬，無容器尺寸降欄規則。**只改 UI 排版，不改按鈕綁定、刪除確認、照片或資料庫**。v1.8.0 已正式發布，本輪 Bug 修正使用 PATCH v1.8.1 作為下一個開發版本，未經指示不推 GitHub/Release。
+
+- [x] PhotoTile 操作區移除造成單排溢出的內聯 style，保留「換圖／重新命名／移動／交換／刪除」及多圖前後移動按鈕，用可換行的 CSS grid：窄卡兩欄、非常窄一欄，足夠寬可增加欄數，所有按鈕顯示完整且可點選，不出現水平裁切；檔名長時省略顯示但 title 仍完整。
+- [x] 照片槽位牆依 photo-panel 可用寬度自動三欄／兩欄／單欄，不讓卡片寬度超出面板；同時測試「編號／藥劑／完成」及「前／中／後」、多張照片多個按鈕、深淺色、Windows 125%／150% 縮放、鍵盤 Tab 與 Enter；不依靠整個畫面水平捲動才能按刪除。
+- [x] 回歸測試包含 PhotoTile 工具列 JSX 不使用 inline flex、按鈕齊全、照片容器及槽位牆容器查詢降欄。Python pytest 193 passed、Vitest 60 passed、Ruff check/format、TypeScript/Vite、v1.8.1 版本一致性 PASS；Windows packaging/build.ps1 Exit Code 0、繁中 FireLens-1.8.1-setup.exe、portable/installer 更新器 READY/HEALTHY、rollback/故障注入 E2E 通過。AGENTS／README／TASKS 已同步，本機 Git 提交待建立；沒有 push／Release。
+- [ ] Windows WebView2 實機畫面驗收：三個照片槽位在不同視窗寬度、125%／150% 顯示縮放與深淺色下，完整看到換圖／重新命名／移動交換／刪除，點擊「刪除」仍出現原有確認；鍵盤 Tab 及 Enter 可操作。單元與 CSS 結構測試不代表實機排版檢查已完成。
 
 ## 11. 完成條件
 
