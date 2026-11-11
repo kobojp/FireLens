@@ -48,6 +48,35 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .warning-banner code { overflow-wrap: anywhere; }
 .workspace { flex: 1; display: grid; grid-template-columns: minmax(280px, 23%) minmax(560px, 1fr) minmax(260px, 20%); gap: 1px; background: #d9dce1; min-height: 0; }
 .panel { background: #fff; padding: 16px; overflow: auto; }
+/* Browse mode uses the available viewport rather than expanding with the tree.
+   Do not apply this to the other top-level views; they retain normal page scrolling. */
+.app-shell.browse-layout { height: 100dvh; min-height: 0; overflow: hidden; }
+.browse-layout .workspace { min-height: 0; overflow: hidden; }
+.browse-layout .workspace > .panel {
+  min-height: 0;
+  min-width: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+}
+.browse-layout .tree-panel {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.browse-layout .tree-panel .panel-title,
+.browse-layout .tree-panel .tree-search { flex: none; }
+.browse-layout .tree-panel .tree-view {
+  min-height: 0;
+  flex: 1;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
+}
+.browse-layout .tree-panel .tree-view:focus-visible { outline: 2px solid #e45b31; outline-offset: -2px; }
+.browse-layout .tree-panel .tree-branch,
+.browse-layout .tree-panel .tree-item { scroll-margin-block: 12px; }
 .panel-title { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 14px; gap: 8px; }
 .panel-title h2 { margin: 0; font-size: 16px; }
 .panel-title small { color: #777d84; }

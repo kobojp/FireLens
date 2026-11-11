@@ -1049,6 +1049,22 @@ M18 合成及 Windows 打包開發紀錄：主導覽新增獨立標籤；API /ap
 - [x] 只在使用者按貼上後讀取，PNG 回傳大小上限 100 MB、圖片尺寸上限 5000 萬像素；非影像／空剪貼簿不匯入，無 HTTP 讀剪貼簿 API、無臨時原圖存檔；新合成 Python／Vitest 測試通過。全專案 pytest **210 passed**、Vitest **67 passed**、Ruff check/format、TypeScript／Vite、v1.9.0 版本一致性全部 PASS；Windows `packaging/build.ps1` Exit Code 0，成功產生 `dist/FireLens.exe`、`dist/installer/FireLens-1.9.0-setup.exe`，portable／installer READY／HEALTHY、rollback／故障注入 E2E passed；AGENTS／README／TASKS 已同步。本版本尚未正式發佈，不推 GitHub／Release。
 - [ ] 真實 Windows 桌面 WebView2 使用 LINE 圖片實際測試按鈕／Ctrl+V、空剪貼簿、置中提示與原圖預覽；打包 self-test 並不代表已完成真人 UI 點擊驗收。
 
+### M18-G 資料樹獨立捲動與照片工作區定位（2026-11-11，使用者截圖）
+
+- [x] **照片瀏覽限定三欄獨立捲動**：原 `.app-shell` 只有 `min-height:100vh`，長樹撐高整頁；照片瀏覽模式套用 `.app-shell.browse-layout` 的 `100dvh` 與 workspace `min-height:0`，三欄各自有獨立 `overflow-y:auto`／`overscroll-behavior-y:contain`，不影響其他主標籤頁捲動。
+- [x] **左側資料樹固定操作區**：「資料樹／筆數」與搜尋欄固定頂部，僅 `.tree-view` 可獨立滾動、保留原有樹展開／搜尋／選取與 `scrollIntoView` 定位；可用鍵盤聚焦設備清單且有聚焦外框。
+- [x] **右側新選取回頂端**：`photoPanelRef` 切換設備時將照片面板 `scrollTop=0`，左側既有捲動位置不重設；右側照片與資訊欄各自可捲動。已新增 3 項 Vitest/CSS 靜態佈局回歸測試，含非照片瀏覽頁隔離；Windows 100/125/150%、短視窗與實際滑鼠滾輪仍須實機視覺驗收。
+- [x] **合成驗收／打包**：僅修改 UI 佈局／必要 DOM，沒有觸碰照片、SQLite 或資料樹演算法。新增 Vitest/CSS 回歸測試；本輪 Ruff check/format、pytest **210 passed**、Vitest **70 passed**、TypeScript／Vite、v1.9.0 版本一致性 PASS。Windows `packaging/build.ps1` Exit Code 0，產生 `dist/FireLens.exe` 與 `dist/installer/FireLens-1.9.0-setup.exe`，portable／installer READY／HEALTHY、rollback／故障注入 E2E 通過；AGENTS／README／TASKS 已同步，未 Push／Release。
+- [ ] **真實 Windows UI 驗收**：需在實際 WebView2 視窗確認不同長度資料樹滑輪與觸控板、左欄捲到底、右側切換設備回頂、鍵盤 Tab／方向鍵、100%／125%／150% 縮放、窄／短視窗、深淺模式與各種通知列，不得以 CSS/Vitest 自動測試取代實機視覺驗收。
+
+### M18-H 照片品質檢查匯出修復、操作按鈕與掃描進度 UI（2026-11-11，使用者兩張截圖）
+
+- [ ] **修復 Excel／CSV 點擊無反應**：目前品質頁使用 `<a href="/api/quality/{root_id}/export?..." download>`，需調查在 Windows pywebview/WebView2、本機 HTTP session／Cookie／安全限制下是否會攔截下載，並檢查 API 的 CSV/XLSX 回應及 Content-Disposition；不可只改按鈕外觀。改成可追蹤成功／失敗狀態的可靠匯出流程，明確呈現「匯出中／匯出成功／匯出失敗」，提供錯誤訊息；成功後依桌面平台支援開啟檔案或所在資料夾，瀏覽器版維持正常下載。篩選條件、所有符合結果（不是只有當頁 40 筆）、UTF-8 BOM／繁中、Excel 公式注入防護及空清單均需測試。
+- [ ] **匯出與導覽按鈕美化**：為「匯出 CSV」、「匯出 Excel」設計一致的圖示、按鈕尺寸、強弱層次、間距、hover／focus／disabled／loading 狀態，依桌面寬度自動換行；每張卡片「前往照片牆」改成清楚醒目的操作按鈕（可用箭頭／照片牆圖示），維持原導航 `onOpenItem(rootId,item.id)` 與既有篩選來源；深色模式、鍵盤操作與 Windows 125%／150% 不裁切。
+- [ ] **掃描可視化**：使用現有 `QualityJob.total/done/analyzed/cached/skipped/flagged/phase/state` 設計百分比進度條、已完成／總數、目前階段（更新索引／分析照片／完成／取消／失敗）、結果摘要。預估剩餘時間（ETA）以本次掃描實際耗時與有效分析速率平滑估算，初期樣本不足顯示「計算中」、總量未知的索引階段顯示不確定進度；不得虛構時間、不得顯示負數、避免 0 除、取消後停止倒數，並保留真實背景任務可取消。必要時後端擴充開始時間與階段時間欄位，避免因前端刷新導致計時錯誤。
+- [ ] **字體與資訊層次**：照片品質頁「設備總數／異常設備／問題線索」改用較大字級且可快速辨認的統計資訊區，掃描狀態字體與百分比放大，手機／窄窗／125–150% 縮放仍可閱讀、深淺色對比充足；不要放大每張照片的細節文字而讓列表過於擁擠。
+- [ ] **開發與驗收**：先以合成 SQLite 與 API 客戶端驗證 CSV/XLSX 真實下載、檔名／篩選／大量筆數／無資料／錯誤處理，再測前端匯出按鈕、導覽、進度與 ETA（索引、增量快速完成、全掃、取消、失敗、0 張）；執行 Ruff、pytest、Vitest、TypeScript/Vite、版本一致性及 Windows EXE/setup 打包後自測。實際 WebView2 匯出與 Windows 儲存檔案對話框、LINE/Google Drive 情境仍需實機驗收，不得僅以合成測試宣稱已驗收。同步 AGENTS／README／TASKS，無使用者指示不 Push／Tag／Release，版本維持未正式發佈的 v1.9.0。
+
 ## 11. 完成條件
 
 - 使用者要求的流程可從介面完整操作。

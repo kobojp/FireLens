@@ -88,6 +88,11 @@ TASKS.md            需求與里程碑
 - 品質清單特例批次與 reconcile.SPECIAL_PERIODS 共用，不在特例中套用一般三槽位缺照、未辨識檔名或同槽多圖；特例本身不是品質異常，但原圖品質與人工覆核仍照常檢查。「特例資料夾」提供明確篩選，即使預設只顯示異常也允許使用者主動查看特例。棟別／編號異體字以 Organizer `_variant_issues` 提示，不自動改名；候選原因可安全匯出。
 - 剪貼簿照片不得在 focus／mount／一般刷新時讀取 `navigator.clipboard.read()`。Windows pywebview 的明確「貼上照片」操作以 `js_api=ClipboardApi()` 取得 PIL 影像、限制 5000 萬像素與 100 MB PNG payload，僅回傳圖片位元組供前端既有預覽與確認，不提供任何讀剪貼簿後端 HTTP API、不落地寫原圖。一般瀏覽器只能透過原生 `paste` 事件 Ctrl+V 讀圖，按鈕改顯示置中的 FireLens 指引，不偽裝系統權限彈窗。Windows 圖形介面實際貼上仍需另行驗收。
 
+## 照片瀏覽三欄獨立捲動
+
+- 只有 `view === 'browse'` 時套用 `app-shell browse-layout` 的 `100dvh` 高度邊界；其他分頁仍照原本捲動。`.workspace` 必須 `min-height: 0`，資料樹／照片／資訊三欄的可見區各自捲動，禁止資料樹展開把整頁撐高；面板保留 `overscroll-behavior-y: contain`。
+- 資料樹標題、筆數與搜尋欄固定；僅 `.tree-view` 滾動，保留鍵盤可聚焦、現有展開與選取狀態、`scrollIntoView` 定位；切換設備時照片面板回到頂部，但不得重設左樹捲動位置或照片資料。
+
 ## 資料與掃描
 
 - 類別：滅火器、放置盒、燈具。

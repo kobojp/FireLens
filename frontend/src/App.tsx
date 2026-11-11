@@ -334,6 +334,7 @@ export default function App() {
   const [treeQuery, setTreeQuery] = useState('')
   const activeRootRef = useRef<number | null>(null)
   const selectedItemIdRef = useRef<number | null>(null)
+  const photoPanelRef = useRef<HTMLElement>(null)
   const pendingStatsNavigation = useRef<{ rootId: number; itemId: number } | null>(null)
   const scanMonitorToken = useRef(0)
   const autoScanAttempted = useRef(new Set<number>())
@@ -690,6 +691,8 @@ export default function App() {
   }
 
   async function selectItem(node: TreeNode) {
+    // A new selection should reveal the photo heading even when the previous item was scrolled.
+    if (photoPanelRef.current) photoPanelRef.current.scrollTop = 0
     setSelected(node)
     setItem(null)
     if (node.id === undefined) return
@@ -1221,7 +1224,7 @@ export default function App() {
   }
 
   return (
-    <main className="app-shell">
+    <main className={`app-shell${view === 'browse' ? ' browse-layout' : ''}`}>
       <header className="topbar">
         <div>
           <strong>FireLens</strong>
@@ -1403,7 +1406,7 @@ export default function App() {
             }} />
         </aside>
 
-        <section className="panel photo-panel" aria-label="照片槽位牆">
+        <section className="panel photo-panel" ref={photoPanelRef} aria-label="照片槽位牆">
           <div className="panel-title">
             <div className="folder-heading">
               <div className="folder-title-row">

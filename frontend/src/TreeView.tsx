@@ -94,7 +94,7 @@ export function TreeView({
   }, [nodes, revealPath, expandedPaths])
   if (nodes.length === 0) return <p className="muted">尚無掃描結果</p>
   return (
-    <div className="tree-view" ref={containerRef}>
+    <div className="tree-view" ref={containerRef} tabIndex={0} role="region" aria-label="可捲動設備清單">
       {nodes.map((node) => (
         <Branch key={`${node.type}:${node.key}`} node={node} parents={[]}
           selectedId={selectedId} onSelectItem={onSelectItem}
