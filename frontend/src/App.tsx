@@ -2,7 +2,7 @@ import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from './api'
 import { initialNewItemPanelOpen, newItemPanelButtonText } from './newItemPanel'
 import { photosForSlot, slotAllowsAdditional, unmappedPhotos } from './slots'
-import { clipboardHasImage, fromPaste, readClipboardImage } from './clipboardImage'
+import { fromPaste, hasDesktopClipboardBridge, readDesktopClipboardImage } from './clipboardImage'
 import { scanSummaryText, shouldAutoScan } from './scanPolicy'
 import {
   branchPathKey, countByStatus, countItems, itemBranchPath,
@@ -222,8 +222,8 @@ function SlotCard({
         <div className="slot-heading-actions">
         <button type="button" className="paste-photo-button"
           onClick={() => { onChooseSlot(slot); onPasteImage(slot) }}
-          disabled={disabled || !canAdd || clipboardAvailable === false}
-          title={clipboardAvailable === false ? '剪貼簿沒有支援的圖片，請先從 LINE 複製照片' : '從剪貼簿貼上圖片'}
+          disabled={disabled || !canAdd}
+          title="貼上剪貼簿圖片（Windows 桌面版直接貼上，瀏覽器請按 Ctrl+V）"
         >貼上照片</button>
         {canAdd && (
           <label className="add-photo-button" aria-disabled={disabled}>
@@ -302,6 +302,7 @@ export default function App() {
   const [preview, setPreview] = useState<PhotoRecord | null>(null)
   const [pasteSlot, setPasteSlot] = useState<string | null>(null)
   const [clipboardAvailable, setClipboardAvailable] = useState<boolean | null>(null)
+  const [showPasteHelp, setShowPasteHelp] = useState(false)
   const [pendingPaste, setPendingPaste] = useState<{ rootId: number, itemId: number, slot: string, file: File, previewUrl: string } | null>(null)
   const [photoToDelete, setPhotoToDelete] = useState<PhotoRecord | null>(null)
   const [renameDialog, setRenameDialog] = useState<RenameDialogState | null>(null)
@@ -711,9 +712,12 @@ export default function App() {
   }
 
   async function pasteFromButton(slot: string) {
+    if (!hasDesktopClipboardBridge()) {
+      setShowPasteHelp(true)
+      return
+    }
     try {
-      const file = await readClipboardImage()
-      setClipboardAvailable(Boolean(file))
+      const file = await readDesktopClipboardImage()
       if (!file) { setError('剪貼簿沒有可使用的圖片，請先在 LINE 複製圖片'); return }
       stageClipboardImage(slot, file)
     } catch (error) {
@@ -745,11 +749,13 @@ export default function App() {
       if (view !== 'browse' || !item || busy || scanRunning || pendingPaste) return
       const target = event.target
       if (target instanceof HTMLElement &&
-          (target.closest('input,textarea,select,[contenteditable="true"],[role="dialog"]'))) return
+          (target.closest('input,textarea,select,[contenteditable="true"]') ||
+           (target.closest('[role="dialog"]') && !showPasteHelp))) return
       const file = fromPaste(event.clipboardData?.items ?? null)
       if (!file) return
       event.preventDefault()
       setClipboardAvailable(true)
+      setShowPasteHelp(false)
       if (!pasteSlot || !orderedSlots.includes(pasteSlot)) {
         setError('請先點選「編號／藥劑／完成」或「前／中／後」槽位，再按 Ctrl+V')
         return
@@ -758,24 +764,7 @@ export default function App() {
     }
     window.addEventListener('paste', onPaste)
     return () => window.removeEventListener('paste', onPaste)
-  }, [view, item, pasteSlot, busy, scanRunning, pendingPaste, orderedSlots, rootId])
-
-  useEffect(() => {
-    // Clipboard reads may be denied until user interaction; unknown stays actionable.
-    let cancelled = false
-    const check = async () => {
-      if (!navigator.clipboard?.read || document.visibilityState !== 'visible') return
-      try {
-        const entries = await navigator.clipboard.read()
-        if (!cancelled) setClipboardAvailable(clipboardHasImage(entries))
-      } catch {
-        if (!cancelled) setClipboardAvailable(null)
-      }
-    }
-    const onFocus = () => { void check() }
-    window.addEventListener('focus', onFocus)
-    return () => { cancelled = true; window.removeEventListener('focus', onFocus) }
-  }, [])
+  }, [view, item, pasteSlot, busy, scanRunning, pendingPaste, orderedSlots, rootId, showPasteHelp])
 
   useEffect(() => { setPasteSlot(null); setClipboardAvailable(null); closePaste() }, [item?.id, rootId, view])
 
@@ -1550,6 +1539,25 @@ export default function App() {
           <div className="notice"><b>來源照片不變</b><p>拖入的原始照片只讀取內容，FireLens 只在目標設備資料夾建立副本。</p></div>
         </aside>
       </section>
+
+      {showPasteHelp && !pendingPaste && (
+        <div className="preview-backdrop" role="presentation"
+          onMouseDown={() => setShowPasteHelp(false)}
+          onKeyDown={(event) => { if (event.key === 'Escape') setShowPasteHelp(false) }}>
+          <section className="prompt-dialog paste-confirm-dialog" role="dialog" aria-modal="true"
+            aria-label="貼上剪貼簿照片" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="prompt-header">貼上剪貼簿照片</div>
+            <div className="prompt-body">
+              <p>已選擇槽位：<b>{pasteSlot ?? '未選擇'}</b></p>
+              <p>在 LINE 複製圖片後，回到 FireLens 按 <b>Ctrl+V</b>，即可預覽照片並確認貼上。</p>
+              <p>瀏覽器為保護剪貼簿內容，不支援免授權的按鈕直接讀取；使用 Ctrl+V 不需要這個權限視窗。</p>
+            </div>
+            <div className="prompt-footer">
+              <button type="button" autoFocus onClick={() => setShowPasteHelp(false)}>關閉</button>
+            </div>
+          </section>
+        </div>
+      )}
 
       {pendingPaste && (
         <div className="preview-backdrop" role="presentation" onMouseDown={() => !busy && closePaste()}

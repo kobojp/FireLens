@@ -1042,6 +1042,13 @@ M18 合成及 Windows 打包開發紀錄：主導覽新增獨立標籤；API /ap
 - [x] 回歸測試包含 PhotoTile 工具列 JSX 不使用 inline flex、按鈕齊全、照片容器及槽位牆容器查詢降欄。Python pytest 193 passed、Vitest 60 passed、Ruff check/format、TypeScript/Vite、歷史 v1.8.1 版本一致性 PASS；Windows packaging/build.ps1 Exit Code 0、繁中 歷史 FireLens-1.8.1-setup.exe、portable/installer 更新器 READY/HEALTHY、rollback/故障注入 E2E 通過。AGENTS／README／TASKS 已同步，本機 Git 提交待建立；沒有 push／Release。
 - [ ] Windows WebView2 實機畫面驗收：三個照片槽位在不同視窗寬度、125%／150% 顯示縮放與深淺色下，完整看到換圖／重新命名／移動交換／刪除，點擊「刪除」仍出現原有確認；鍵盤 Tab 及 Enter 可操作。單元與 CSS 結構測試不代表實機排版檢查已完成。
 
+### M18-F Windows 剪貼簿圖片貼上權限提示優化（2026-11-11）
+
+- [x] 移除視窗 focus 探測與 `navigator.clipboard.read()` 主動讀取；頁面載入、切換視窗及一般重新整理均不會主動要求瀏覽器剪貼簿讀取權限。
+- [x] Windows pywebview「貼上照片」按鈕改採 `js_api=ClipboardApi()` 原生圖片橋接，繞過瀏覽器 `clipboard-read` 權限窗；一般瀏覽器維持 Ctrl+V `paste` 事件、按鈕改顯示 FireLens 自有置中引導。照片取得後仍由既有置中預覽確認，禁止未確認自動寫入。
+- [x] 只在使用者按貼上後讀取，PNG 回傳大小上限 100 MB、圖片尺寸上限 5000 萬像素；非影像／空剪貼簿不匯入，無 HTTP 讀剪貼簿 API、無臨時原圖存檔；新合成 Python／Vitest 測試通過。全專案 pytest **210 passed**、Vitest **67 passed**、Ruff check/format、TypeScript／Vite、v1.9.0 版本一致性全部 PASS；Windows `packaging/build.ps1` Exit Code 0，成功產生 `dist/FireLens.exe`、`dist/installer/FireLens-1.9.0-setup.exe`，portable／installer READY／HEALTHY、rollback／故障注入 E2E passed；AGENTS／README／TASKS 已同步。本版本尚未正式發佈，不推 GitHub／Release。
+- [ ] 真實 Windows 桌面 WebView2 使用 LINE 圖片實際測試按鈕／Ctrl+V、空剪貼簿、置中提示與原圖預覽；打包 self-test 並不代表已完成真人 UI 點擊驗收。
+
 ## 11. 完成條件
 
 - 使用者要求的流程可從介面完整操作。
