@@ -269,6 +269,60 @@ def test_quality_gallery_organizer_filename_suggestions_and_multi_slot(tmp_path,
         assert conn.execute("SELECT COUNT(*) FROM item_issue").fetchone()[0] == 0
 
 
+def test_special_periods_are_exempt_but_selectable(tmp_path, monkeypatch):
+    from backend.app.reconcile import SPECIAL_PERIODS
+    from backend.app.scanner import scan_root
+
+    db_path, root_id, ordinary = _setup(tmp_path, monkeypatch)
+    root = ordinary.parents[4]
+    for index, period in enumerate(sorted(SPECIAL_PERIODS)):
+        folder = root / "滅火器" / "2026年" / period / "致德樓8F" / f"特-{index}-01"
+        _image(folder / "未分類.jpg")
+        _image(folder / "編號.jpg")
+        _image(folder / "編號-1.jpg")
+    with connect(db_path) as conn:
+        scan_root(conn, root_id)
+        specials = gallery(conn, root_id, status_filter="special")
+        assert specials["total"] == len(SPECIAL_PERIODS)
+        for item in specials["items"]:
+            assert item["special"]
+            assert item["slots"] == ["特例照片"]
+            assert item["missing_slots"] == []
+            assert item["duplicate_slots"] == []
+            assert all(p["display_slot"] == "特例照片" for p in item["photos"])
+            assert all(not p["filename_issue"] and not p["multi_slot"] for p in item["photos"])
+        # Special classification alone does not flag images in the default problem-only view.
+        assert all(not item["special"] for item in gallery(conn, root_id)["items"])
+        assert gallery(conn, root_id, status_filter="missing")["total"] == 1
+        assert gallery(conn, root_id, status_filter="multi_slot")["total"] == 0
+
+
+def test_variant_name_filter_export_and_preserved_source(tmp_path, monkeypatch):
+    from backend.app.scanner import scan_root
+
+    db_path, root_id, ordinary = _setup(tmp_path, monkeypatch)
+    root = ordinary.parents[4]
+    variant_folder = root / "滅火器" / "2026年" / "10月份更換" / "致徳樓8F" / "致-08-90"
+    _image(variant_folder / "編號.jpg")
+    _image(variant_folder / "藥劑.jpg")
+    _image(variant_folder / "完成.jpg")
+    before = {p: p.read_bytes() for p in variant_folder.iterdir()}
+    with connect(db_path) as conn:
+        scan_root(conn, root_id)
+        filtered = gallery(conn, root_id, status_filter="variant_name")
+        assert filtered["total"] == 1
+        item = filtered["items"][0]
+        assert item["name_variants"][0]["suggestion"] == "致德樓8F"
+        assert not item["missing_slots"]
+        csv_data, _ = export_quality(filtered["items"], "csv")
+        assert "棟別異體字" in csv_data.decode("utf-8-sig")
+        assert "致德樓8F" in csv_data.decode("utf-8-sig")
+        xlsx_data, _ = export_quality(filtered["items"], "xlsx")
+        assert load_workbook(io.BytesIO(xlsx_data), read_only=True).active.max_row >= 2
+        assert conn.execute("SELECT COUNT(*) FROM item_issue").fetchone()[0] == 0
+    assert {p: p.read_bytes() for p in variant_folder.iterdir()} == before
+
+
 def test_one_hundred_then_three_changed_photo_incremental(tmp_path, monkeypatch):
     from PIL import Image
 

@@ -205,6 +205,8 @@ export function PhotoQualityView({
             <option value="unmapped">未辨識照片用途</option>
             <option value="dirty_name">檔名疑似錯誤</option>
             <option value="multi_slot">同槽多圖</option>
+            <option value="variant_name">名稱異體字</option>
+            <option value="special">特例資料夾</option>
             {Object.entries(STATUS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
           </select>
         </label>
@@ -251,12 +253,15 @@ export function PhotoQualityView({
               <strong>{item.building} · {item.code}</strong>
               <span>{item.year}／{item.period} · {item.category}</span>
               <small>問題線索 {item.problems} 項 · 缺槽位 {item.missing_slots.length} 個</small>
+              {item.special && <small>特例資料夾：依特例規則顯示，不判一般槽位缺照</small>}
+              {item.name_variants?.map((variant, index) => <small key={index} className="quality-flag">{variant.type === "building" ? "棟別" : "設備編號"}異體字：{variant.value} → {variant.suggestion}（{variant.reason}）</small>)}
               {!!item.duplicate_slots?.length && <small className="quality-flag">同槽多圖：{item.duplicate_slots.join("、")}（請人工核對）</small>}
             </header>
             <div className="quality-slots">
               {item.slots.map((slot) => (
                 <div key={slot} className="quality-slot">
                   <strong>{slot}</strong>
+                  {item.missing_slots.includes(slot) && <p className="quality-flag">缺照片</p>}
                   {item.photos.filter((photo) => (photo.display_slot ?? photo.slot) === slot).map((photo) => (
                     <div key={photo.id} className="quality-photo">
                       <button type="button" onClick={() => setPreview(photo)} title={'放大 ' + photo.filename}>
@@ -284,7 +289,6 @@ export function PhotoQualityView({
                       </select>
                     </div>
                   ))}
-                  {!item.photos.some((p) => p.slot === slot) && <p className="quality-flag">缺照片</p>}
                 </div>
               ))}
             </div>

@@ -13,7 +13,8 @@ from openpyxl import Workbook
 from PIL import Image, ImageFilter, ImageOps, ImageStat
 
 from .db import database
-from .organizer import _canonical_filename
+from .organizer import _canonical_filename, _variant_issues
+from .reconcile import SPECIAL_PERIODS
 from .scan_jobs import scan_job_status
 from .scanner import CLOUD_PLACEHOLDER_FLAGS, ScanCancelled, scan_root
 
@@ -342,6 +343,8 @@ def gallery(
         "unmapped",
         "dirty_name",
         "multi_slot",
+        "variant_name",
+        "special",
     ):
         raise QualityError("品質篩選不正確")
     if review_filter not in ("", "confirmed", "ignore", "reshoot", "wrong_content", "pending"):
@@ -401,31 +404,40 @@ def gallery(
     for item in rows:
         pictures = photos.get(item["id"], [])
         legacy = item["category"] == "box" and item["item_status"] == "legacy"
-        slots = ["舊制照片"] if legacy else list(SLOTS[item["category"]])
-        if not legacy and any(p["slot"] is None for p in pictures):
+        special = item["period"] in SPECIAL_PERIODS
+        exempt_slots = legacy or special
+        name_variants = [
+            *_variant_issues(item["building"], issue_type="building", context={}),
+            *_variant_issues(item["code"], issue_type="code", context={}),
+        ]
+        slots = (
+            ["舊制照片"] if legacy else ["特例照片"] if special else list(SLOTS[item["category"]])
+        )
+        if not exempt_slots and any(p["slot"] is None for p in pictures):
             slots.append("未對應照片")
         for image in pictures:
-            # Share the Organizer filename suggestion rule without hashing or renaming files.
             suggested, filename_reason = (
                 _canonical_filename(image["filename"])
-                if item["category"] == "extinguisher" and not legacy
+                if item["category"] == "extinguisher" and not exempt_slots
                 else (None, None)
             )
             image["suggested_filename"] = suggested
             image["filename_reason"] = filename_reason
-            image["display_slot"] = "舊制照片" if legacy else (image["slot"] or "未對應照片")
-            image["filename_issue"] = not legacy and image["slot"] is None
+            image["display_slot"] = (
+                "舊制照片" if legacy else "特例照片" if special else (image["slot"] or "未對應照片")
+            )
+            image["filename_issue"] = not exempt_slots and image["slot"] is None
         slot_counts = (
             {slot: sum(p["slot"] == slot for p in pictures) for slot in SLOTS[item["category"]]}
-            if not legacy
+            if not exempt_slots
             else {}
         )
         duplicate_slots = [slot for slot, count in slot_counts.items() if count > 1]
         for image in pictures:
-            image["multi_slot"] = image["slot"] in duplicate_slots if not legacy else False
+            image["multi_slot"] = image["slot"] in duplicate_slots if not exempt_slots else False
         missing = (
             []
-            if legacy
+            if exempt_slots
             else [
                 slot
                 for slot in SLOTS[item["category"]]
@@ -440,13 +452,16 @@ def gallery(
         problems += sum(p["filename_issue"] for p in pictures)
         problems += sum(bool(p["suggested_filename"]) for p in pictures)
         problems += sum(slot_counts[slot] - 1 for slot in duplicate_slots)
-        if problem_only and not (problems or missing):
+        problems += len(name_variants)
+        if problem_only and not (problems or missing or (special and status_filter == "special")):
             continue
         if status_filter and not (
             (status_filter == "missing" and missing)
             or (status_filter == "unmapped" and any(p["filename_issue"] for p in pictures))
             or (status_filter == "dirty_name" and any(p["suggested_filename"] for p in pictures))
             or (status_filter == "multi_slot" and bool(duplicate_slots))
+            or (status_filter == "variant_name" and bool(name_variants))
+            or (status_filter == "special" and special)
             or any(p["status"] == status_filter for p in pictures)
         ):
             continue
@@ -462,6 +477,8 @@ def gallery(
                 "slots": slots,
                 "missing_slots": missing,
                 "duplicate_slots": duplicate_slots,
+                "special": special,
+                "name_variants": name_variants,
                 "problems": problems,
             }
         )
@@ -570,6 +587,26 @@ def export_quality(items: list[dict], fmt: str) -> tuple[bytes, str]:
                     slot,
                     "",
                     "缺照片",
+                    None,
+                    "",
+                    "",
+                ]
+            )
+
+    # Item-level naming candidates are not tied to a specific photograph.
+    for item in items:
+        for variant in item.get("name_variants", []):
+            rows.append(
+                [
+                    item["code"],
+                    item["category"],
+                    item["year"],
+                    item["period"],
+                    item["building"],
+                    "",
+                    "",
+                    f"{'棟別' if variant['type'] == 'building' else '設備編號'}異體字："
+                    f"{variant['value']} → {variant['suggestion']}（{variant['reason']}）",
                     None,
                     "",
                     "",

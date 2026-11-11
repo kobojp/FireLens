@@ -58,6 +58,8 @@ export type QualityItem = {
   missing_slots: string[]
   problems: number
   duplicate_slots?: string[]
+  special?: boolean
+  name_variants?: { type: string; value: string; suggestion: string; reason: string }[]
 }
 export type QualityGallery = {
   total: number

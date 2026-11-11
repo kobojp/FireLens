@@ -40,6 +40,15 @@ describe('M18 photo quality page decisions', () => {
     expect(view).toContain('onOpenItem(rootId, item.id)')
   })
 
+  it('exposes special folder and variant-name diagnostics without automatic renames', () => {
+    expect(view).toContain('<option value="special">特例資料夾</option>')
+    expect(view).toContain('<option value="variant_name">名稱異體字</option>')
+    expect(view).toContain('item.special &&')
+    expect(view).toContain('item.name_variants?.map(')
+    expect(view).toContain('item.missing_slots.includes(slot)')
+    expect(view).toContain('status_filter: qualityFilter')
+  })
+
   it('renders fixed image slots, responsive card gallery and accessible original preview', () => {
     expect(view).toContain('item.slots.map((slot)')
     expect(view).toContain('display_slot ?? photo.slot')

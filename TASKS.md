@@ -1026,6 +1026,13 @@ M18 合成及 Windows 打包開發紀錄：主導覽新增獨立標籤；API /ap
 - [ ] 特例資料夾及 Organizer 其他候選情境仍待完整對應與合成驗證；既有舊制放置盒不應套用新制缺槽位／多圖規則，需補相關防回歸案例。
 - [x] 合成 SQLite/影像測試：新增檔名錯誤候選、同槽多圖、篩選及 CSV 匯出測試，確認既有 `item_issue` 不受影響；pytest **205 passed**、Vitest **64 passed**、Ruff check／format、TypeScript／Vite build、版本一致性 v1.9.0 均通過。Windows `packaging/build.ps1` Exit Code 0，產生 `dist/FireLens.exe`、`dist/installer/FireLens-1.9.0-setup.exe`，portable／installer 更新器 READY／HEALTHY、rollback／故障注入 E2E 通過；已同步 AGENTS／README／TASKS。實際 Windows WebView2 UI／特殊資料夾完整驗收未完成，不推送 GitHub／Release。
 
+### M18-E 特例資料夾及整理候選整合（2026-11-11）
+
+- [x] 與清冊核對共用 `SPECIAL_PERIODS`，在品質卡片辨識 `5P 二氧化碳滅火器`、`壓力錶壞`、`新增5P 二氧化碳(含放置盒)` 特例批次；顯示「特例資料夾」標記且不依一般槽位缺照／未對應／同槽多圖誤報（影像本身模糊、曝光與人工覆核仍可檢查）。舊制放置盒維持現行保護。
+- [x] 與 Organizer 既有 `_variant_issues` 共用 Unicode／異體字提示（棟別及設備編號），避免僅因異體字暗中更名；新增可篩選「名稱異體字」及「特例資料夾」條件，特例分類不等於品質不良，不可單獨納入預設只顯示異常。
+- [x] 品質卡片、`problem_only`、CSV／Excel 匯出含新增候選提示與安全原因；維持資料唯讀、照片掃描手動觸發、設備異常單選隔離。特例標記適用所有類別，不能將非特殊月份的正常照片隱藏。修復前端對特例／舊制假性缺照文案。
+- [x] 合成測試包含全部三種特例、正常月份、異體字、既有舊制放置盒及 CSV／Excel；本輪全專案 **pytest 207 passed**、**Vitest 65 passed**、Ruff check／format、TypeScript／Vite、版本一致性 v1.9.0 PASS。Windows `packaging/build.ps1` Exit Code 0，生成 `dist/FireLens.exe` 與 `dist/installer/FireLens-1.9.0-setup.exe`；實際打包更新器 portable／installer READY／HEALTHY、rollback／故障注入 E2E passed。現場 Windows WebView2 UI、Google Drive 真實同步及現場影像門檻仍須另行驗收；不 Push／Tag／Release。
+
 ### M18-UI-BUG 照片槽位工具列響應式排版（2026-11-10）
 
 使用者截圖：滅火器「編號／藥劑／完成」三欄照片卡片的「換圖／重新命名／移動／交換／刪除」按鈕過寬，右側「刪除」被裁切無法正常操作。診斷：PhotoTile 的 photo-actions 內聯固定 flex 未換行，photo-tile overflow:hidden；slot-wall 為固定最小欄寬，無容器尺寸降欄規則。**只改 UI 排版，不改按鈕綁定、刪除確認、照片或資料庫**。v1.8.0 已正式發布，本輪 Bug 修正使用 歷史 PATCH v1.8.1 作為當時開發版本，未經指示不推 GitHub/Release。
