@@ -33,6 +33,46 @@ export type SharedIssueBackup = {
   removing?: number
   changing?: number
 }
+export type QualityPhoto = PhotoRecord & {
+  status: 'high' | 'possible' | 'normal' | 'uncertain' | 'unscanned'
+  score: number | null
+  reason: string | null
+  issues: string[]
+  review: string
+  stale: boolean
+  display_slot?: string | null
+  filename_issue?: boolean
+}
+export type QualityItem = {
+  id: number
+  code: string
+  category: string
+  year: string
+  period: string
+  building: string
+  slots: string[]
+  photos: QualityPhoto[]
+  missing_slots: string[]
+  problems: number
+}
+export type QualityGallery = {
+  total: number
+  total_devices: number
+  flagged_photos: number
+  items: QualityItem[]
+}
+export type QualityJob = {
+  state: string
+  phase?: string
+  total: number
+  done: number
+  analyzed: number
+  cached: number
+  skipped: number
+  flagged: number
+  cancel: boolean
+  error: string
+}
 export type RootRecord = {
   id: number
   label: string

@@ -19,6 +19,8 @@ import type {
   LedgerImportPreview,
   ReconcileResult,
   RootRecord,
+  QualityGallery,
+  QualityJob,
   SharedIssueStatus,
   SharedIssueConflict,
   SharedIssueBackup,
@@ -383,6 +385,29 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ open_token: token, mode }),
+    }),
+  qualityGallery: (rootId: number, params: URLSearchParams) =>
+    request<QualityGallery>(`/api/quality/${rootId}?${params}`),
+  qualitySettings: (rootId: number) =>
+    request<{ root_id: number, sensitivity: number }>(`/api/quality/${rootId}/settings`),
+  saveQualitySettings: (rootId: number, sensitivity: number) =>
+    request<{ root_id: number, sensitivity: number }>(`/api/quality/${rootId}/settings`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sensitivity }),
+    }),
+  qualityScan: (rootId: number, full: boolean, category: string, period: string) =>
+    request<QualityJob>(`/api/quality/${rootId}/scan`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ full, category, period }),
+    }),
+  qualityScanStatus: (rootId: number) =>
+    request<QualityJob>(`/api/quality/${rootId}/scan`),
+  cancelQualityScan: (rootId: number) =>
+    request<QualityJob>(`/api/quality/${rootId}/scan/cancel`, { method: 'POST' }),
+  reviewQualityPhoto: (photoId: number, review: string) =>
+    request<{ photo_id: number, review: string }>(`/api/quality/photos/${photoId}/review`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ review }),
     }),
   organizer: (rootId: number) => request<OrganizerAnalysis>(`/api/organizer/${rootId}`),
   previewRenames: (rootId: number, candidateIds: string[]) => request<RenamePreview>(

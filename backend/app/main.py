@@ -54,6 +54,21 @@ from .organizer import (
     rename_history,
     undo_rename,
 )
+from .photo_quality import (
+    QualityError,
+    cancel_quality,
+    export_quality,
+    review_photo,
+    save_sensitivity,
+    scan_quality,
+    sensitivity_for,
+)
+from .photo_quality import (
+    gallery as quality_gallery,
+)
+from .photo_quality import (
+    job_status as quality_job_status,
+)
 from .photo_transfer import execute_slot_transfer, preview_slot_transfer, undo_slot_transfer
 from .private_drive import PrivateDriveError, PrivateDriveService
 from .reconcile import (
@@ -189,6 +204,20 @@ class SharedIssueConfirm(BaseModel):
 
 class ItemIssueUpdate(BaseModel):
     label_id: int | None
+
+
+class PhotoQualityScan(BaseModel):
+    full: bool = False
+    category: str = ""
+    period: str = ""
+
+
+class PhotoQualityReview(BaseModel):
+    review: str
+
+
+class PhotoQualitySetting(BaseModel):
+    sensitivity: float = Field(ge=0.5, le=1.5)
 
 
 class ReconcileExportSave(BaseModel):
@@ -561,6 +590,122 @@ def create_app() -> FastAPI:
             if exists is None:
                 raise HTTPException(status_code=404, detail="找不到指定的根目錄")
             return build_tree(conn, root_id)
+
+    @app.get("/api/quality/{root_id}")
+    def photo_quality_gallery(
+        root_id: int,
+        category: str = "",
+        period: str = "",
+        building: str = "",
+        query: str = "",
+        problem_only: bool = True,
+        status_filter: str = "",
+        review_filter: str = "",
+        sort_by: str = "latest",
+        limit: int = Query(default=40, ge=1, le=100),
+        offset: int = Query(default=0, ge=0),
+    ) -> dict:
+        with database() as conn:
+            try:
+                return quality_gallery(
+                    conn,
+                    root_id,
+                    category=category,
+                    period=period,
+                    building=building,
+                    query=query,
+                    problem_only=problem_only,
+                    status_filter=status_filter,
+                    review_filter=review_filter,
+                    sort_by=sort_by,
+                    limit=limit,
+                    offset=offset,
+                )
+            except QualityError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/quality/{root_id}/settings")
+    def quality_settings(root_id: int) -> dict:
+        with database() as conn:
+            if not conn.execute("SELECT 1 FROM root WHERE id=?", (root_id,)).fetchone():
+                raise HTTPException(status_code=404, detail="根目錄不存在")
+            return {"root_id": root_id, "sensitivity": sensitivity_for(conn, root_id)}
+
+    @app.post("/api/quality/{root_id}/settings")
+    def set_quality_settings(root_id: int, payload: PhotoQualitySetting) -> dict:
+        with database() as conn:
+            try:
+                return save_sensitivity(conn, root_id, payload.sensitivity)
+            except QualityError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/quality/{root_id}/scan", status_code=202)
+    def start_photo_quality(root_id: int, payload: PhotoQualityScan) -> dict:
+        try:
+            return scan_quality(
+                root_id,
+                full=payload.full,
+                category=payload.category,
+                period=payload.period,
+            )
+        except QualityError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.get("/api/quality/{root_id}/scan")
+    def photo_quality_status(root_id: int) -> dict:
+        return quality_job_status(root_id)
+
+    @app.post("/api/quality/{root_id}/scan/cancel")
+    def stop_photo_quality(root_id: int) -> dict:
+        return cancel_quality(root_id)
+
+    @app.post("/api/quality/photos/{photo_id}/review")
+    def set_photo_quality_review(photo_id: int, payload: PhotoQualityReview) -> dict:
+        with database() as conn:
+            try:
+                return review_photo(conn, photo_id, payload.review)
+            except QualityError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/quality/{root_id}/export")
+    def download_photo_quality(
+        root_id: int,
+        fmt: str = "csv",
+        category: str = "",
+        period: str = "",
+        building: str = "",
+        query: str = "",
+        problem_only: bool = True,
+        status_filter: str = "",
+        review_filter: str = "",
+        sort_by: str = "latest",
+    ) -> Response:
+        if fmt not in ("csv", "xlsx"):
+            raise HTTPException(status_code=400, detail="只允許 CSV／Excel 匯出")
+        with database() as conn:
+            try:
+                rows = quality_gallery(
+                    conn,
+                    root_id,
+                    category=category,
+                    period=period,
+                    building=building,
+                    query=query,
+                    problem_only=problem_only,
+                    status_filter=status_filter,
+                    review_filter=review_filter,
+                    sort_by=sort_by,
+                    limit=1000000,
+                    offset=0,
+                )
+                content, content_type = export_quality(rows["items"], fmt)
+            except QualityError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return Response(
+            content=content,
+            media_type=content_type,
+            headers={"Content-Disposition": f'attachment; filename="FireLens-photo-quality.{fmt}"'},
+        )
 
     @app.get("/api/items/{item_id}/photos")
     def item_photos(item_id: int) -> list[dict[str, object]]:

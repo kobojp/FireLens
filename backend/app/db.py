@@ -8,7 +8,7 @@ from pathlib import Path
 
 from .config import get_database_path, get_legacy_database_path
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 MIGRATION_1 = """
 CREATE TABLE IF NOT EXISTS category (
@@ -266,6 +266,38 @@ def _migrate_9(conn: sqlite3.Connection) -> None:
         conn.execute("PRAGMA user_version = 9")
 
 
+MIGRATION_10 = """
+CREATE TABLE IF NOT EXISTS photo_quality (
+    root_id INTEGER NOT NULL,
+    relative_path TEXT NOT NULL,
+    size_bytes INTEGER NOT NULL,
+    mtime_ns INTEGER NOT NULL,
+    algorithm TEXT NOT NULL,
+    status TEXT NOT NULL,
+    score REAL,
+    issues_json TEXT NOT NULL DEFAULT '[]',
+    reason TEXT NOT NULL DEFAULT '',
+    checked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    review TEXT NOT NULL DEFAULT '',
+    review_version TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (root_id, relative_path),
+    FOREIGN KEY (root_id) REFERENCES root(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_quality_root_status ON photo_quality(root_id,status);
+CREATE TABLE IF NOT EXISTS photo_quality_setting (
+    root_id INTEGER PRIMARY KEY REFERENCES root(id) ON DELETE CASCADE,
+    sensitivity REAL NOT NULL DEFAULT 1
+        CHECK (sensitivity >= 0.5 AND sensitivity <= 1.5)
+);
+"""
+
+
+def _migrate_10(conn: sqlite3.Connection) -> None:
+    with conn:
+        conn.executescript(MIGRATION_10)
+        conn.execute("PRAGMA user_version = 10")
+
+
 CATEGORY_SEED = (
     (
         "extinguisher",
@@ -394,6 +426,10 @@ def initialize_database(db_path: Path | None = None) -> Path:
         if current_version < 9:
             _migrate_9(conn)
             current_version = 9
+
+        if current_version < 10:
+            _migrate_10(conn)
+            current_version = 10
 
         with conn:
             conn.executemany(

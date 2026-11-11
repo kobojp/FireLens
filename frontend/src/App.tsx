@@ -12,6 +12,7 @@ import { TreeView } from './TreeView'
 import type { TreeCreatePath } from './TreeView'
 import { ReconcileView } from './ReconcileView'
 import { OrganizerView } from './OrganizerView'
+import { PhotoQualityView } from './PhotoQualityView'
 import { SettingsView } from './SettingsView'
 import { PublicSheetsView } from './PublicSheetsView'
 import { StatisticsView } from './StatisticsView'
@@ -321,7 +322,7 @@ export default function App() {
   const [issueLabels, setIssueLabels] = useState<IssueLabel[]>([])
   const [issueSelection, setIssueSelection] = useState<number | null>(null)
   const [zoom, setZoom] = useState(1)
-  const [view, setView] = useState<'browse' | 'reconcile' | 'statistics' | 'organizer' | 'settings' | 'publicSheets'>('browse')
+  const [view, setView] = useState<'browse' | 'reconcile' | 'statistics' | 'organizer' | 'quality' | 'settings' | 'publicSheets'>('browse')
   const [rootStatusInfo, setRootStatusInfo] = useState<RootStatus | null>(null)
   const [offlineQueue, setOfflineQueue] = useState<OfflineQueueEntry[]>([])
   const [cacheMessage, setCacheMessage] = useState('')
@@ -1235,7 +1236,7 @@ export default function App() {
       <header className="topbar">
         <div>
           <strong>FireLens</strong>
-          <span>照片管理、核對與離線工作 · v{appInfo?.version ?? '1.8.1'}</span>
+          <span>照片管理、核對與離線工作 · v{appInfo?.version ?? '1.9.0'}</span>
         </div>
         <div className="root-controls">
           <label htmlFor="root-select">根目錄</label>
@@ -1266,6 +1267,7 @@ export default function App() {
         <button type="button" className={view === 'reconcile' ? 'active' : ''} onClick={() => setView('reconcile')}>清冊核對</button>
         <button type="button" className={view === 'statistics' ? 'active' : ''} onClick={() => setView('statistics')}>異常統計</button>
         <button type="button" className={view === 'organizer' ? 'active' : ''} onClick={() => setView('organizer')}>整理工具</button>
+        <button type="button" className={view === 'quality' ? 'active' : ''} onClick={() => setView('quality')}>照片品質檢查</button>
         <button type="button" className={view === 'settings' ? 'active' : ''} onClick={() => setView('settings')}>設定</button>
         <button type="button" className={view === 'publicSheets' ? 'active' : ''} onClick={() => setView('publicSheets')}>查看滅火器資料</button>
       </nav>
@@ -1723,6 +1725,13 @@ export default function App() {
         />
       ) : view === 'organizer' ? (
         <OrganizerView roots={roots} defaultRootId={rootId} />
+      ) : view === 'quality' ? (
+        <PhotoQualityView roots={roots} defaultRootId={rootId}
+          onOpenItem={(nextRootId, itemId) => {
+            pendingStatsNavigation.current = { rootId: nextRootId, itemId }
+            setRootId(nextRootId)
+            setView('browse')
+          }} />
       ) : view === 'publicSheets' ? (
         <PublicSheetsView />
       ) : (

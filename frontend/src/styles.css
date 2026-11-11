@@ -707,3 +707,41 @@ html[data-theme="dark"] .tree-newly-created > summary {
 }
 .shared-issue-candidate span { overflow-wrap: anywhere; max-width: 700px; font-size: 12px; }
 .shared-issue-backups, .shared-issue-conflicts { display: grid; gap: 7px; }
+
+/* M18 independent photo-quality inspector */
+.quality-page { display: grid; gap: 14px; min-width: 0; }
+.quality-page .panel-title { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.quality-controls, .quality-toolbar {
+  display: flex; flex-wrap: wrap; align-items: end; gap: 10px;
+}
+.quality-controls label, .quality-toolbar label {
+  display: grid; gap: 4px; min-width: 155px; font-size: 13px;
+}
+.quality-toolbar label:has(input[type="checkbox"]) {
+  display: flex; align-items: center;
+}
+.quality-controls input, .quality-controls select,
+.quality-toolbar select { max-width: 100%; }
+.quality-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); gap: 14px; }
+.quality-card {
+  min-width: 0; padding: 14px; border: 1px solid var(--border, #bec8d4);
+  border-radius: 12px; background: var(--panel-bg, transparent);
+  display: grid; gap: 12px;
+}
+.quality-card header { display: grid; gap: 3px; }
+.quality-card header span { color: var(--text-secondary, #718096); font-size: 12px; }
+.quality-slots { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.quality-slot { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.quality-photo { min-width: 0; display: grid; gap: 5px; }
+.quality-photo > button { padding: 0; border: 0; width: 100%; background: transparent; cursor: zoom-in; }
+.quality-photo img { display: block; width: 100%; max-height: var(--quality-thumb, 180px); object-fit: contain; border-radius: 6px; }
+.quality-photo small, .quality-photo span { overflow-wrap: anywhere; font-size: 11px; }
+.quality-photo select { min-width: 0; width: 100%; font-size: 12px; }
+.quality-flag { color: #be5732; font-weight: 700; }
+.quality-pagination { display: flex; justify-content: center; align-items: center; gap: 12px; }
+.quality-preview { max-width: min(940px, 96vw); max-height: 92vh; overflow: auto; }
+.quality-preview img { width: auto; max-width: 100%; max-height: 68vh; object-fit: contain; }
+@media (max-width: 640px) {
+  .quality-slots { grid-template-columns: minmax(0, 1fr); }
+  .quality-controls label { flex: 1 1 140px; }
+}

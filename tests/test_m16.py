@@ -25,7 +25,7 @@ def test_schema_7_to_8_is_backup_safe_and_idempotent(db_path: Path) -> None:
     initialize_database(db_path)
     conn = connect(db_path)
     try:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION == 9
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
         assert db_path.with_suffix(".sqlite3.backup-v7").is_file()
         assert conn.execute("SELECT name FROM ledger").fetchone()[0] == "保留清冊"
         assert {

@@ -302,4 +302,4 @@ def test_v5_to_current_migration_backs_up_before_adding_incremental_scan_column(
     assert backup.is_file()
     assert "dir_mtime_ns" in columns
     assert theme == '"dark"'
-    assert version == 9
+    assert version == 10
