@@ -42,6 +42,9 @@ export type QualityPhoto = PhotoRecord & {
   stale: boolean
   display_slot?: string | null
   filename_issue?: boolean
+  suggested_filename?: string | null
+  filename_reason?: string | null
+  multi_slot?: boolean
 }
 export type QualityItem = {
   id: number
@@ -54,6 +57,7 @@ export type QualityItem = {
   photos: QualityPhoto[]
   missing_slots: string[]
   problems: number
+  duplicate_slots?: string[]
 }
 export type QualityGallery = {
   total: number

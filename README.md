@@ -200,6 +200,12 @@ npm run build
 
 建置腳本會依序執行前端測試、TypeScript、Ruff、pytest、Vite build、獨立 updater 與主程式 PyInstaller、EXE self-test、Inno Setup，最後由打包後 `FireLens.exe` 本身執行 portable／installer／rollback 故障注入的線上更新 E2E；任何一段失敗都會讓正式 Release gate 失敗。
 
+### 照片品質檢查：M18-D 異常清單整合（v1.9.0 開發版）
+
+在「整理工具」右側獨立的「照片品質檢查」中，除了模糊、曝光、缺照片、未對應用途，也能依整理工具既有規則看到**滅火器疑似錯名的建議檔名**（例如 `編輯.jpg → 編號.jpg`），以及**同一合法槽位有多張照片**的人工核對提示。兩種情況可獨立篩選並納入 CSV／Excel 問題欄；計數為問題線索數，並不等同不同照片數。建議名稱只顯示，不會自動 rename；同槽多圖也不代表必須刪除。舊制放置盒不套用新制槽位的多圖判斷。
+
+此頁繼續維持**手動啟動**圖片品質掃描，預設增量；瀏覽與匯出僅查詢 SQLite 索引，不重新分析原圖。特殊資料夾情境及其他 Organizer 候選的完整對應、真實 Windows WebView2 操作與現場影像門檻，仍需後續驗收。
+
 ## Windows 安裝
 
 FireLens v1.5.0 起支援完整繁體中文 Inno Setup 安裝精靈 `FireLens-<版本>-setup.exe`。繁體中文語言資源隨 repository 一起版本控制，不依賴開發機另外安裝語言檔。預設採每使用者安裝，不需要系統管理員權限，路徑為 `%LOCALAPPDATA%\\Programs\\FireLens`；安裝精靈可變更目的地、建立開始功能表捷徑，桌面捷徑為可選。

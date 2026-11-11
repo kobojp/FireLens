@@ -244,6 +244,31 @@ def test_m18_http_endpoints_scan_review_export_and_reject_invalid_inputs(tmp_pat
     assert (folder / "編號.jpg").is_file()
 
 
+def test_quality_gallery_organizer_filename_suggestions_and_multi_slot(tmp_path, monkeypatch):
+    from backend.app.scanner import scan_root
+
+    db_path, root_id, folder = _setup(tmp_path, monkeypatch)
+    _image(folder / "編輯.jpg")
+    _image(folder / "編號-1.jpg")
+    _image(folder / "完成.jpg")
+    with connect(db_path) as conn:
+        scan_root(conn, root_id)
+        result = gallery(conn, root_id, problem_only=True)
+        assert result["total"] == 1
+        item = result["items"][0]
+        assert "編號" in item["duplicate_slots"]
+        assert not item["missing_slots"]
+        dirty = next(p for p in item["photos"] if p["filename"] == "編輯.jpg")
+        assert dirty["suggested_filename"] == "編號.jpg"
+        assert dirty["filename_issue"]
+        assert gallery(conn, root_id, status_filter="dirty_name")["total"] == 1
+        assert gallery(conn, root_id, status_filter="multi_slot")["total"] == 1
+        csv_content, _ = export_quality(result["items"], "csv")
+        assert "建議檔名：編號.jpg" in csv_content.decode("utf-8-sig")
+        assert "同槽多圖" in csv_content.decode("utf-8-sig")
+        assert conn.execute("SELECT COUNT(*) FROM item_issue").fetchone()[0] == 0
+
+
 def test_one_hundred_then_three_changed_photo_incremental(tmp_path, monkeypatch):
     from PIL import Image
 

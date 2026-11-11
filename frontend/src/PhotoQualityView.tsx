@@ -203,6 +203,8 @@ export function PhotoQualityView({
             <option value="">全部</option>
             <option value="missing">缺照片</option>
             <option value="unmapped">未辨識照片用途</option>
+            <option value="dirty_name">檔名疑似錯誤</option>
+            <option value="multi_slot">同槽多圖</option>
             {Object.entries(STATUS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
           </select>
         </label>
@@ -239,7 +241,7 @@ export function PhotoQualityView({
       {error && <p role="alert" className="error-banner">{error}</p>}
       <p className="help-text">
         設備 {gallery?.total_devices ?? 0} 台 · 異常設備 {gallery?.total ?? 0} 台 ·
-        疑似問題照片 {gallery?.flagged_photos ?? 0} 張。
+        問題線索 {gallery?.flagged_photos ?? 0} 項。
         {loading ? ' 讀取中…' : ''} 低紋理、暗光及模糊結果均需人工確認。
       </p>
       <div className="quality-gallery" style={{ '--quality-thumb': `${thumbSize}px` } as React.CSSProperties}>
@@ -248,7 +250,8 @@ export function PhotoQualityView({
             <header>
               <strong>{item.building} · {item.code}</strong>
               <span>{item.year}／{item.period} · {item.category}</span>
-              <small>照片異常 {item.problems} 張 · 缺槽位 {item.missing_slots.length} 個</small>
+              <small>問題線索 {item.problems} 項 · 缺槽位 {item.missing_slots.length} 個</small>
+              {!!item.duplicate_slots?.length && <small className="quality-flag">同槽多圖：{item.duplicate_slots.join("、")}（請人工核對）</small>}
             </header>
             <div className="quality-slots">
               {item.slots.map((slot) => (
@@ -266,6 +269,8 @@ export function PhotoQualityView({
                         {photo.review && ' · ' + photo.review}
                       </span>
                       {photo.filename_issue && <small className="quality-flag">未辨識照片用途</small>}
+                      {photo.suggested_filename && <small className="quality-flag">檔名疑似錯誤：建議 {photo.suggested_filename}（{photo.filename_reason}）</small>}
+                      {photo.multi_slot && <small className="quality-flag">同槽多圖，請核對是否重複或誤放</small>}
                       {photo.cloud_placeholder === 1 && <small>Google Drive 尚未下載，品質掃描已跳過</small>}
                       {photo.reason && <small>{photo.reason}</small>}
                       <select aria-label={photo.filename + ' 人工覆核'}

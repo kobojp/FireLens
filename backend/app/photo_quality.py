@@ -13,6 +13,7 @@ from openpyxl import Workbook
 from PIL import Image, ImageFilter, ImageOps, ImageStat
 
 from .db import database
+from .organizer import _canonical_filename
 from .scan_jobs import scan_job_status
 from .scanner import CLOUD_PLACEHOLDER_FLAGS, ScanCancelled, scan_root
 
@@ -339,6 +340,8 @@ def gallery(
         "unscanned",
         "missing",
         "unmapped",
+        "dirty_name",
+        "multi_slot",
     ):
         raise QualityError("品質篩選不正確")
     if review_filter not in ("", "confirmed", "ignore", "reshoot", "wrong_content", "pending"):
@@ -402,8 +405,24 @@ def gallery(
         if not legacy and any(p["slot"] is None for p in pictures):
             slots.append("未對應照片")
         for image in pictures:
+            # Share the Organizer filename suggestion rule without hashing or renaming files.
+            suggested, filename_reason = (
+                _canonical_filename(image["filename"])
+                if item["category"] == "extinguisher" and not legacy
+                else (None, None)
+            )
+            image["suggested_filename"] = suggested
+            image["filename_reason"] = filename_reason
             image["display_slot"] = "舊制照片" if legacy else (image["slot"] or "未對應照片")
             image["filename_issue"] = not legacy and image["slot"] is None
+        slot_counts = (
+            {slot: sum(p["slot"] == slot for p in pictures) for slot in SLOTS[item["category"]]}
+            if not legacy
+            else {}
+        )
+        duplicate_slots = [slot for slot, count in slot_counts.items() if count > 1]
+        for image in pictures:
+            image["multi_slot"] = image["slot"] in duplicate_slots if not legacy else False
         missing = (
             []
             if legacy
@@ -419,11 +438,15 @@ def gallery(
         )
         problems += sum(p["review"] in ("reshoot", "wrong_content") for p in pictures)
         problems += sum(p["filename_issue"] for p in pictures)
+        problems += sum(bool(p["suggested_filename"]) for p in pictures)
+        problems += sum(slot_counts[slot] - 1 for slot in duplicate_slots)
         if problem_only and not (problems or missing):
             continue
         if status_filter and not (
             (status_filter == "missing" and missing)
             or (status_filter == "unmapped" and any(p["filename_issue"] for p in pictures))
+            or (status_filter == "dirty_name" and any(p["suggested_filename"] for p in pictures))
+            or (status_filter == "multi_slot" and bool(duplicate_slots))
             or any(p["status"] == status_filter for p in pictures)
         ):
             continue
@@ -438,6 +461,7 @@ def gallery(
                 "photos": pictures,
                 "slots": slots,
                 "missing_slots": missing,
+                "duplicate_slots": duplicate_slots,
                 "problems": problems,
             }
         )
@@ -486,6 +510,17 @@ def review_photo(conn: sqlite3.Connection, photo_id: int, review: str) -> dict:
     return {"photo_id": photo_id, "review": review}
 
 
+def _problem_description(photo: dict) -> str:
+    details = [photo["reason"] or (photo["status"] if photo["status"] != "normal" else "")]
+    if photo.get("suggested_filename"):
+        details.append(f"建議檔名：{photo['suggested_filename']}")
+    if photo.get("multi_slot"):
+        details.append("同槽多圖")
+    if photo.get("filename_issue"):
+        details.append("未辨識用途")
+    return "、".join(filter(None, details))
+
+
 def export_quality(items: list[dict], fmt: str) -> tuple[bytes, str]:
     headers = (
         "設備編號",
@@ -509,7 +544,7 @@ def export_quality(items: list[dict], fmt: str) -> tuple[bytes, str]:
             item["building"],
             p["slot"] or "未對應",
             p["filename"],
-            p["reason"] or p["status"],
+            _problem_description(p),
             p["score"],
             p["review"],
             p["relative_path"],
@@ -519,6 +554,8 @@ def export_quality(items: list[dict], fmt: str) -> tuple[bytes, str]:
         if p["status"] not in (None, "normal", "unscanned")
         or p["review"] in ("reshoot", "wrong_content")
         or p.get("filename_issue")
+        or p.get("suggested_filename")
+        or p.get("multi_slot")
     ]
     # Include missing expected slots as actionable photo-quality problems.
     for item in items:

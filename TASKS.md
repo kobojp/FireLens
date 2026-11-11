@@ -1019,6 +1019,13 @@ M18 合成及 Windows 打包開發紀錄：主導覽新增獨立標籤；API /ap
 - [ ] **M18 門檻與拍攝內容辨識後續**：以使用者授權的消防設備真實照片副本校正各槽位失焦與晃動準確率，統計誤報／漏報；相似設備、拍錯設備不應僅靠模糊分數自動判錯。
 - [ ] **M18 整理工具候選深化**：目前已接共享照片索引的缺槽位、無法辨識檔名與解碼異常；如需將 Organizer 的其他錯名候選、特殊資料夾情境完整映射，另行確認後補上，不與設備異常單選混用。
 
+### M18-D 異常清單補齊（2026-11-11，先 TASKS 後程式）
+
+- [x] 照片品質卡片重用 Organizer 的檔名標準化候選辨識（僅計算、不做 rename/sha256 全盤掃描），對可修正錯名顯示建議檔名與原因；未對應照片維持人工確認。合成測試驗證 `編輯.jpg` 建議改為 `編號.jpg`，未直接改原圖。
+- [x] 同一設備／合法槽位有多張照片時顯示「同槽多圖」提示並可篩選；不將多圖直接判為拍錯或自動刪除，舊制放置盒不誤報。增加「檔名疑似錯誤／同槽多圖」篩選與匯出說明。
+- [ ] 特例資料夾及 Organizer 其他候選情境仍待完整對應與合成驗證；既有舊制放置盒不應套用新制缺槽位／多圖規則，需補相關防回歸案例。
+- [x] 合成 SQLite/影像測試：新增檔名錯誤候選、同槽多圖、篩選及 CSV 匯出測試，確認既有 `item_issue` 不受影響；pytest **205 passed**、Vitest **64 passed**、Ruff check／format、TypeScript／Vite build、版本一致性 v1.9.0 均通過。Windows `packaging/build.ps1` Exit Code 0，產生 `dist/FireLens.exe`、`dist/installer/FireLens-1.9.0-setup.exe`，portable／installer 更新器 READY／HEALTHY、rollback／故障注入 E2E 通過；已同步 AGENTS／README／TASKS。實際 Windows WebView2 UI／特殊資料夾完整驗收未完成，不推送 GitHub／Release。
+
 ### M18-UI-BUG 照片槽位工具列響應式排版（2026-11-10）
 
 使用者截圖：滅火器「編號／藥劑／完成」三欄照片卡片的「換圖／重新命名／移動／交換／刪除」按鈕過寬，右側「刪除」被裁切無法正常操作。診斷：PhotoTile 的 photo-actions 內聯固定 flex 未換行，photo-tile overflow:hidden；slot-wall 為固定最小欄寬，無容器尺寸降欄規則。**只改 UI 排版，不改按鈕綁定、刪除確認、照片或資料庫**。v1.8.0 已正式發布，本輪 Bug 修正使用 歷史 PATCH v1.8.1 作為當時開發版本，未經指示不推 GitHub/Release。
