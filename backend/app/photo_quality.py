@@ -7,6 +7,7 @@ import io
 import json
 import sqlite3
 import threading
+import time
 from pathlib import Path
 
 from openpyxl import Workbook
@@ -167,6 +168,8 @@ def scan_quality(root_id: int, *, full: bool = False, category: str = "", period
             "error": "",
             "full": full,
             "phase": "indexing",
+            "started_at": time.time(),
+            "analysis_started_at": None,
         }
         _JOBS[root_id] = job
     thread = threading.Thread(
@@ -193,6 +196,7 @@ def _run(root_id: int, category: str, period: str, job: dict) -> None:
             with _SEMAPHORE:
                 scan_root(conn, root_id, cancel_check=lambda: bool(job["cancel"]))
             job["phase"] = "analyzing"
+            job["analysis_started_at"] = time.time()
             photos = _candidates(conn, root_id, category, period)
             job["total"] = len(photos)
             for record in photos:
@@ -303,6 +307,8 @@ def job_status(root_id: int) -> dict:
                     "flagged": 0,
                     "cancel": False,
                     "error": "",
+                    "started_at": None,
+                    "analysis_started_at": None,
                 },
             )
         )

@@ -212,6 +212,18 @@ class PhotoQualityScan(BaseModel):
     period: str = ""
 
 
+class PhotoQualityExportSave(BaseModel):
+    format: str = "xlsx"
+    category: str = ""
+    period: str = ""
+    building: str = ""
+    query: str = ""
+    problem_only: bool = True
+    status_filter: str = ""
+    review_filter: str = ""
+    sort_by: str = "latest"
+
+
 class PhotoQualityReview(BaseModel):
     review: str
 
@@ -666,6 +678,35 @@ def create_app() -> FastAPI:
                 return review_photo(conn, photo_id, payload.review)
             except QualityError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/quality/{root_id}/export/save")
+    def save_photo_quality_export(root_id: int, payload: PhotoQualityExportSave) -> dict:
+        fmt = payload.format.casefold()
+        if fmt not in ("csv", "xlsx"):
+            raise HTTPException(status_code=400, detail="只允許 CSV／Excel 匯出")
+        with database() as conn:
+            try:
+                rows = quality_gallery(
+                    conn,
+                    root_id,
+                    category=payload.category,
+                    period=payload.period,
+                    building=payload.building,
+                    query=payload.query,
+                    problem_only=payload.problem_only,
+                    status_filter=payload.status_filter,
+                    review_filter=payload.review_filter,
+                    sort_by=payload.sort_by,
+                    limit=1000000,
+                    offset=0,
+                )
+                content, _ = export_quality(rows["items"], fmt)
+            except QualityError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+        try:
+            return export_registry.save(prefix="照片品質檢查", content=content, extension=fmt)
+        except OSError as exc:
+            raise HTTPException(status_code=500, detail=f"照片品質匯出失敗：{exc}") from exc
 
     @app.get("/api/quality/{root_id}/export")
     def download_photo_quality(

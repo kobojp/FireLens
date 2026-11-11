@@ -35,8 +35,10 @@ describe('M18 photo quality page decisions', () => {
     expect(view).toContain('api.reviewQualityPhoto(photo.id, value)')
     expect(view).toContain('<option value="reshoot">待補拍</option>')
     expect(view).toContain('<option value="wrong_content">拍攝內容錯誤</option>')
-    expect(view).toContain("exportLink('csv')")
-    expect(view).toContain("exportLink('xlsx')")
+    expect(view).toContain("saveExport('csv')")
+    expect(view).toContain("saveExport('xlsx')")
+    expect(view).toContain("api.saveQualityExport(rootId")
+    expect(view).toContain("api.openExport(exportResult.open_token, 'folder')")
     expect(view).toContain('onOpenItem(rootId, item.id)')
   })
 
@@ -47,6 +49,17 @@ describe('M18 photo quality page decisions', () => {
     expect(view).toContain('item.name_variants?.map(')
     expect(view).toContain('item.missing_slots.includes(slot)')
     expect(view).toContain('status_filter: qualityFilter')
+  })
+
+  it('renders scan progress, ETA, statistic panels and card navigation', () => {
+    expect(view).toContain('qualityProgress(job, nowSeconds)')
+    expect(view).toContain('role="progressbar"')
+    expect(view).toContain('quality-progress-percent')
+    expect(view).toContain('預估剩餘')
+    expect(view).toContain('quality-stats')
+    expect(view).toContain('quality-action quality-open-wall')
+    expect(css).toContain('.quality-export-actions')
+    expect(css).toContain('.quality-progress-track')
   })
 
   it('renders fixed image slots, responsive card gallery and accessible original preview', () => {

@@ -70,6 +70,8 @@ export type QualityGallery = {
 export type QualityJob = {
   state: string
   phase?: string
+  started_at?: number | null
+  analysis_started_at?: number | null
   total: number
   done: number
   analyzed: number

@@ -93,6 +93,11 @@ TASKS.md            需求與里程碑
 - 只有 `view === 'browse'` 時套用 `app-shell browse-layout` 的 `100dvh` 高度邊界；其他分頁仍照原本捲動。`.workspace` 必須 `min-height: 0`，資料樹／照片／資訊三欄的可見區各自捲動，禁止資料樹展開把整頁撐高；面板保留 `overscroll-behavior-y: contain`。
 - 資料樹標題、筆數與搜尋欄固定；僅 `.tree-view` 滾動，保留鍵盤可聚焦、現有展開與選取狀態、`scrollIntoView` 定位；切換設備時照片面板回到頂部，但不得重設左樹捲動位置或照片資料。
 
+## 品質清單匯出與進度驗收規則
+
+- Windows pywebview 不可靠執行瀏覽器下載連結時，品質清單統一使用既有 `ExportRegistry.save` POST 儲存機制與限時 open_token 開啟檔案／資料夾；不可將儲存路徑當作可任意開啟的使用者輸入。匯出必須套用與清單相同的 category/period/building/query/problem_only/quality/review/sort 篩選、完整結果集而非僅目前分頁，並保留 UTF-8 BOM、XLSX 和公式注入保護。不得匯出照片原圖或敏感設定。
+- 掃描 ETA 僅由後端本次分析起點 `analysis_started_at` 和實際 `done/total` 算平均處理速率；索引、樣本不足、0 張、取消或失敗不得虛構倒數。狀態、進度條與總覽統計應在不同縮放、深淺色有可讀對比，真正 Windows GUI 儲存與畫面操作仍須實機驗收。
+
 ## 資料與掃描
 
 - 類別：滅火器、放置盒、燈具。

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { qualityProgress } from './qualityProgress'
 import { api } from './api'
 import type { QualityGallery, QualityItem, QualityJob, QualityPhoto, RootRecord } from './types'
 
@@ -44,6 +45,10 @@ export function PhotoQualityView({
   const [sortBy, setSortBy] = useState('latest')
   const [sensitivity, setSensitivity] = useState(1)
   const [savedSensitivity, setSavedSensitivity] = useState(1)
+  const [exporting, setExporting] = useState<'csv' | 'xlsx' | null>(null)
+  const [exportResult, setExportResult] = useState<{ filename: string; path: string; open_token: string } | null>(null)
+  const [exportMessage, setExportMessage] = useState('')
+  const [nowSeconds, setNowSeconds] = useState(() => Date.now() / 1000)
 
 
   useEffect(() => {
@@ -102,6 +107,12 @@ export function PhotoQualityView({
     return () => window.clearInterval(timer)
   }, [job?.state, rootId, refresh])
 
+  useEffect(() => {
+    if (job?.state !== 'running') return
+    const timer = window.setInterval(() => setNowSeconds(Date.now() / 1000), 1000)
+    return () => window.clearInterval(timer)
+  }, [job?.state])
+
   async function saveSettings() {
     if (rootId === null) return
     try {
@@ -137,14 +148,55 @@ export function PhotoQualityView({
     }
   }
 
-  const filteredCards = gallery?.items ?? []
-
-  function exportLink(fmt: string) {
-    return rootId === null ? '#' : `/api/quality/${rootId}/export?${new URLSearchParams({
-      category, period, building, query, problem_only: String(problemOnly),
-      status_filter: qualityFilter, review_filter: reviewFilter, sort_by: sortBy, fmt,
-    })}`
+  async function downloadInBrowser(format: 'csv' | 'xlsx'): Promise<void> {
+    if (rootId === null) throw new Error('請先選擇照片來源')
+    const params = new URLSearchParams({
+      fmt: format, category, period, building, query,
+      problem_only: String(problemOnly), status_filter: qualityFilter,
+      review_filter: reviewFilter, sort_by: sortBy,
+    })
+    const response = await fetch(`/api/quality/${rootId}/export?${params}`)
+    if (!response.ok) {
+      const body = await response.json().catch(() => null)
+      throw new Error(typeof body?.detail === 'string' ? body.detail : `下載失敗：HTTP ${response.status}`)
+    }
+    const objectUrl = URL.createObjectURL(await response.blob())
+    const link = document.createElement('a')
+    link.href = objectUrl
+    link.download = `FireLens-photo-quality.${format}`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 10000)
   }
+
+  async function saveExport(format: 'csv' | 'xlsx') {
+    if (rootId === null || exporting) return
+    setExporting(format)
+    setExportResult(null)
+    setExportMessage('')
+    try {
+      if (!('pywebview' in window)) {
+        await downloadInBrowser(format)
+        setExportMessage(`已送出下載：FireLens-photo-quality.${format}`)
+      } else {
+        const saved = await api.saveQualityExport(rootId, {
+          format, category, period, building, query, problem_only: problemOnly,
+          status_filter: qualityFilter, review_filter: reviewFilter, sort_by: sortBy,
+        })
+        setExportResult(saved)
+        setExportMessage(`匯出成功：${saved.filename}`)
+      }
+    } catch (err) {
+      setExportMessage(`匯出失敗：${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setExporting(null)
+    }
+  }
+
+  const progress = job ? qualityProgress(job, nowSeconds) : null
+
+  const filteredCards = gallery?.items ?? []
 
   return (
     <section className="panel quality-page">
@@ -228,24 +280,47 @@ export function PhotoQualityView({
             <option value="wrong_content">拍攝內容錯誤</option>
           </select>
         </label>
-        <a className="outline-button" href={exportLink('csv')} download>匯出 CSV</a>
-        <a className="outline-button" href={exportLink('xlsx')} download>匯出 Excel</a>
+        <div className="quality-export-actions" role="group" aria-label="匯出品質清單">
+          <button type="button" className="quality-action quality-action-csv" disabled={rootId === null || Boolean(exporting)}
+            onClick={() => void saveExport('csv')}><span aria-hidden="true">↓</span> {exporting === 'csv' ? 'CSV 匯出中…' : '匯出 CSV'}</button>
+          <button type="button" className="quality-action quality-action-excel" disabled={rootId === null || Boolean(exporting)}
+            onClick={() => void saveExport('xlsx')}><span aria-hidden="true">↓</span> {exporting === 'xlsx' ? 'Excel 匯出中…' : '匯出 Excel'}</button>
+        </div>
       </div>
-      {job && job.state !== 'idle' && (
-        <p className="help-text" role="status">
-          {job.state === 'running' ? job.phase === 'indexing' ? '正在更新照片索引' : '正在分析圖片' : job.state === 'completed' ? '掃描完成' :
-            job.state === 'cancelled' ? '掃描已取消' : '掃描錯誤'}：
-          {job.done}/{job.total} 張 · 新分析 {job.analyzed} · 沿用結果 {job.cached} ·
-          跳過 {job.skipped} · 疑似問題 {job.flagged}
-          {job.error ? ' · ' + job.error : ''}
-        </p>
+      {job && job.state !== 'idle' && progress && (
+        <section className="quality-progress" role="status" aria-live="polite">
+          <div className="quality-progress-heading">
+            <strong>{progress.phase}</strong>
+            <strong className="quality-progress-percent">{progress.percent === null ? '處理中' : `${progress.percent}%`}</strong>
+          </div>
+          <div className="quality-progress-track" role="progressbar" aria-label="照片品質掃描進度"
+            aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress.percent ?? undefined}
+            aria-valuetext={progress.percent === null ? progress.phase : `${progress.percent}%`}>
+            <div style={{ width: `${progress.percent ?? 0}%` }} />
+          </div>
+          <div className="quality-progress-details">
+            <span>完成 <b>{job.done.toLocaleString()}</b> / {job.total.toLocaleString()} 張</span>
+            <span>預估剩餘：<b>{progress.remaining}</b></span>
+            <span>新分析 {job.analyzed} · 沿用 {job.cached} · 跳過 {job.skipped} · 疑似問題 {job.flagged}</span>
+          </div>
+          {job.error && <p className="quality-flag">{job.error}</p>}
+        </section>
       )}
       {error && <p role="alert" className="error-banner">{error}</p>}
-      <p className="help-text">
-        設備 {gallery?.total_devices ?? 0} 台 · 異常設備 {gallery?.total ?? 0} 台 ·
-        問題線索 {gallery?.flagged_photos ?? 0} 項。
-        {loading ? ' 讀取中…' : ''} 低紋理、暗光及模糊結果均需人工確認。
-      </p>
+      {exportMessage && <div className={`quality-export-result${exportMessage.startsWith("匯出失敗") ? " quality-export-error" : ""}`} role="status">
+        <strong>{exportMessage}</strong>
+        {exportResult && <div className="quality-export-open">
+          <span>{exportResult.path}</span>
+          <button type="button" onClick={() => void api.openExport(exportResult.open_token, 'file').catch((err) => setError(String(err)))}>開啟檔案</button>
+          <button type="button" onClick={() => void api.openExport(exportResult.open_token, 'folder').catch((err) => setError(String(err)))}>開啟所在資料夾</button>
+        </div>}
+      </div>}
+      <div className="quality-stats" aria-label="照片品質檢查統計">
+        <div><span>設備總數</span><strong>{(gallery?.total_devices ?? 0).toLocaleString()} <small>台</small></strong></div>
+        <div><span>異常設備</span><strong>{(gallery?.total ?? 0).toLocaleString()} <small>台</small></strong></div>
+        <div><span>問題線索</span><strong>{(gallery?.flagged_photos ?? 0).toLocaleString()} <small>項</small></strong></div>
+      </div>
+      <p className="help-text">{loading ? '讀取中… ' : ''}低紋理、暗光及模糊結果均需人工確認。</p>
       <div className="quality-gallery" style={{ '--quality-thumb': `${thumbSize}px` } as React.CSSProperties}>
         {filteredCards.map((item) => (
           <article key={item.id} className="quality-card">
@@ -292,8 +367,8 @@ export function PhotoQualityView({
                 </div>
               ))}
             </div>
-            <button type="button" className="outline-button"
-              onClick={() => { if (rootId !== null) onOpenItem(rootId, item.id) }}>前往照片牆</button>
+            <button type="button" className="quality-action quality-open-wall"
+              onClick={() => { if (rootId !== null) onOpenItem(rootId, item.id) }}>前往照片牆 <span aria-hidden="true">→</span></button>
           </article>
         ))}
         {!filteredCards.length && <p>目前篩選範圍沒有符合的設備。</p>}

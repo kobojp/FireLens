@@ -221,6 +221,8 @@ def test_m18_http_endpoints_scan_review_export_and_reject_invalid_inputs(tmp_pat
                 break
             sleep(0.025)
         assert state is not None and state["state"] == "completed", state
+        assert state["started_at"] is not None
+        assert state["analysis_started_at"] is not None
         assert state["analyzed"] == 2
         new = client.post(base + "/scan", json={"full": False})
         assert new.status_code == 202, new.text
@@ -241,7 +243,73 @@ def test_m18_http_endpoints_scan_review_export_and_reject_invalid_inputs(tmp_pat
         assert exported.status_code == 200
         assert "缺照片" in exported.content.decode("utf-8-sig")
         assert client.get(base + "/export", params={"fmt": "xlsx"}).status_code == 200
+        # Desktop exports use the same safe save/open registry as other FireLens pages.
+        monkeypatch.setenv("FIRELENS_EXPORT_DIR", str(tmp_path / "quality-exports"))
+        for format_name in ("csv", "xlsx"):
+            saved = client.post(
+                base + "/export/save",
+                json={
+                    "format": format_name,
+                    "problem_only": False,
+                    "review_filter": "wrong_content",
+                },
+            )
+            assert saved.status_code == 200, saved.text
+            result = saved.json()
+            output = Path(result["path"])
+            assert output.exists() and output.suffix == "." + format_name
+            assert result["open_token"]
+            if format_name == "csv":
+                assert output.read_bytes().startswith(bytes((0xEF, 0xBB, 0xBF)))
+                assert "編號.jpg" in output.read_text(encoding="utf-8-sig")
+            else:
+                assert load_workbook(output, read_only=True).active.max_row >= 2
+        assert client.post(base + "/export/save", json={"format": "pdf"}).status_code == 400
+        assert (
+            client.post(
+                base + "/export/save",
+                json={"format": "csv", "category": "invalid"},
+            ).status_code
+            == 400
+        )
+        empty = client.post(
+            base + "/export/save",
+            json={"format": "csv", "query": "不存在的設備"},
+        )
+        assert empty.status_code == 200
+        assert Path(empty.json()["path"]).read_bytes().startswith(bytes((0xEF, 0xBB, 0xBF)))
     assert (folder / "編號.jpg").is_file()
+
+
+def test_quality_export_saves_all_filtered_devices_not_just_first_page(tmp_path, monkeypatch):
+    import csv
+
+    from fastapi.testclient import TestClient
+
+    from backend.app.main import create_app
+    from backend.app.scanner import scan_root
+
+    db_path, root_id, first = _setup(tmp_path, monkeypatch)
+    root = first.parents[4]
+    for number in range(45):
+        folder = root / "滅火器" / "2026年" / "10月份更換" / "致德樓8F" / f"致-99-{number:03}"
+        folder.mkdir(parents=True)
+        Image.new("RGB", (8, 8), "red").save(folder / "編號.jpg")
+    with connect(db_path) as conn:
+        scan_root(conn, root_id)
+    monkeypatch.setenv("FIRELENS_EXPORT_DIR", str(tmp_path / "export-all"))
+    with TestClient(create_app()) as client:
+        base = f"/api/quality/{root_id}"
+        page = client.get(base)
+        assert page.status_code == 200
+        assert page.json()["total"] == 46
+        assert len(page.json()["items"]) == 40
+        saved = client.post(base + "/export/save", json={"format": "csv"})
+        assert saved.status_code == 200, saved.text
+        with Path(saved.json()["path"]).open(encoding="utf-8-sig", newline="") as handle:
+            records = list(csv.reader(handle))
+        assert len(records) >= 47  # header and at least one row for each of 46 devices
+        assert any("致-99-044" in row for row in records)
 
 
 def test_quality_gallery_organizer_filename_suggestions_and_multi_slot(tmp_path, monkeypatch):

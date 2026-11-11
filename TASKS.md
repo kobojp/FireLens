@@ -1059,11 +1059,12 @@ M18 合成及 Windows 打包開發紀錄：主導覽新增獨立標籤；API /ap
 
 ### M18-H 照片品質檢查匯出修復、操作按鈕與掃描進度 UI（2026-11-11，使用者兩張截圖）
 
-- [ ] **修復 Excel／CSV 點擊無反應**：目前品質頁使用 `<a href="/api/quality/{root_id}/export?..." download>`，需調查在 Windows pywebview/WebView2、本機 HTTP session／Cookie／安全限制下是否會攔截下載，並檢查 API 的 CSV/XLSX 回應及 Content-Disposition；不可只改按鈕外觀。改成可追蹤成功／失敗狀態的可靠匯出流程，明確呈現「匯出中／匯出成功／匯出失敗」，提供錯誤訊息；成功後依桌面平台支援開啟檔案或所在資料夾，瀏覽器版維持正常下載。篩選條件、所有符合結果（不是只有當頁 40 筆）、UTF-8 BOM／繁中、Excel 公式注入防護及空清單均需測試。
-- [ ] **匯出與導覽按鈕美化**：為「匯出 CSV」、「匯出 Excel」設計一致的圖示、按鈕尺寸、強弱層次、間距、hover／focus／disabled／loading 狀態，依桌面寬度自動換行；每張卡片「前往照片牆」改成清楚醒目的操作按鈕（可用箭頭／照片牆圖示），維持原導航 `onOpenItem(rootId,item.id)` 與既有篩選來源；深色模式、鍵盤操作與 Windows 125%／150% 不裁切。
-- [ ] **掃描可視化**：使用現有 `QualityJob.total/done/analyzed/cached/skipped/flagged/phase/state` 設計百分比進度條、已完成／總數、目前階段（更新索引／分析照片／完成／取消／失敗）、結果摘要。預估剩餘時間（ETA）以本次掃描實際耗時與有效分析速率平滑估算，初期樣本不足顯示「計算中」、總量未知的索引階段顯示不確定進度；不得虛構時間、不得顯示負數、避免 0 除、取消後停止倒數，並保留真實背景任務可取消。必要時後端擴充開始時間與階段時間欄位，避免因前端刷新導致計時錯誤。
-- [ ] **字體與資訊層次**：照片品質頁「設備總數／異常設備／問題線索」改用較大字級且可快速辨認的統計資訊區，掃描狀態字體與百分比放大，手機／窄窗／125–150% 縮放仍可閱讀、深淺色對比充足；不要放大每張照片的細節文字而讓列表過於擁擠。
-- [ ] **開發與驗收**：先以合成 SQLite 與 API 客戶端驗證 CSV/XLSX 真實下載、檔名／篩選／大量筆數／無資料／錯誤處理，再測前端匯出按鈕、導覽、進度與 ETA（索引、增量快速完成、全掃、取消、失敗、0 張）；執行 Ruff、pytest、Vitest、TypeScript/Vite、版本一致性及 Windows EXE/setup 打包後自測。實際 WebView2 匯出與 Windows 儲存檔案對話框、LINE/Google Drive 情境仍需實機驗收，不得僅以合成測試宣稱已驗收。同步 AGENTS／README／TASKS，無使用者指示不 Push／Tag／Release，版本維持未正式發佈的 v1.9.0。
+- [x] **CSV／Excel 匯出實作**：原品質頁直接使用 HTML 附件連結，Windows pywebview/WebView2 可能無反應。Windows 桌面模式新增 `/api/quality/{root_id}/export/save` 並共用現有 `ExportRegistry.save`，具成功／失敗回饋、檔名／儲存路徑、開啟檔案／資料夾；一般瀏覽器沿用 GET 匯出 API 以 Blob 下載。保留全部篩選條件且不受畫面每頁 40 台限制；合成資料驗證 46 台設備跨頁匯出、UTF-8 BOM、XLSX、空清單、不支援格式與錯誤類別，既有公式注入測試保留。
+- [x] **匯出／照片牆按鈕美化**：CSV／Excel 增加清楚的品牌色區分、下載符號、loading／disabled／hover／focus 與自適應換行；卡片「前往照片牆」改成深藍完整寬度導覽按鈕和箭頭，保留原 `onOpenItem(rootId,item.id)`。深色模式和縮放的 CSS 結構完成，實機可視性待驗收。
+- [x] **掃描進度與 ETA**：後端品質掃描加 `started_at`、`analysis_started_at` 時戳；前端按實際分析速率、已完成／總數推算剩餘時間，索引／初期樣本不足顯示「計算中」，完成／取消／失敗停止倒數。新增百分比進度條、索引階段動畫與 reduced-motion 保護、分階段狀態及掃描摘要；Vitest 覆蓋正常／索引／少量／零張／超量／取消／失敗。
+- [x] **統計資訊視覺優化**：設備總數、異常設備、問題線索改成 3 張大字數字卡片；掃描階段字體 17px、進度百分比 27px、統計 28px，依寬度縮欄並增加深色模式與成功／失敗訊息對比；不放大照片細項而影響清單密度。
+- [x] **合成與打包驗收**：使用合成 SQLite／FastAPI 客戶端驗證 CSV/XLSX 檔案實際存取、篩選及 46 台跨頁全量匯出、空清單、無效格式和類別，以及公式注入既有測試；ETA／進度前端測試涵蓋索引、低樣本、進行中、完成、取消、錯誤、0 張。Ruff check／format PASS、pytest **211 passed**、Vitest **74 passed**、TypeScript／Vite build 與 v1.9.0 版本一致性 PASS。Windows `packaging/build.ps1` Exit Code 0，產生 `dist/FireLens.exe` 與 `dist/installer/FireLens-1.9.0-setup.exe`，打包後 portable／installer READY／HEALTHY、rollback／故障注入 E2E 通過。AGENTS／README／TASKS 已同步，不 Push／Tag／Release。
+- [ ] **真實 Windows WebView2 驗收**：仍需人工在 Windows 桌面版點擊 CSV／Excel，確認本機儲存路徑、開啟檔案／資料夾、錯誤回饋與縮放；確認約 2000 張照片的掃描進度條／ETA、深淺色、不同視窗大小，以及 LINE／Google Drive 來源情境。合成測試與打包不代表 GUI 驗收通過。
 
 ## 11. 完成條件
 

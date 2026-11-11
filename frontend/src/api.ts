@@ -386,6 +386,14 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ open_token: token, mode }),
     }),
+  saveQualityExport: (rootId: number, payload: {
+    format: 'csv' | 'xlsx'; category: string; period: string; building: string;
+    query: string; problem_only: boolean; status_filter: string;
+    review_filter: string; sort_by: string;
+  }) => request<ExportSaveResult>(`/api/quality/${rootId}/export/save`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }),
   qualityGallery: (rootId: number, params: URLSearchParams) =>
     request<QualityGallery>(`/api/quality/${rootId}?${params}`),
   qualitySettings: (rootId: number) =>
