@@ -4,7 +4,16 @@
 M14 歷史開發版本：v1.6.0。
 M15 歷史開發版本：v1.6.1（PATCH，修正線上更新器實機失敗）。
 
-## 永久開發鐵律：自動化測試與完成認定（2026-11-12）
+## v1.10.0 正式發佈作業（2026-11-13，使用者已明確授權）
+
+**目標**：將已完成自動回歸／Windows 打包的 M19-C 與 M19-B 等開發提交推送 `https://github.com/kobojp/FireLens` 的 `main`，以現有 `.github/workflows/release-windows.yml` 的 Tag 觸發 GitHub Actions，產出 v1.10.0 正式 Windows EXE、繁中 setup、SHA256SUMS.txt 與 Ed25519 簽名更新清單；只發布此版本，不觸及真實照片、Google 機密或未授權服務。人工 Google Drive／WebView2 驗收仍獨立未完成。
+
+- [x] **發佈前檢查**：確認 Git 主線乾淨、最新工作未遺失，遠端與 Tag 不衝突；核對 `desktop/version.py`、`pyproject.toml`、`uv.lock`、README／TASKS／workflow 版本；實際執行 `packaging/check_version_consistency.py --tag v1.10.0`、所需測試／打包或已有可核對的當輪 E2E 證據。檢查 Actions 使用的 `FIRELENS_UPDATE_PRIVATE_KEY_B64` secret 名稱存在（不讀取密值），確保 CI 能簽 Ed25519 manifest。
+- [ ] **GitHub main 推送**：僅提交本次發版規劃文件及已驗證程式碼，確認無真實照片、金鑰、Token、資料庫或 build 輸出進入提交；`git push origin main` 後驗證遠端 SHA 等於本機提交。
+- [ ] **v1.10.0 Tag 與 Actions 發佈**：只在預檢通過且 Tag 未存在時建立精確 `v1.10.0` 標籤並推送，讓 Windows Release workflow 自動 Build／Test／Sign／Create Release；記下 Actions run URL、狀態、Tag 指向與實際資產。任何 CI 失敗必須如實紀錄，不得冒稱發佈成功。
+- [ ] **發佈後驗證與文件同步**：透過 GitHub CLI／官方 release API 確認 v1.10.0 為已發布狀態、5 項資產（portable x64 EXE、setup、SHA256SUMS、update-manifest.json、update-manifest.sig）均存在且版本一致，校驗公開 SHA256／簽章更新流程，更新 TASKS 頂部的「正式 Release」狀態與實際結果；同步 README／AGENTS 規則（若有變更），最後提交與推送文件。無法完成的部分保持 [ ]，不把合成驗證當實機驗收。
+
+**本次預檢證據**：本機 `main` 起始為 `6d0c51e`，比 `origin/main` 領先 4 個提交；遠端無 `v1.10.0` Tag，GitHub 無同名 Release。`uv run --locked python packaging/check_version_consistency.py --tag v1.10.0` 通過；GitHub Actions 工作流程 `release-windows.yml` 為 `active`、`FIRELENS_UPDATE_PRIVATE_KEY_B64` secret 名稱存在（未讀取密值）、`git diff --check` 通過；前輪 M19-C 已實際通過 Python 227、Vitest 81、Ruff、TS/Vite 與 Windows 打包／portable＋installer 更新器 E2E。當輪本機檢查 `dist/FireLens.exe`、`dist/installer/FireLens-1.10.0-setup.exe` 存在，後者 SHA256 為 `7BD2544B2FB871F6D8B8535FECB1877690BD42B1B66BE66A96321A7EEA727319`；GitHub CI 將在 Tag 事件重新建置並簽名，Release 資產的 SHA256 需以 CI 上傳檔案為準。\n\n## 永久開發鐵律：自動化測試與完成認定（2026-11-12）
 
 - [x] 在 `AGENTS.md` 新增「每一項功能／Bug 修復／UI／API／資料庫修改都必須有對應的自動化測試」永久規則；遵守先寫 TASKS 後實作的順序，功能完成不等於測試完成。
 - [x] 明訂階段性測試與最終回歸驗證：新增／更新必要的 pytest、Vitest、API／SQLite／合成情境測試，實際執行並核對輸出；相關失敗不得宣稱通過或將功能勾 `[x]`，須修正後重跑。版本、前端建置及 Windows 打包測試依改動範圍執行。
