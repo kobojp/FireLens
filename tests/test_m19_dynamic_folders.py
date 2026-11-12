@@ -26,7 +26,7 @@ def _setup(tmp_path):
     root = tmp_path / "pictures"
     root.mkdir(parents=True)
     (root / "水帶" / "倉庫" / "水-01").mkdir(parents=True)
-    (root / "水帶" / "倉庫" / "水-01" / "照片.jpg").write_bytes(_jpeg_bytes())
+    (root / "水帶" / "倉庫" / "水-01" / "前.jpg").write_bytes(_jpeg_bytes())
     (root / "備份資料" / "臨時" / "備-01").mkdir(parents=True)
     (root / "備份資料" / "臨時" / "備-01" / "照片.jpg").write_bytes(_jpeg_bytes("blue"))
     (root / "FireLens-共享異常資料" / "events").mkdir(parents=True)
@@ -57,17 +57,17 @@ def test_dynamic_categories_exclusion_and_rescan(tmp_path):
                WHERE i.code=?""",
             ("水-01",),
         ).fetchone()
-        assert row is not None and row["slots_json"] == '["照片"]'
+        assert row is not None and row["slots_json"] == '["前", "中", "後"]'
         assert row["year"] == "(未分類)"
         assert row["period"] == "(未分類)"
         assert row["building"] == "倉庫"
-        assert row["status"] == "complete"
+        assert row["status"] == "partial"
         from backend.app.photo_quality import gallery
 
         code = conn.execute("SELECT code FROM category WHERE name='水帶'").fetchone()[0]
         quality = gallery(conn, root_id, category=code, problem_only=False)
         assert quality["total"] == 1
-        assert quality["items"][0]["slots"] == ["照片"]
+        assert quality["items"][0]["slots"] == ["前", "中", "後"]
 
         settings = save_settings(conn, {"excluded_root_folders": ["備份資料"]})
         assert settings["excluded_root_folders"] == ["備份資料"]
@@ -115,15 +115,15 @@ def test_duplicate_image_requires_explicit_confirmation(tmp_path):
         image = _jpeg_bytes()
         folder = root / "水帶" / "倉庫" / "水-01"
         before = {path.name for path in folder.iterdir()}
-        with pytest.raises(DuplicatePhotoConflict, match="照片.jpg"):
-            import_photo(conn, item_id, "照片", "repeat.jpg", image)
+        with pytest.raises(DuplicatePhotoConflict, match="前.jpg"):
+            import_photo(conn, item_id, "前", "repeat.jpg", image)
         assert {path.name for path in folder.iterdir()} == before
 
-        created = import_photo(conn, item_id, "照片", "repeat.jpg", image, allow_duplicate=True)
-        assert created["filename"] == "照片-1.jpg"
-        assert (folder / "照片-1.jpg").read_bytes() == image
+        created = import_photo(conn, item_id, "前", "repeat.jpg", image, allow_duplicate=True)
+        assert created["filename"] == "前-1.jpg"
+        assert (folder / "前-1.jpg").read_bytes() == image
 
-        unique = import_photo(conn, item_id, "照片", "another.jpg", _jpeg_bytes("green"))
-        assert unique["filename"] == "照片-2.jpg"
+        unique = import_photo(conn, item_id, "前", "another.jpg", _jpeg_bytes("green"))
+        assert unique["filename"] == "前-2.jpg"
     finally:
         conn.close()

@@ -87,47 +87,65 @@ def _is_image(path: Path) -> bool:
 
 _NUMBERED_RE = re.compile(r"^(?P<base>.+)-(?P<index>\d+)$")
 EXTINGUISHER_ALIASES = {"編號": "編號", "藥劑": "藥劑", "有效日期": "藥劑", "完成": "完成"}
+DEFAULT_SLOTS = {
+    "extinguisher": ("編號", "藥劑", "完成"),
+    "box": ("前", "中", "後"),
+    "lamp": ("前", "中", "後"),
+}
 
 
-def _slot_for(category_code: str, filename: str, custom_slots: tuple[str, ...] = ()) -> str | None:
+def _slot_for(
+    category_code: str,
+    filename: str,
+    custom_slots: tuple[str, ...] = (),
+    required_slots: tuple[str, ...] | None = None,
+    aliases: dict[str, str] | None = None,
+) -> str | None:
     stem = Path(filename).stem
     numbered = _NUMBERED_RE.match(stem)
     bases = [stem] + ([numbered.group("base")] if numbered else [])
+    required = (
+        required_slots
+        if required_slots is not None
+        else DEFAULT_SLOTS.get(category_code, ("前", "中", "後"))
+    )
+    mapped = {slot.casefold(): slot for slot in (*required, *custom_slots)}
+    for source, target in (aliases or {}).items():
+        if target in required:
+            mapped[source.casefold()] = target
     if category_code == "extinguisher":
-        for base in bases:
-            if base in EXTINGUISHER_ALIASES:
-                return EXTINGUISHER_ALIASES[base]
-    if category_code not in {"extinguisher", "box", "lamp"}:
-        return "照片"
-    if category_code in {"box", "lamp"}:
-        for slot in ("前", "中", "後"):
-            if stem == slot or stem.startswith(f"{slot}-"):
-                return slot
-    folded = {slot.casefold(): slot for slot in custom_slots}
+        for source, target in EXTINGUISHER_ALIASES.items():
+            if target in required:
+                mapped[source.casefold()] = target
     for base in bases:
-        if base.casefold() in folded:
-            return folded[base.casefold()]
+        if base.casefold() in mapped:
+            return mapped[base.casefold()]
     return None
 
 
-def _status_for(category_code: str, filenames: list[str]) -> str:
+def _status_for(
+    category_code: str,
+    filenames: list[str],
+    required_slots: tuple[str, ...] | None = None,
+    custom_slots: tuple[str, ...] = (),
+    aliases: dict[str, str] | None = None,
+) -> str:
     if not filenames:
         return "empty"
-    if category_code not in {"extinguisher", "box", "lamp"}:
-        return "complete"
     stems = [Path(name).stem for name in filenames]
-    if category_code == "extinguisher":
-        slots = {_slot_for(category_code, name) for name in filenames}
-        required = {"編號", "藥劑", "完成"}
-        return "complete" if required <= slots else "partial"
     if category_code == "box" and any(LEGACY_BOX_RE.match(stem) for stem in stems):
         return "legacy"
-    slots = {_slot_for(category_code, name) for name in filenames}
-    if {"前", "中", "後"} <= slots:
+    required = (
+        required_slots
+        if required_slots is not None
+        else DEFAULT_SLOTS.get(category_code, ("前", "中", "後"))
+    )
+    matched = {
+        _slot_for(category_code, name, custom_slots, required, aliases) for name in filenames
+    }
+    if set(required) <= matched:
         return "complete"
-    if slots - {None}:
-        return "partial"
-    return "unknown"
+    return "partial" if matched - {None} else "unknown"
 
 
 def _candidate_item_dirs(period_dir: Path, structural_dirs: set[Path] | None = None) -> list[Path]:
@@ -182,7 +200,12 @@ def scan_root(
                     """INSERT INTO category(code,name,slots_json,filename_aliases_json)
                        VALUES(?,?,?,?)
                        ON CONFLICT(code) DO NOTHING""",
-                    (code, candidate.name, json.dumps(["照片"], ensure_ascii=False), "{}"),
+                    (
+                        code,
+                        candidate.name,
+                        json.dumps(["前", "中", "後"], ensure_ascii=False),
+                        "{}",
+                    ),
                 )
             category_rows[code] = conn.execute(
                 "SELECT id FROM category WHERE code=?", (code,)
@@ -190,6 +213,14 @@ def scan_root(
             discovered[candidate.name] = code
     counts: dict[str, int] = {code: 0 for code in discovered.values()}
     custom_by_category = {code: custom_slots_for(conn, code) for code in discovered.values()}
+    slot_by_category = {
+        str(row["code"]): tuple(json.loads(str(row["slots_json"])))
+        for row in conn.execute("SELECT code, slots_json FROM category")
+    }
+    aliases_by_category = {
+        str(row["code"]): json.loads(str(row["filename_aliases_json"]))
+        for row in conn.execute("SELECT code, filename_aliases_json FROM category")
+    }
 
     for category_name, category_code in discovered.items():
         _check_cancelled(cancel_check)
@@ -237,7 +268,13 @@ def scan_root(
                     building_name,
                     code_name,
                     relative_item,
-                    _status_for(category_code, [path.name for path in image_paths]),
+                    _status_for(
+                        category_code,
+                        [path.name for path in image_paths],
+                        slot_by_category[category_code],
+                        custom_by_category[category_code],
+                        aliases_by_category[category_code],
+                    ),
                     len(image_paths),
                     dir_mtime_ns,
                 )
@@ -253,7 +290,13 @@ def scan_root(
                             path.name,
                             path.relative_to(root_path).as_posix(),
                             path.suffix.casefold(),
-                            "照片",
+                            _slot_for(
+                                category_code,
+                                path.name,
+                                custom_by_category[category_code],
+                                slot_by_category[category_code],
+                                aliases_by_category[category_code],
+                            ),
                             size_bytes,
                             mtime_ns,
                             int(cloud_placeholder),
@@ -307,7 +350,13 @@ def scan_root(
                         building,
                         item_dir.name,
                         relative_item,
-                        _status_for(category_code, filenames),
+                        _status_for(
+                            category_code,
+                            filenames,
+                            slot_by_category[category_code],
+                            custom_by_category[category_code],
+                            aliases_by_category[category_code],
+                        ),
                         len(image_paths),
                         dir_mtime_ns,
                     )
@@ -324,7 +373,11 @@ def scan_root(
                                 path.relative_to(root_path).as_posix(),
                                 path.suffix.casefold(),
                                 _slot_for(
-                                    category_code, path.name, custom_by_category[category_code]
+                                    category_code,
+                                    path.name,
+                                    custom_by_category[category_code],
+                                    slot_by_category[category_code],
+                                    aliases_by_category[category_code],
                                 ),
                                 size_bytes,
                                 mtime_ns,
@@ -539,6 +592,12 @@ def refresh_item_index(
     )
     filenames = [path.name for path in image_paths]
     custom_slots = custom_slots_for(conn, row["category_code"])
+    category = conn.execute(
+        "SELECT slots_json, filename_aliases_json FROM category WHERE code=?",
+        (row["category_code"],),
+    ).fetchone()
+    required = tuple(json.loads(str(category["slots_json"])))
+    aliases = json.loads(str(category["filename_aliases_json"]))
     known = known_sha256 or {}
     photo_rows = []
     for path in image_paths:
@@ -552,7 +611,7 @@ def refresh_item_index(
                 path.name,
                 path.relative_to(root_path).as_posix(),
                 path.suffix.casefold(),
-                _slot_for(row["category_code"], path.name, custom_slots),
+                _slot_for(row["category_code"], path.name, custom_slots, required, aliases),
                 size_bytes,
                 mtime_ns,
                 known.get(path.name),
@@ -573,5 +632,9 @@ def refresh_item_index(
         )
         conn.execute(
             "UPDATE item SET status = ?, photo_count = ? WHERE id = ?",
-            (_status_for(row["category_code"], filenames), len(image_paths), item_id),
+            (
+                _status_for(row["category_code"], filenames, required, custom_slots, aliases),
+                len(image_paths),
+                item_id,
+            ),
         )

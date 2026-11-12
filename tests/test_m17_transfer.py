@@ -190,7 +190,7 @@ def test_migration_8_to_9_preserves_data_and_creates_backup(db_path: Path) -> No
     initialize_database(db_path)
     conn = connect(db_path)
     try:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 10
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 11
         assert conn.execute("SELECT name FROM ledger").fetchone()[0] == "歷史清冊"
         columns = {row[1] for row in conn.execute("PRAGMA table_info(slot_transfer_log)")}
         assert {"source_before", "source_after", "reverted_at"} <= columns

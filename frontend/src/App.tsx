@@ -1785,7 +1785,11 @@ export default function App() {
           appInfo={appInfo}
           onSettingsChanged={setAppSettings}
           onRootsChanged={async () => { await refreshRoots(); if (rootId) await refreshCacheState(rootId).catch(() => undefined) }}
-          onCategoriesChanged={async () => { setCategories(await api.categories()) }}
+          onCategoriesChanged={async () => {
+            setCategories(await api.categories())
+            if (rootId !== null) await refreshTree(rootId)
+            if (selected?.id !== undefined) setItem(await api.item(selected.id))
+          }}
         />
       )}
 

@@ -20,11 +20,6 @@ from .scan_jobs import scan_job_status
 from .scanner import CLOUD_PLACEHOLDER_FLAGS, ScanCancelled, scan_root
 
 ALGORITHM = "laplacian-pillow-1"
-SLOTS = {
-    "extinguisher": ("編號", "藥劑", "完成"),
-    "box": ("前", "中", "後"),
-    "lamp": ("前", "中", "後"),
-}
 _LOCK = threading.Lock()
 _JOBS: dict[int, dict] = {}
 _SEMAPHORE = threading.Semaphore(1)  # prevent simultaneous expensive picture decodes
@@ -364,7 +359,7 @@ def gallery(
         for row in conn.execute(
             """
         SELECT i.id,i.code,i.year,i.period,i.building,i.status AS item_status,
-               c.code AS category
+               c.code AS category, c.slots_json AS slots_json
         FROM item i JOIN category c ON c.id=i.category_id
         WHERE i.root_id=? AND (?='' OR c.code=?) AND (?='' OR i.period=?)
           AND (?='' OR i.building=?) AND instr(i.code,?)>0
@@ -416,7 +411,7 @@ def gallery(
             *_variant_issues(item["building"], issue_type="building", context={}),
             *_variant_issues(item["code"], issue_type="code", context={}),
         ]
-        known_slots = SLOTS.get(item["category"], ("照片",))
+        known_slots = tuple(json.loads(item["slots_json"]))
         slots = ["舊制照片"] if legacy else ["特例照片"] if special else list(known_slots)
         if not exempt_slots and any(p["slot"] is None for p in pictures):
             slots.append("未對應照片")
@@ -443,11 +438,7 @@ def gallery(
         missing = (
             []
             if exempt_slots
-            else [
-                slot
-                for slot in SLOTS.get(item["category"], ("照片",))
-                if slot not in {p["slot"] for p in pictures}
-            ]
+            else [slot for slot in known_slots if slot not in {p["slot"] for p in pictures}]
         )
         problems = sum(
             p["status"] not in (None, "normal", "unscanned") and p["review"] != "ignore"

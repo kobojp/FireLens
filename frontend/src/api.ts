@@ -147,6 +147,12 @@ export const api = {
     method: 'PUT', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ label, is_cloud_stream: isCloudStream }),
   }),
+  updateCategorySlots: (code: string, slots: string[], confirmUnmapped: boolean) => request<CategoryDefinition>(
+    `/api/categories/${encodeURIComponent(code)}/slots`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slots, confirm_unmapped: confirmUnmapped }),
+    },
+  ),
   updateCategoryAliases: (code: string, aliases: Record<string, string>) => request<CategoryDefinition>(`/api/categories/${encodeURIComponent(code)}/aliases`, {
     method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ aliases }),
   }),

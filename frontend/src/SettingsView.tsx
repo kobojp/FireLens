@@ -46,6 +46,7 @@ export function SettingsView({
   const [draft, setDraft] = useState<AppSettings | null>(settings)
   const [rootDrafts, setRootDrafts] = useState<Record<number, { label: string; is_cloud_stream: boolean }>>({})
   const [aliasDrafts, setAliasDrafts] = useState<Record<string, Record<string, string>>>({})
+  const [slotDrafts, setSlotDrafts] = useState<Record<string, string[]>>({})
   const [aliasCategory, setAliasCategory] = useState('extinguisher')
   const [newAliasName, setNewAliasName] = useState('')
   const [newAliasSlot, setNewAliasSlot] = useState('')
@@ -89,6 +90,9 @@ export function SettingsView({
       { ...category.filename_aliases },
     ])))
   }, [categories])
+  useEffect(() => setSlotDrafts(Object.fromEntries(categories.map((category) => [
+    category.code, [...category.slots],
+  ]))), [categories])
 
   const backupUrl = useMemo(() => api.backupUrl(), [])
   const lastUpdateFailed = appInfo?.last_update && [
@@ -141,6 +145,25 @@ export function SettingsView({
       setMessage('根目錄設定已儲存；路徑本身沒有被修改。')
     } catch (err) {
       setError(err instanceof Error ? err.message : '儲存根目錄設定失敗')
+    } finally { setBusy(false) }
+  }
+
+  async function saveCategorySlots(code: string) {
+    const category = categories.find((entry) => entry.code === code)
+    if (!category) return
+    const slots = slotDrafts[code] ?? category.slots
+    const removed = category.slots.filter((slot) => !slots.includes(slot))
+    if (removed.length && !window.confirm(
+      `確定改名或移除「${category.name}」槽位：${removed.join('、')}？\n\n原有照片不會刪除或重新命名，但檔名未對應新槽位的照片會移至「未對應照片」。`
+    )) return
+    setBusy(true); setError(''); setMessage('')
+    try {
+      await api.updateCategorySlots(code, slots, removed.length > 0)
+      await onCategoriesChanged()
+      onSettingsChanged(await api.settings())
+      setMessage(`${category.name} 的照片槽位已儲存。原始圖片及檔名未變更。`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '儲存照片槽位失敗')
     } finally { setBusy(false) }
   }
 
@@ -334,6 +357,25 @@ export function SettingsView({
               <button type="button" className="secondary-button" onClick={() => setDraft({
                 ...draft, excluded_root_folders: draft.excluded_root_folders.filter((item) => item !== name),
               })}>移除排除</button>
+            </div>
+          ))}
+        </div>
+        <h3>各類別照片槽位（可自訂）</h3>
+        <p className="help-text">新增類別預設「前／中／後」，可依設備自行新增、刪除、改名或調整順序。請使用頓號「、」分隔每個槽位名稱。改名不會更動原始照片；舊檔名無法歸槽時會顯示於「未對應照片」。</p>
+        <div className="settings-grid">
+          {categories.map((category) => (
+            <div key={`slots_${category.code}`} className="settings-category-slots">
+              <label>{category.name} 的照片槽位
+                <input aria-label={`${category.name}照片槽位自訂`}
+                  value={(slotDrafts[category.code] ?? category.slots).join('、')}
+                  onChange={(event) => setSlotDrafts({
+                    ...slotDrafts,
+                    [category.code]: event.target.value.split(/[、,，]/).map((part) => part.trim()),
+                  })}
+                  placeholder="前、 中、 後" />
+              </label>
+              <button type="button" className="secondary-button" disabled={busy}
+                onClick={() => void saveCategorySlots(category.code)}>儲存{category.name}槽位</button>
             </div>
           ))}
         </div>

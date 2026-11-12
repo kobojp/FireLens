@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 from collections.abc import Iterator
@@ -8,7 +9,7 @@ from pathlib import Path
 
 from .config import get_database_path, get_legacy_database_path
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 MIGRATION_1 = """
 CREATE TABLE IF NOT EXISTS category (
@@ -298,6 +299,34 @@ def _migrate_10(conn: sqlite3.Connection) -> None:
         conn.execute("PRAGMA user_version = 10")
 
 
+def _migrate_11(conn: sqlite3.Connection) -> None:
+    """Only the old generated single-photo categories get upgraded to three slots."""
+    with conn:
+        upgraded = [
+            str(row["code"])
+            for row in conn.execute(
+                "SELECT code FROM category WHERE code GLOB 'folder_*' AND slots_json IN (?, ?)",
+                ('["照片"]', '["\\u7167\\u7247"]'),
+            )
+        ]
+        for code in upgraded:
+            conn.execute(
+                "UPDATE category SET slots_json=? WHERE code=?",
+                ('["前","中","後"]', code),
+            )
+        row = conn.execute("SELECT value_json FROM setting WHERE key='slot_order'").fetchone()
+        if row:
+            order = json.loads(str(row["value_json"]))
+            if isinstance(order, dict):
+                for code in upgraded:
+                    order[code] = ["前", "中", "後"]
+                conn.execute(
+                    "UPDATE setting SET value_json=? WHERE key='slot_order'",
+                    (json.dumps(order, ensure_ascii=False),),
+                )
+        conn.execute("PRAGMA user_version = 11")
+
+
 CATEGORY_SEED = (
     (
         "extinguisher",
@@ -430,6 +459,10 @@ def initialize_database(db_path: Path | None = None) -> Path:
         if current_version < 10:
             _migrate_10(conn)
             current_version = 10
+
+        if current_version < 11:
+            _migrate_11(conn)
+            current_version = 11
 
         with conn:
             conn.executemany(

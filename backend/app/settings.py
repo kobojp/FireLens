@@ -285,6 +285,131 @@ def thumbnail_quality(conn: sqlite3.Connection) -> int:
     return int(DEFAULT_SETTINGS["thumbnail_quality"])
 
 
+def update_category_slots(
+    conn: sqlite3.Connection,
+    category_code: str,
+    slots: list[str],
+    *,
+    confirm_unmapped: bool = False,
+) -> dict[str, object]:
+    """Change slot labels without modifying a single source photo."""
+    from .scanner import _slot_for, _status_for
+
+    row = conn.execute(
+        "SELECT id,name,slots_json,filename_aliases_json FROM category WHERE code=?",
+        (category_code,),
+    ).fetchone()
+    if row is None:
+        raise SettingsError("找不到指定類別")
+    if not isinstance(slots, list) or not 1 <= len(slots) <= 30:
+        raise SettingsError("每類至少要有 1 個槽位，最多 30 個")
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for raw in slots:
+        if not isinstance(raw, str):
+            raise SettingsError("槽位名稱必須是文字")
+        name = raw.strip()
+        if (
+            not name
+            or len(name) > MAX_CUSTOM_SLOT_LENGTH
+            or name.endswith(".")
+            or _SUFFIX_RE.search(name)
+            or any(ord(ch) < 32 or ch in _ILLEGAL_SLOT_CHARS for ch in name)
+        ):
+            raise SettingsError("槽位名稱不可為空、過長、含檔名禁用字元或 -數字 結尾")
+        if name.casefold() in seen:
+            raise SettingsError("同一類別的槽位名稱不可重複")
+        seen.add(name.casefold())
+        cleaned.append(name)
+    old = list(json.loads(str(row["slots_json"])))
+    removed = set(old) - set(cleaned)
+    if removed and not confirm_unmapped:
+        raise SettingsError("改名或移除槽位會讓舊檔名照片顯示在「未對應照片」；需再次確認")
+    aliases = dict(json.loads(str(row["filename_aliases_json"])))
+    aliases = {source: target for source, target in aliases.items() if target in cleaned}
+    collision = [
+        source
+        for source, target in aliases.items()
+        if source.casefold() in seen and source.casefold() != target.casefold()
+    ]
+    if collision:
+        raise SettingsError("槽位名稱與已設定的檔名同義詞衝突，請先調整同義詞")
+    custom = [slot for slot in custom_slots_for(conn, category_code) if slot not in cleaned]
+    items = conn.execute("SELECT id FROM item WHERE category_id=?", (row["id"],)).fetchall()
+    order = get_setting(conn, "slot_order", {})
+    if not isinstance(order, dict):
+        order = {}
+    order[category_code] = cleaned
+    custom_all = get_setting(conn, "custom_slots", {})
+    if not isinstance(custom_all, dict):
+        custom_all = {}
+    custom_all[category_code] = custom
+    with conn:
+        conn.execute(
+            "UPDATE category SET slots_json=?, filename_aliases_json=? WHERE id=?",
+            (
+                json.dumps(cleaned, ensure_ascii=False),
+                json.dumps(aliases, ensure_ascii=False),
+                row["id"],
+            ),
+        )
+        for key, value in (("slot_order", order), ("custom_slots", custom_all)):
+            conn.execute(
+                """INSERT INTO setting(key,value_json,updated_at) VALUES(?,?,CURRENT_TIMESTAMP)
+                   ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json,
+                       updated_at=CURRENT_TIMESTAMP""",
+                (key, json.dumps(value, ensure_ascii=False)),
+            )
+        for item in items:
+            iid = int(item["id"])
+            photos = conn.execute(
+                "SELECT id,filename FROM photo WHERE item_id=?", (iid,)
+            ).fetchall()
+            for photo in photos:
+                slot = _slot_for(
+                    category_code,
+                    str(photo["filename"]),
+                    tuple(custom),
+                    tuple(cleaned),
+                    aliases,
+                )
+                conn.execute("UPDATE photo SET slot=? WHERE id=?", (slot, photo["id"]))
+            conn.execute(
+                "UPDATE item SET status=? WHERE id=?",
+                (
+                    _status_for(
+                        category_code,
+                        [str(photo["filename"]) for photo in photos],
+                        tuple(cleaned),
+                        tuple(custom),
+                        aliases,
+                    ),
+                    iid,
+                ),
+            )
+        conn.execute(
+            "INSERT INTO audit_log(action,target_path,detail_json) VALUES(?,?,?)",
+            (
+                "update_category_slots",
+                category_code,
+                json.dumps(
+                    {
+                        "old": old,
+                        "new": cleaned,
+                        "affected_items": len(items),
+                    },
+                    ensure_ascii=False,
+                ),
+            ),
+        )
+    return {
+        "code": category_code,
+        "name": row["name"],
+        "slots": cleaned,
+        "filename_aliases": aliases,
+    }
+
+
 def update_category_aliases(
     conn: sqlite3.Connection, category_code: str, aliases: dict[str, str]
 ) -> dict[str, object]:

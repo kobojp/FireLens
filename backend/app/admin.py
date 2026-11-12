@@ -37,6 +37,7 @@ from .settings import (
     get_settings,
     save_settings,
     update_category_aliases,
+    update_category_slots,
     update_root_settings,
 )
 from .update_jobs import UpdateJobBusy, UpdatePreparationManager
@@ -60,6 +61,11 @@ class SettingsUpdate(BaseModel):
 class RootSettingsUpdate(BaseModel):
     label: str = Field(min_length=1, max_length=160)
     is_cloud_stream: bool
+
+
+class CategorySlotsUpdate(BaseModel):
+    slots: list[str]
+    confirm_unmapped: bool = False
 
 
 class CategoryAliasesUpdate(BaseModel):
@@ -188,6 +194,23 @@ def root_settings(root_id: int, payload: RootSettingsUpdate) -> dict[str, object
             )
         except SettingsError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.put("/categories/{category_code}/slots")
+def category_slot_settings(
+    category_code: str,
+    payload: CategorySlotsUpdate,
+) -> dict[str, object]:
+    with database() as conn:
+        try:
+            return update_category_slots(
+                conn,
+                category_code,
+                payload.slots,
+                confirm_unmapped=payload.confirm_unmapped,
+            )
+        except SettingsError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.put("/categories/{category_code}/aliases")
