@@ -992,6 +992,7 @@ def create_app() -> FastAPI:
         slot: str,
         file: Annotated[UploadFile, File()],
         replace_photo_id: Annotated[int | None, Query()] = None,
+        allow_duplicate: Annotated[bool, Query()] = False,
     ) -> dict[str, object]:
         data = await file.read()
         with database() as conn:
@@ -1027,6 +1028,7 @@ def create_app() -> FastAPI:
                     file.filename or "upload",
                     data,
                     replace_photo_id=replace_photo_id,
+                    allow_duplicate=allow_duplicate,
                 )
             except StorageConflict as exc:
                 raise HTTPException(status_code=409, detail=str(exc)) from exc

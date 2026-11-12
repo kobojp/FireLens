@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import sqlite3
+from pathlib import Path
 from typing import Any
 
 from .folder_catalog import load_folder_catalog
+from .settings import excluded_root_folders
 
 
 def build_tree(conn: sqlite3.Connection, root_id: int) -> list[dict[str, Any]]:
@@ -75,8 +77,27 @@ def build_tree(conn: sqlite3.Connection, root_id: int) -> list[dict[str, Any]]:
             }
         )
 
+    # Show discovered empty top-level categories as navigable nodes too.
+    root = conn.execute("SELECT path FROM root WHERE id=?", (root_id,)).fetchone()
+    root_path = Path(str(root["path"])) if root else None
+    excluded = excluded_root_folders(conn)
+    for category in conn.execute("SELECT code, name FROM category ORDER BY id"):
+        code = str(category["code"])
+        name = str(category["name"])
+        if code.startswith("folder_") and name.casefold() not in excluded and code not in grouped:
+            path = root_path / name if root_path else None
+            if path is not None and path.is_dir() and not path.is_symlink():
+                grouped[code] = {
+                    "type": "category",
+                    "key": code,
+                    "label": name,
+                    "children": {},
+                }
+
     catalog = load_folder_catalog(conn, root_id)
     for entry in catalog["years"]:
+        if category_names.get(entry["category_code"], "").casefold() in excluded:
+            continue
         category = grouped.setdefault(
             entry["category_code"],
             {
@@ -91,8 +112,12 @@ def build_tree(conn: sqlite3.Connection, root_id: int) -> list[dict[str, Any]]:
             {"type": "year", "key": entry["year"], "label": entry["year"], "children": {}},
         )
     for entry in catalog["periods"]:
+        if category_names.get(entry["category_code"], "").casefold() in excluded:
+            continue
         ensure_path(entry["category_code"], entry["year"], entry["period"])
     for entry in catalog["buildings"]:
+        if category_names.get(entry["category_code"], "").casefold() in excluded:
+            continue
         ensure_path(
             entry["category_code"],
             entry["year"],

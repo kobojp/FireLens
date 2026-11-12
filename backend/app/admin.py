@@ -54,6 +54,7 @@ class SettingsUpdate(BaseModel):
     auto_scan_on_start: bool | None = None
     auto_scan_min_interval_minutes: int | None = None
     new_item_panel_open: bool | None = None
+    excluded_root_folders: list[str] | None = None
 
 
 class RootSettingsUpdate(BaseModel):

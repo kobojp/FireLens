@@ -23,6 +23,7 @@ DEFAULT_SETTINGS: dict[str, object] = {
     "auto_scan_on_start": True,
     "auto_scan_min_interval_minutes": 5,
     "new_item_panel_open": True,
+    "excluded_root_folders": [],
 }
 
 MAX_CUSTOM_SLOT_LENGTH = 20
@@ -162,6 +163,45 @@ def _validate_custom_slots(conn: sqlite3.Connection, value: object) -> dict[str,
     return result
 
 
+# Hardcoded application directories are never eligible to be scanned as photos.
+SYSTEM_EXCLUDED_ROOT_FOLDERS = frozenset(
+    {"firelens-共享異常資料", "system volume information", "$recycle.bin"}
+)
+
+
+def excluded_root_folders(conn: sqlite3.Connection) -> frozenset[str]:
+    value = get_setting(conn, "excluded_root_folders", [])
+    if not isinstance(value, list):
+        return SYSTEM_EXCLUDED_ROOT_FOLDERS
+    return SYSTEM_EXCLUDED_ROOT_FOLDERS | frozenset(
+        value_item.casefold() for value_item in value if isinstance(value_item, str)
+    )
+
+
+def _validate_excluded_root_folders(value: object) -> list[str]:
+    if not isinstance(value, list) or len(value) > 100:
+        raise SettingsError("排除資料夾必須是最多 100 個名稱的清單")
+    result: list[str] = []
+    used: set[str] = set()
+    for raw in value:
+        if not isinstance(raw, str):
+            raise SettingsError("排除資料夾名稱必須是文字")
+        name = raw.strip()
+        if (
+            not name
+            or len(name) > 100
+            or name in {".", ".."}
+            or any(char in name for char in '/\\:*?"<>|\x00')
+            or name.endswith(".")
+            or name.endswith(" ")
+        ):
+            raise SettingsError("排除資料夾只允許有效的單層資料夾名稱")
+        if name.casefold() not in used:
+            used.add(name.casefold())
+            result.append(name)
+    return result
+
+
 def save_settings(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict[str, object]:
     allowed = {
         "theme",
@@ -172,6 +212,7 @@ def save_settings(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict[str
         "auto_scan_on_start",
         "auto_scan_min_interval_minutes",
         "new_item_panel_open",
+        "excluded_root_folders",
     }
     unknown = set(payload) - allowed
     if unknown:
@@ -204,6 +245,10 @@ def save_settings(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict[str
         if isinstance(interval, bool) or not isinstance(interval, int) or not 1 <= interval <= 1440:
             raise SettingsError("自動掃描間隔必須是 1～1440 分鐘的整數")
         updates["auto_scan_min_interval_minutes"] = interval
+    if "excluded_root_folders" in payload:
+        updates["excluded_root_folders"] = _validate_excluded_root_folders(
+            payload["excluded_root_folders"]
+        )
     if "new_item_panel_open" in payload:
         expanded = payload["new_item_panel_open"]
         if not isinstance(expanded, bool):

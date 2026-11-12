@@ -134,7 +134,7 @@ def _root(conn: sqlite3.Connection, root_id: int) -> Path:
 
 
 def _candidates(conn: sqlite3.Connection, root_id: int, category: str, period: str) -> list[dict]:
-    if category and category not in SLOTS:
+    if category and not conn.execute("SELECT 1 FROM category WHERE code=?", (category,)).fetchone():
         raise QualityError("設備類別不正確")
     return [
         dict(row)
@@ -336,7 +336,7 @@ def gallery(
     limit: int = 40,
     offset: int = 0,
 ) -> dict:
-    if category and category not in SLOTS:
+    if category and not conn.execute("SELECT 1 FROM category WHERE code=?", (category,)).fetchone():
         raise QualityError("設備類別不正確")
     if status_filter not in (
         "",
@@ -416,9 +416,8 @@ def gallery(
             *_variant_issues(item["building"], issue_type="building", context={}),
             *_variant_issues(item["code"], issue_type="code", context={}),
         ]
-        slots = (
-            ["舊制照片"] if legacy else ["特例照片"] if special else list(SLOTS[item["category"]])
-        )
+        known_slots = SLOTS.get(item["category"], ("照片",))
+        slots = ["舊制照片"] if legacy else ["特例照片"] if special else list(known_slots)
         if not exempt_slots and any(p["slot"] is None for p in pictures):
             slots.append("未對應照片")
         for image in pictures:
@@ -434,7 +433,7 @@ def gallery(
             )
             image["filename_issue"] = not exempt_slots and image["slot"] is None
         slot_counts = (
-            {slot: sum(p["slot"] == slot for p in pictures) for slot in SLOTS[item["category"]]}
+            {slot: sum(p["slot"] == slot for p in pictures) for slot in known_slots}
             if not exempt_slots
             else {}
         )
@@ -446,7 +445,7 @@ def gallery(
             if exempt_slots
             else [
                 slot
-                for slot in SLOTS[item["category"]]
+                for slot in SLOTS.get(item["category"], ("照片",))
                 if slot not in {p["slot"] for p in pictures}
             ]
         )

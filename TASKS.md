@@ -1,8 +1,16 @@
 # 滅火器燈具照片管理系統 任務文件
 
-狀態：**M18 照片品質檢查已開發並通過合成測試與 Windows 打包，待實際 Windows UI／現場影像門檻校準；M17 與其他歷史功能仍有部分實機驗收項目**。目前版本 v1.9.0（M18 MINOR，已於 2026-11-12 由 GitHub Actions 正式發布為 Latest Release；現場 Windows UI／更新器實機仍需驗收）；歷史 v1.8.0 已於 2026-11-08 由 GitHub Actions 正式發布。開發前還原點：Git commit 0f9bc7d / backup/pre-m17-20261107。歷史 v1.7.0 已正式發布至 GitHub Release。歷史 v1.6.0 與 v1.5.0 已正式發布至 GitHub Release。
+狀態：**M18 照片品質檢查已開發並通過合成測試與 Windows 打包，待實際 Windows UI／現場影像門檻校準；M17 與其他歷史功能仍有部分實機驗收項目**。目前版本 v1.10.0（M19 MINOR 開發版，尚未正式發布）；歷史 v1.9.0 已於 2026-11-12 由 GitHub Actions 正式發布為 Release（實機仍需驗收）；歷史 v1.8.0 已於 2026-11-08 由 GitHub Actions 正式發布。開發前還原點：Git commit 0f9bc7d / backup/pre-m17-20261107。歷史 v1.7.0 已正式發布至 GitHub Release。歷史 v1.6.0 與 v1.5.0 已正式發布至 GitHub Release。
 M14 歷史開發版本：v1.6.0。
 M15 歷史開發版本：v1.6.1（PATCH，修正線上更新器實機失敗）。
+
+## M19 動態資料夾與重複圖片提醒（2026-11-12，使用者實機截圖）
+
+- [x] **掃描根目錄自動發現類別**：修正前 scanner 只掃固定「滅火器／放置盒／燈具」，所以 Google Drive 根目錄新增「水帶」看不到。將可讀取的根目錄一級子資料夾動態辨識為照片類別，維持原三類原本欄位／槽位，新增類別採通用照片槽位或合理唯讀檢視；不預設隨便把水帶分類成滅火器。需核對 category DB、tree、item API、前端選擇和新增資料夾的相容性。根目錄重新掃描後出現、移走後只更新可重建索引，不改動原圖與清冊。
+- [x] **預設排除系統目錄與可設定例外**：預設隱藏 `FireLens-共享異常資料` 等程式系統／隱藏目錄，不能讓照片掃描碰共用異常事件；在「設定」提供可編輯的排除根目錄一級資料夾名稱清單（支援新增／刪除），忽略大小寫、路徑穿越／斜線與特殊名稱無效，保存在 SQLite 設定，更新後重掃生效。不能掃描 symlink/reparse point 與雲端離線佔位檔；不可直接下載 Google Drive 雲端照片。
+- [x] **新增照片相同內容偵測**：在全部新增照片入口（拖放、加入照片、剪貼簿 Ctrl+V、照片替換可合理處理）以圖片內容而非僅檔名比對同設備已有的圖片。若已存在則不立即寫入，顯示圖片相同、所在設備與檔名及「取消／仍要儲存」選擇；確認後才允許保存另一份，不覆寫原圖。後端必須防止略過前端的直接 API 寫入，至少同一設備以內容 SHA256 驗證；保留現有格式／命名與離線寫入保護，避免因索引舊 SHA 或占位檔誤報。記錄稽核不含敏感圖像內容。
+- [x] **合成驗收與 Windows 打包**：合成根目錄涵蓋新增「水帶」、預設共享異常目錄、自訂排除和重新掃描索引；合成圖片以真實 SQLite 與 API 測試相同內容被 409 阻擋、使用者確認才允許第二份、不同圖片正常、設定非法路徑拒絕、原三類既有匯入及離線佇列回歸。Ruff check／format PASS；pytest **214 passed**、Vitest **76 passed**、TypeScript／Vite、v1.10.0 版本一致性 PASS。Windows `packaging/build.ps1` Exit Code 0，產生 `dist/FireLens.exe` 和 `dist/installer/FireLens-1.10.0-setup.exe`，portable／installer READY／HEALTHY、rollback／故障注入 E2E passed。已同步 AGENTS／README／TASKS。版本 v1.10.0 仍是開發版，不 Push／Tag／Release。
+- [ ] **真正 Windows UI／Google Drive 驗收**：用已授權照片副本確認 `水帶` 在實際 Google Drive Desktop 根目錄出現，系統與自訂排除資料夾不進入索引；在 WebView2 測試各種新增圖片入口、重複確認、縮放和退出重開設定持久化。合成測試及打包成功不等於實機測試通過。
 
 ## 永久開發鐵律：先寫 TASKS，後實作（2026-11-12）
 
@@ -13,7 +21,7 @@ M15 歷史開發版本：v1.6.1（PATCH，修正線上更新器實機失敗）�
 ## M18 正式 GitHub Release v1.9.0（2026-11-12）
 
 - [x] 使用者明確要求 v1.9.0 正式 Release：已讀發版規範，`main` 與 `origin/main` 同步且工作區乾淨；`python packaging/check_version_consistency.py --tag v1.9.0` 通過。GitHub 尚無同名 Tag／Release；Actions Secret `FIRELENS_UPDATE_PRIVATE_KEY_B64` 已確認存在（只核對名稱，不讀取密鑰）。
-- [x] 發版前將 `TASKS.md` 施工紀錄提交與推送 `main`：提交 b61ea94；建立並推送 annotated Tag `v1.9.0`，指向 b61ea94。`.github/workflows/release-windows.yml` 成功觸發 Windows 建置與繁中安裝精靈發版。
+- [x] 歷史 Release 發版前將 `TASKS.md` 施工紀錄提交與推送 `main`：提交 b61ea94；建立並推送 annotated Tag `v1.9.0`，指向 b61ea94。`.github/workflows/release-windows.yml` 成功觸發 Windows 建置與繁中安裝精靈發版。
 - [x] GitHub Actions 發版 run `43125331526` 結果 success（2026-11-12），版本驗證、Windows EXE/installer 打包後 E2E、簽章、artifact 上傳、Release 建立均成功。正式 Latest Release： https://github.com/kobojp/FireLens/releases/tag/v1.9.0 ，非 Draft／非 Prerelease。已查證五個 Release 資產：`FireLens-1.9.0-windows-x64.exe`、`FireLens-1.9.0-setup.exe`、`SHA256SUMS.txt`、`update-manifest.json`、`update-manifest.sig`（Ed25519 簽章）；正式 Release assets 與 GitHub latest API 一致。
 - [ ] 在實際 Windows FireLens 從舊版執行線上更新、確認自動重啟與使用者資料保留；同時補做 M18 品質掃描 UI／真實匯出以及 125%／150% 縮放實機驗收。正式發布不代表這些驗收已通過。
 

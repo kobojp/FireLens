@@ -220,10 +220,13 @@ export const api = {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   }),
-  importPhoto: (itemId: number, slot: string, file: File, replacePhotoId?: number) => {
+  importPhoto: (itemId: number, slot: string, file: File, replacePhotoId?: number, allowDuplicate = false) => {
     const form = new FormData()
     form.append('file', file)
-    const query = replacePhotoId === undefined ? '' : `?replace_photo_id=${replacePhotoId}`
+    const queryParams = new URLSearchParams()
+    if (replacePhotoId !== undefined) queryParams.set('replace_photo_id', String(replacePhotoId))
+    if (allowDuplicate) queryParams.set('allow_duplicate', 'true')
+    const query = queryParams.size ? `?${queryParams}` : ''
     return request<ImportPhotoResult>(`/api/items/${itemId}/slots/${encodeURIComponent(slot)}/photos${query}`, {
       method: 'POST',
       body: form,

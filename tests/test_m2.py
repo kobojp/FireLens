@@ -156,8 +156,15 @@ def test_box_slot_uses_incrementing_names(monkeypatch, tmp_path: Path, sample_so
             f"/api/items/{item_id}/slots/前/photos",
             files={"file": ("front2.jpg", payload, "image/jpeg")},
         )
-        assert first.status_code == second.status_code == 200
-        names = {photo["filename"] for photo in second.json()["photos"] if photo["slot"] == "前"}
+        assert first.status_code == 200
+        assert second.status_code == 409
+        assert "相同圖片已存在" in second.json()["detail"]
+        approved = client.post(
+            f"/api/items/{item_id}/slots/前/photos?allow_duplicate=true",
+            files={"file": ("front2.jpg", payload, "image/jpeg")},
+        )
+        assert approved.status_code == 200
+        names = {photo["filename"] for photo in approved.json()["photos"] if photo["slot"] == "前"}
         assert names == {"前.jpg", "前-1.jpg"}
     finally:
         client.__exit__(None, None, None)

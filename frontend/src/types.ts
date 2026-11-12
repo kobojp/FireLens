@@ -606,6 +606,7 @@ export type AppSettings = {
   auto_scan_on_start: boolean
   auto_scan_min_interval_minutes: number
   new_item_panel_open: boolean
+  excluded_root_folders: string[]
 }
 
 export type AppInfo = {

@@ -51,6 +51,7 @@ export function SettingsView({
   const [newAliasSlot, setNewAliasSlot] = useState('')
   const [aliasHelpOpen, setAliasHelpOpen] = useState(false)
   const [testFilename, setTestFilename] = useState('')
+  const [excludeDraft, setExcludeDraft] = useState('')
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
@@ -308,6 +309,34 @@ export function SettingsView({
           </label>
         </div>
         <p className="help-text">自動掃描預設開啟，預設至少相隔 5 分鐘才再次觸發；手動「重新掃描」不受此門檻限制。</p>
+        <h3>排除根目錄資料夾</h3>
+        <p className="help-text">只設定根目錄第一層名稱。系統自動排除 FireLens-共享異常資料與 Windows 系統資料夾；儲存後重新掃描生效，不會刪除實體資料夾。</p>
+        <div className="settings-grid">
+          <label>新增排除名稱
+            <input aria-label="新增排除資料夾名稱" value={excludeDraft}
+              onChange={(event) => setExcludeDraft(event.target.value)}
+              placeholder="例如：暫存照片" />
+          </label>
+          <button type="button" className="secondary-button"
+            disabled={!excludeDraft.trim() || busy}
+            onClick={() => {
+              if (!draft) return
+              const name = excludeDraft.trim()
+              if (!name || draft.excluded_root_folders.some((value) => value.toLowerCase() === name.toLowerCase())) return
+              setDraft({ ...draft, excluded_root_folders: [...draft.excluded_root_folders, name] })
+              setExcludeDraft('')
+            }}>加入排除清單</button>
+        </div>
+        <div className="settings-list">
+          {draft.excluded_root_folders.map((name) => (
+            <div key={name} className="settings-row">
+              <span>{name}</span>
+              <button type="button" className="secondary-button" onClick={() => setDraft({
+                ...draft, excluded_root_folders: draft.excluded_root_folders.filter((item) => item !== name),
+              })}>移除排除</button>
+            </div>
+          ))}
+        </div>
         <h3>槽位顯示順序</h3>
         <div className="settings-grid">
           {categories.map((category) => (

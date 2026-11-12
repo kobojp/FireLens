@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import re
 import sqlite3
@@ -9,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .folder_catalog import managed_buildings
-from .settings import custom_slots_for
+from .settings import custom_slots_for, excluded_root_folders
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".heic", ".heif"}
 CATEGORY_DIRS = {
@@ -54,6 +56,19 @@ def _is_cloud_placeholder_stat(info: os.stat_result) -> bool:
     return bool(attributes & CLOUD_PLACEHOLDER_FLAGS)
 
 
+def _is_safe_directory(path: Path) -> bool:
+    try:
+        info = path.stat(follow_symlinks=False)
+    except OSError:
+        return False
+    return (
+        stat.S_ISDIR(info.st_mode)
+        and not path.is_symlink()
+        and not _is_cloud_placeholder_stat(info)
+        and not (int(getattr(info, "st_file_attributes", 0) or 0) & 0x400)
+    )
+
+
 def _image_metadata(path: Path) -> tuple[int, int, bool] | None:
     if path.suffix.casefold() not in IMAGE_EXTENSIONS:
         return None
@@ -82,6 +97,8 @@ def _slot_for(category_code: str, filename: str, custom_slots: tuple[str, ...] =
         for base in bases:
             if base in EXTINGUISHER_ALIASES:
                 return EXTINGUISHER_ALIASES[base]
+    if category_code not in {"extinguisher", "box", "lamp"}:
+        return "照片"
     if category_code in {"box", "lamp"}:
         for slot in ("前", "中", "後"):
             if stem == slot or stem.startswith(f"{slot}-"):
@@ -96,6 +113,8 @@ def _slot_for(category_code: str, filename: str, custom_slots: tuple[str, ...] =
 def _status_for(category_code: str, filenames: list[str]) -> str:
     if not filenames:
         return "empty"
+    if category_code not in {"extinguisher", "box", "lamp"}:
+        return "complete"
     stems = [Path(name).stem for name in filenames]
     if category_code == "extinguisher":
         slots = {_slot_for(category_code, name) for name in filenames}
@@ -117,6 +136,7 @@ def _candidate_item_dirs(period_dir: Path, structural_dirs: set[Path] | None = N
     for current, dirnames, filenames in os.walk(period_dir, followlinks=False):
         current_path = Path(current)
         dirnames[:] = [name for name in dirnames if not name.startswith(".")]
+        dirnames[:] = [name for name in dirnames if _is_safe_directory(current_path / name)]
         direct_images = [
             current_path / name for name in filenames if _is_image(current_path / name)
         ]
@@ -148,24 +168,113 @@ def scan_root(
     }
     item_rows: dict[str, tuple[object, ...]] = {}
     photo_rows_by_relative: dict[str, list[tuple[str, str, str, str | None, int, int, int]]] = {}
-    counts: dict[str, int] = {code: 0 for code in CATEGORY_DIRS.values()}
-    custom_by_category = {code: custom_slots_for(conn, code) for code in CATEGORY_DIRS.values()}
+    excluded = excluded_root_folders(conn)
+    discovered = dict(CATEGORY_DIRS)
+    for candidate in root_path.iterdir():
+        if candidate.name.startswith(".") or candidate.name.casefold() in excluded:
+            continue
+        if not _is_safe_directory(candidate):
+            continue
+        if candidate.name not in discovered:
+            code = "folder_" + hashlib.sha256(candidate.name.encode("utf-8")).hexdigest()[:24]
+            with conn:
+                conn.execute(
+                    """INSERT INTO category(code,name,slots_json,filename_aliases_json)
+                       VALUES(?,?,?,?)
+                       ON CONFLICT(code) DO NOTHING""",
+                    (code, candidate.name, json.dumps(["照片"], ensure_ascii=False), "{}"),
+                )
+            category_rows[code] = conn.execute(
+                "SELECT id FROM category WHERE code=?", (code,)
+            ).fetchone()["id"]
+            discovered[candidate.name] = code
+    counts: dict[str, int] = {code: 0 for code in discovered.values()}
+    custom_by_category = {code: custom_slots_for(conn, code) for code in discovered.values()}
 
-    for category_name, category_code in CATEGORY_DIRS.items():
+    for category_name, category_code in discovered.items():
         _check_cancelled(cancel_check)
+        if category_name.casefold() in excluded:
+            continue
         category_dir = root_path / category_name
-        if not category_dir.is_dir():
+        if not _is_safe_directory(category_dir):
             continue
         category_id = category_rows[category_code]
+
+        if category_code not in CATEGORY_DIRS.values():
+            # Other root-level folders may have arbitrary nesting, unlike the
+            # built-in year/month/building/device convention.
+            for item_dir in _candidate_item_dirs(category_dir):
+                _check_cancelled(cancel_check)
+                parts = item_dir.relative_to(category_dir).parts
+                if not parts:
+                    code_name = category_name
+                    parents = ()
+                else:
+                    code_name = parts[-1]
+                    parents = parts[:-1]
+                year_name = (
+                    parents[0] if parents and re.match(r"^\d{4}年$", parents[0]) else "(未分類)"
+                )
+                period_name = (
+                    parents[1] if year_name != "(未分類)" and len(parents) > 1 else "(未分類)"
+                )
+                building_parts = parents[2:] if period_name != "(未分類)" else parents
+                building_name = " / ".join(building_parts) if building_parts else "(未分棟)"
+                relative_item = item_dir.relative_to(root_path).as_posix()
+                try:
+                    dir_mtime_ns = item_dir.stat(follow_symlinks=False).st_mtime_ns
+                    image_paths = sorted(
+                        (path for path in item_dir.iterdir() if _is_image(path)),
+                        key=lambda path: path.name.casefold(),
+                    )
+                except OSError:
+                    continue
+                item_rows[relative_item] = (
+                    root_id,
+                    category_id,
+                    year_name,
+                    period_name,
+                    building_name,
+                    code_name,
+                    relative_item,
+                    _status_for(category_code, [path.name for path in image_paths]),
+                    len(image_paths),
+                    dir_mtime_ns,
+                )
+                photo_rows = []
+                for path in image_paths:
+                    _check_cancelled(cancel_check)
+                    metadata = _image_metadata(path)
+                    if metadata is None:
+                        continue
+                    size_bytes, mtime_ns, cloud_placeholder = metadata
+                    photo_rows.append(
+                        (
+                            path.name,
+                            path.relative_to(root_path).as_posix(),
+                            path.suffix.casefold(),
+                            "照片",
+                            size_bytes,
+                            mtime_ns,
+                            int(cloud_placeholder),
+                        )
+                    )
+                photo_rows_by_relative[relative_item] = photo_rows
+                counts[category_code] += 1
+            continue
 
         for year_dir in sorted(
             (path for path in category_dir.iterdir() if path.is_dir()), key=lambda path: path.name
         ):
             _check_cancelled(cancel_check)
+            if not _is_safe_directory(year_dir):
+                continue
             for period_dir in sorted(
                 (path for path in year_dir.iterdir() if path.is_dir()), key=lambda path: path.name
             ):
                 _check_cancelled(cancel_check)
+                if not _is_safe_directory(period_dir):
+                    continue
                 structural_dirs = {
                     (period_dir / Path(*building.split(" / "))).resolve()
                     for building in managed_buildings(

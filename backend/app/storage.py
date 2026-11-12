@@ -6,6 +6,7 @@ import io
 import json
 import os
 import sqlite3
+import stat
 import uuid
 from contextlib import suppress
 from dataclasses import dataclass
@@ -15,8 +16,8 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 from pillow_heif import register_heif_opener
 
 from .folder_catalog import register_building, register_period
-from .scanner import CATEGORY_DIRS, refresh_item_index, scan_root
-from .settings import custom_slots_for
+from .scanner import CATEGORY_DIRS, CLOUD_PLACEHOLDER_FLAGS, refresh_item_index, scan_root
+from .settings import custom_slots_for, excluded_root_folders
 
 register_heif_opener()
 
@@ -30,6 +31,10 @@ class StorageError(ValueError):
 
 class StorageConflict(StorageError):
     pass
+
+
+class DuplicatePhotoConflict(StorageConflict):
+    """An identical output image is already in this equipment folder."""
 
 
 @dataclass(frozen=True)
@@ -251,6 +256,8 @@ def import_photo(
     source_name: str,
     data: bytes,
     replace_photo_id: int | None = None,
+    *,
+    allow_duplicate: bool = False,
 ) -> dict[str, object]:
     context = _item_context(conn, item_id)
     if slot not in (*context.slots, *custom_slots_for(conn, context.category_code)):
@@ -284,6 +291,30 @@ def import_photo(
     try:
         _save_stage(data, source_extension, stage, output_extension)
         staged_hash = sha256_file(stage)
+        if not allow_duplicate:
+            staged_size = stage.stat().st_size
+            # Inspect the actual equipment directory, not potentially stale SQLite.
+            for candidate in context.item_dir.iterdir():
+                if candidate.suffix.casefold() not in UPLOAD_EXTENSIONS:
+                    continue
+                if candidate == target and replace_row is not None:
+                    continue
+                try:
+                    info = candidate.stat(follow_symlinks=False)
+                    attributes = int(getattr(info, "st_file_attributes", 0) or 0)
+                    if (
+                        candidate.is_symlink()
+                        or not stat.S_ISREG(info.st_mode)
+                        or attributes & (CLOUD_PLACEHOLDER_FLAGS | 0x400)
+                        or info.st_size != staged_size
+                    ):
+                        continue
+                    if sha256_file(candidate) == staged_hash:
+                        raise DuplicatePhotoConflict(
+                            f"相同圖片已存在：{candidate.name}。是否仍要儲存另一張？"
+                        )
+                except FileNotFoundError:
+                    continue
         if replace_row is None:
             _install_new(stage, target, staged_hash)
             new_installed = True
@@ -311,8 +342,10 @@ def import_photo(
                 raise StorageError("寫入後續處理失敗，且舊照片還原驗證失敗") from exc
         elif new_installed:
             target.unlink(missing_ok=True)
-        with suppress(Exception):
-            refresh_item_index(conn, item_id)
+        # Duplicate preflight made no disk change; do not rebuild photo IDs on 409.
+        if not isinstance(exc, DuplicatePhotoConflict):
+            with suppress(Exception):
+                refresh_item_index(conn, item_id)
         raise
     finally:
         stage.unlink(missing_ok=True)
@@ -491,8 +524,12 @@ def _structure_context(
     ).fetchone()
     if root_row is None:
         raise StorageError("找不到指定根目錄")
-    if category_row is None or category_row["name"] not in CATEGORY_DIRS:
-        raise StorageError("找不到指定類別")
+    if (
+        category_row is None
+        or (category_row["name"] not in CATEGORY_DIRS and not category_code.startswith("folder_"))
+        or category_row["name"].casefold() in excluded_root_folders(conn)
+    ):
+        raise StorageError("找不到指定類別或類別已排除")
     root_path = Path(root_row["path"]).expanduser().resolve()
     if not root_path.is_dir():
         raise StorageError("照片根目錄不存在或目前無法讀取")
@@ -636,8 +673,12 @@ def create_item_folder(
     ).fetchone()
     if root_row is None:
         raise StorageError("找不到指定根目錄")
-    if category_row is None or category_row["name"] not in CATEGORY_DIRS:
-        raise StorageError("找不到指定類別")
+    if (
+        category_row is None
+        or (category_row["name"] not in CATEGORY_DIRS and not category_code.startswith("folder_"))
+        or category_row["name"].casefold() in excluded_root_folders(conn)
+    ):
+        raise StorageError("找不到指定類別或類別已排除")
 
     clean_year = _plain_component(year, "年份")
     clean_period = _plain_component(period, "月份/批次")
