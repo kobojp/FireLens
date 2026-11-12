@@ -1,8 +1,15 @@
 # 滅火器燈具照片管理系統 任務文件
 
-狀態：**M18 照片品質檢查已開發並通過合成測試與 Windows 打包，待實際 Windows UI／現場影像門檻校準；M17 與其他歷史功能仍有部分實機驗收項目**。目前版本 v1.9.0（M18 MINOR 開發版，尚未正式發布）；歷史 v1.8.0 已於 2026-11-08 由 GitHub Actions 正式發布。開發前還原點：Git commit 0f9bc7d / backup/pre-m17-20261107。歷史 v1.7.0 已正式發布至 GitHub Release。歷史 v1.6.0 與 v1.5.0 已正式發布至 GitHub Release。
+狀態：**M18 照片品質檢查已開發並通過合成測試與 Windows 打包，待實際 Windows UI／現場影像門檻校準；M17 與其他歷史功能仍有部分實機驗收項目**。目前版本 v1.9.0（M18 MINOR，2026-11-12 正式 GitHub Release 流程進行中，成功與否以 Actions／Release 實際結果為準）；歷史 v1.8.0 已於 2026-11-08 由 GitHub Actions 正式發布。開發前還原點：Git commit 0f9bc7d / backup/pre-m17-20261107。歷史 v1.7.0 已正式發布至 GitHub Release。歷史 v1.6.0 與 v1.5.0 已正式發布至 GitHub Release。
 M14 歷史開發版本：v1.6.0。
 M15 歷史開發版本：v1.6.1（PATCH，修正線上更新器實機失敗）。
+
+## M18 正式 GitHub Release v1.9.0（2026-11-12）
+
+- [x] 使用者明確要求 v1.9.0 正式 Release：已讀發版規範，`main` 與 `origin/main` 同步且工作區乾淨；`python packaging/check_version_consistency.py --tag v1.9.0` 通過。GitHub 尚無同名 Tag／Release；Actions Secret `FIRELENS_UPDATE_PRIVATE_KEY_B64` 已確認存在（只核對名稱，不讀取密鑰）。
+- [ ] 將本次發版記錄提交／推送 `main`，建立並推送 `v1.9.0` annotated Tag，讓 `.github/workflows/release-windows.yml` 自動建置 Windows EXE 與繁中安裝精靈。
+- [ ] 核對 GitHub Actions 發版執行成功，Release 檔案為 `FireLens-1.9.0-windows-x64.exe`、`FireLens-1.9.0-setup.exe`、`SHA256SUMS.txt`、`update-manifest.json`、`update-manifest.sig`（Ed25519 簽章），並確認 v1.9.0 為 Latest Release。任何失敗不可宣稱上傳成功。
+- [ ] 在實際 Windows FireLens 從舊版執行線上更新、確認自動重啟與使用者資料保留；同時補做 M18 品質掃描 UI／真實匯出以及 125%／150% 縮放實機驗收。正式發布不代表這些驗收已通過。
 
 ## M17 正式 GitHub Release v1.8.0（2026-11-08）
 
