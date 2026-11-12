@@ -4,6 +4,12 @@
 M14 歷史開發版本：v1.6.0。
 M15 歷史開發版本：v1.6.1（PATCH，修正線上更新器實機失敗）。
 
+## 永久開發鐵律：先寫 TASKS，後實作（2026-11-12）
+
+- [x] 將「任何實作開始前必須先更新 `TASKS.md`」提升為 `AGENTS.md` 最優先、無例外的開發閘門：先讀 `AGENTS.md` 與 `TASKS.md`，再將需求目標、修改範圍、例外與風險、驗收／測試項目以 `[ ]` 記錄於 `TASKS.md`，親自確認寫入成功後，才准修改任何功能程式、UI、測試、設定、資料庫、API、打包或部署／發布相關實作。
+- [x] 規定使用者說「開始／繼續／直接做／一次完成」均不可跳過 TASKS 閘門；正在實作時出現新需求，須先補 TASKS 再動工；未成功寫入時不得先改程式或事後補記。已規劃的既有 `[ ]` 任務可沿用，但必須先確認內容涵蓋本次範圍。
+- [x] 施工完成後逐項依實測結果把 `[ ]` 改為 `[x]`，未驗收維持 `[ ]`，同步 `AGENTS.md` 的長期規則與 TASKS 紀錄；本次僅文件規範，不修改功能或版本、不觸發 Release。
+
 ## M18 正式 GitHub Release v1.9.0（2026-11-12）
 
 - [x] 使用者明確要求 v1.9.0 正式 Release：已讀發版規範，`main` 與 `origin/main` 同步且工作區乾淨；`python packaging/check_version_consistency.py --tag v1.9.0` 通過。GitHub 尚無同名 Tag／Release；Actions Secret `FIRELENS_UPDATE_PRIVATE_KEY_B64` 已確認存在（只核對名稱，不讀取密鑰）。
