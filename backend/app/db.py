@@ -9,7 +9,7 @@ from pathlib import Path
 
 from .config import get_database_path, get_legacy_database_path
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 
 MIGRATION_1 = """
 CREATE TABLE IF NOT EXISTS category (
@@ -327,6 +327,28 @@ def _migrate_11(conn: sqlite3.Connection) -> None:
         conn.execute("PRAGMA user_version = 11")
 
 
+MIGRATION_12 = """
+CREATE TABLE IF NOT EXISTS photo_fingerprint (
+    root_id INTEGER NOT NULL REFERENCES root(id) ON DELETE CASCADE,
+    relative_path TEXT NOT NULL,
+    size_bytes INTEGER NOT NULL,
+    mtime_ns INTEGER NOT NULL,
+    algorithm TEXT NOT NULL,
+    sha256 TEXT NOT NULL,
+    checked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (root_id, relative_path)
+);
+CREATE INDEX IF NOT EXISTS idx_photo_fingerprint_digest
+    ON photo_fingerprint(root_id, sha256);
+"""
+
+
+def _migrate_12(conn: sqlite3.Connection) -> None:
+    with conn:
+        conn.executescript(MIGRATION_12)
+        conn.execute("PRAGMA user_version = 12")
+
+
 CATEGORY_SEED = (
     (
         "extinguisher",
@@ -463,6 +485,10 @@ def initialize_database(db_path: Path | None = None) -> Path:
         if current_version < 11:
             _migrate_11(conn)
             current_version = 11
+
+        if current_version < 12:
+            _migrate_12(conn)
+            current_version = 12
 
         with conn:
             conn.executemany(

@@ -19,9 +19,9 @@ from backend.app.scanner import FILE_ATTRIBUTE_OFFLINE, _is_cloud_placeholder_st
 from tests.scan_helpers import run_scan
 
 
-def jpeg_bytes() -> bytes:
+def jpeg_bytes(color: str = "white") -> bytes:
     stream = io.BytesIO()
-    Image.new("RGB", (80, 60), "white").save(stream, format="JPEG")
+    Image.new("RGB", (80, 60), color).save(stream, format="JPEG")
     return stream.getvalue()
 
 
@@ -99,7 +99,7 @@ def test_offline_import_queue_syncs_after_reconnect(db_path: Path, tmp_path: Pat
             item_id=item_id,
             slot="藥劑",
             source_name="camera.jpg",
-            data=jpeg_bytes(),
+            data=jpeg_bytes("blue"),
         )
         assert queued["state"] == "pending"
         assert root_status(conn, root_id)["pending_imports"] == 1
@@ -118,6 +118,44 @@ def test_offline_import_queue_syncs_after_reconnect(db_path: Path, tmp_path: Pat
         assert row["state"] == "synced"
         assert row["synced_at"]
         assert root_status(conn, root_id)["pending_imports"] == 0
+    finally:
+        conn.close()
+
+
+def test_offline_reconnect_does_not_silently_duplicate_photos(
+    db_path: Path,
+    tmp_path: Path,
+) -> None:
+    root = make_valid_root(tmp_path)
+    conn = connect(db_path)
+    try:
+        root_id = add_root(conn, root)
+        scan_root(conn, root_id)
+        item_id = int(conn.execute("SELECT id FROM item LIMIT 1").fetchone()[0])
+        offline = root.with_name("photos-offline")
+        root.rename(offline)
+        queued = queue_offline_import(
+            conn,
+            item_id=item_id,
+            slot="藥劑",
+            source_name="same.jpg",
+            data=jpeg_bytes(),
+        )
+        offline.rename(root)
+        result = sync_offline_queue(conn, root_id)
+        assert result["synced"] == []
+        assert result["failed"][0]["id"] == queued["id"]
+        assert "相同圖片已存在" in result["failed"][0]["error"]
+        assert not (
+            root / "滅火器" / "2026年" / "10月份更換" / "中正樓" / "中-01-01" / "藥劑.jpg"
+        ).exists()
+        assert (
+            conn.execute(
+                "SELECT state FROM offline_import_queue WHERE id=?",
+                (queued["id"],),
+            ).fetchone()["state"]
+            == "error"
+        )
     finally:
         conn.close()
 

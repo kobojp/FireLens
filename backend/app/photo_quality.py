@@ -180,6 +180,10 @@ def scan_quality(root_id: int, *, full: bool = False, category: str = "", period
 def _run(root_id: int, category: str, period: str, job: dict) -> None:
     try:
         with database() as conn:
+            from .duplicates import job_status as duplicate_job_status
+
+            if duplicate_job_status(root_id)["state"] == "running":
+                raise QualityError("重複圖片掃描正在進行中，請完成後再執行品質掃描")
             root = _root(conn, root_id)
             sensitivity = sensitivity_for(conn, root_id)
             algorithm = quality_algorithm(sensitivity)

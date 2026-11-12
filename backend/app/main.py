@@ -30,6 +30,24 @@ from .cache import (
     thumbnail_file,
 )
 from .db import database, initialize_database
+from .duplicates import (
+    DuplicateError,
+)
+from .duplicates import (
+    cancel_scan as cancel_duplicate_scan,
+)
+from .duplicates import (
+    export_groups as export_duplicate_groups,
+)
+from .duplicates import (
+    grouped as duplicate_groups,
+)
+from .duplicates import (
+    job_status as duplicate_job_status,
+)
+from .duplicates import (
+    start_scan as start_duplicate_scan,
+)
 from .export_files import ExportActionError, ExportRegistry, export_issue_rows
 from .issues import (
     IssueConflict,
@@ -139,6 +157,7 @@ from .shared_issues import (
     synchronize as synchronize_shared_issues,
 )
 from .storage import (
+    DuplicatePhotoConflict,
     StorageConflict,
     StorageError,
     create_building_folder,
@@ -204,6 +223,16 @@ class SharedIssueConfirm(BaseModel):
 
 class ItemIssueUpdate(BaseModel):
     label_id: int | None
+
+
+class DuplicateScanRequest(BaseModel):
+    full: bool = False
+
+
+class DuplicateExportRequest(BaseModel):
+    format: str = "xlsx"
+    category: str = ""
+    query: str = ""
 
 
 class PhotoQualityScan(BaseModel):
@@ -602,6 +631,97 @@ def create_app() -> FastAPI:
             if exists is None:
                 raise HTTPException(status_code=404, detail="找不到指定的根目錄")
             return build_tree(conn, root_id)
+
+    @app.get("/api/duplicates/{root_id}")
+    def list_duplicate_photos(
+        root_id: int,
+        category: str = "",
+        query: str = "",
+        offset: int = Query(default=0, ge=0),
+        limit: int = Query(default=20, ge=1, le=100),
+    ) -> dict:
+        with database() as conn:
+            try:
+                return duplicate_groups(
+                    conn,
+                    root_id,
+                    category=category,
+                    query=query,
+                    offset=offset,
+                    limit=limit,
+                )
+            except DuplicateError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/duplicates/{root_id}/scan", status_code=202)
+    def run_duplicate_scan(root_id: int, payload: DuplicateScanRequest) -> dict:
+        try:
+            return start_duplicate_scan(root_id, full=payload.full)
+        except DuplicateError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.get("/api/duplicates/{root_id}/scan")
+    def duplicate_scan_progress(root_id: int) -> dict:
+        return duplicate_job_status(root_id)
+
+    @app.post("/api/duplicates/{root_id}/scan/cancel")
+    def stop_duplicate_scan(root_id: int) -> dict:
+        return cancel_duplicate_scan(root_id)
+
+    @app.get("/api/duplicates/{root_id}/export")
+    def download_duplicate_export(
+        root_id: int,
+        fmt: str = "csv",
+        category: str = "",
+        query: str = "",
+    ) -> Response:
+        if fmt not in ("csv", "xlsx"):
+            raise HTTPException(status_code=400, detail="只允許 CSV／Excel 匯出")
+        with database() as conn:
+            try:
+                all_groups = duplicate_groups(
+                    conn,
+                    root_id,
+                    category=category,
+                    query=query,
+                    limit=1000000,
+                    offset=0,
+                )
+                content, media_type = export_duplicate_groups(all_groups["groups"], fmt)
+            except DuplicateError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return Response(
+            content=content,
+            media_type=media_type,
+            headers={"Content-Disposition": f'attachment; filename="FireLens-duplicates.{fmt}"'},
+        )
+
+    @app.post("/api/duplicates/{root_id}/export/save")
+    def save_duplicate_export(root_id: int, payload: DuplicateExportRequest) -> dict:
+        fmt = payload.format.casefold()
+        if fmt not in ("csv", "xlsx"):
+            raise HTTPException(status_code=400, detail="只允許 CSV／Excel 匯出")
+        with database() as conn:
+            try:
+                all_groups = duplicate_groups(
+                    conn,
+                    root_id,
+                    category=payload.category,
+                    query=payload.query,
+                    limit=1000000,
+                    offset=0,
+                )
+                content, _ = export_duplicate_groups(all_groups["groups"], fmt)
+            except DuplicateError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+        try:
+            return export_registry.save(
+                prefix="照片重複檢查",
+                content=content,
+                extension=fmt,
+            )
+        except OSError as exc:
+            raise HTTPException(status_code=500, detail=f"重複清單匯出失敗：{exc}") from exc
 
     @app.get("/api/quality/{root_id}")
     def photo_quality_gallery(
@@ -1030,6 +1150,15 @@ def create_app() -> FastAPI:
                     replace_photo_id=replace_photo_id,
                     allow_duplicate=allow_duplicate,
                 )
+            except DuplicatePhotoConflict as exc:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "duplicate_photo",
+                        "message": str(exc),
+                        "matches": exc.matches,
+                    },
+                ) from exc
             except StorageConflict as exc:
                 raise HTTPException(status_code=409, detail=str(exc)) from exc
             except StorageError as exc:

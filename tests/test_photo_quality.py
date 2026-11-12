@@ -183,7 +183,7 @@ def test_missing_slot_and_excel_formula_injection_safe(tmp_path, monkeypatch):
 def test_photo_quality_filter_review_and_m18_schema_are_separate(tmp_path, monkeypatch):
     db_path, root_id, _ = _setup(tmp_path, monkeypatch)
     with connect(db_path) as conn:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 11
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 12
         before = gallery(conn, root_id, problem_only=False)
         photo = before["items"][0]["photos"][0]
         review_photo(conn, photo["id"], "wrong_content")

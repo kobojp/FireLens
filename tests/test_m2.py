@@ -158,7 +158,8 @@ def test_box_slot_uses_incrementing_names(monkeypatch, tmp_path: Path, sample_so
         )
         assert first.status_code == 200
         assert second.status_code == 409
-        assert "相同圖片已存在" in second.json()["detail"]
+        assert "相同圖片已存在" in second.json()["detail"]["message"]
+        assert second.json()["detail"]["matches"][0]["item_id"] == item_id
         approved = client.post(
             f"/api/items/{item_id}/slots/前/photos?allow_duplicate=true",
             files={"file": ("front2.jpg", payload, "image/jpeg")},

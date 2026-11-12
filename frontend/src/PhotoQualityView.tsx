@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { qualityProgress } from './qualityProgress'
+import { DuplicatePhotoPanel } from './DuplicatePhotoPanel'
 import { api } from './api'
 import type { QualityGallery, QualityItem, QualityJob, QualityPhoto, RootRecord } from './types'
 
@@ -26,6 +27,7 @@ export function PhotoQualityView({
   onOpenItem: (rootId: number, itemId: number) => void
 }) {
   const [rootId, setRootId] = useState<number | null>(defaultRootId)
+  const [mode, setMode] = useState<'quality' | 'duplicates'>('quality')
   const [category, setCategory] = useState('')
   const [period, setPeriod] = useState('')
   const [building, setBuilding] = useState('')
@@ -198,11 +200,40 @@ export function PhotoQualityView({
 
   const filteredCards = gallery?.items ?? []
 
+  if (mode === 'duplicates') {
+    return (
+      <section className="panel quality-page">
+        <div className="panel-title">
+          <h2>照片品質檢查</h2>
+          <span>跨設備完全相同圖片的手動偵測，保留原始檔案</span>
+        </div>
+        <div className="quality-mode-switch" role="group" aria-label="照片品質檢查功能">
+          <button type="button" onClick={() => setMode('quality')}>圖片品質與缺槽位</button>
+          <button type="button" aria-current="page" className="active">重複圖片</button>
+        </div>
+        <div className="quality-controls">
+          <label>照片來源
+            <select value={rootId ?? ''} onChange={e => {
+              setRootId(Number(e.target.value)); setOffset(0)
+            }}>
+              {roots.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}
+            </select>
+          </label>
+        </div>
+        <DuplicatePhotoPanel roots={roots} rootId={rootId} onOpenItem={onOpenItem} />
+      </section>
+    )
+  }
+
   return (
     <section className="panel quality-page">
       <div className="panel-title">
         <h2>照片品質檢查</h2>
         <span>只分析圖片品質，不修改原圖，也不改設備異常紀錄</span>
+      </div>
+      <div className="quality-mode-switch" role="group" aria-label="照片品質檢查功能">
+        <button type="button" aria-current="page" className="active">圖片品質與缺槽位</button>
+        <button type="button" onClick={() => setMode('duplicates')}>重複圖片</button>
       </div>
       <div className="quality-controls">
         <label>照片來源

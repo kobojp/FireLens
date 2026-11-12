@@ -21,6 +21,9 @@ import type {
   RootRecord,
   QualityGallery,
   QualityJob,
+  DuplicateJob,
+  DuplicateGallery,
+  DuplicateErrorInfo,
   SharedIssueStatus,
   SharedIssueConflict,
   SharedIssueBackup,
@@ -53,10 +56,12 @@ import type {
 
 export class ApiError extends Error {
   status: number
+  details: DuplicateErrorInfo | null
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, details: DuplicateErrorInfo | null = null) {
     super(message)
     this.status = status
+    this.details = details
   }
 }
 
@@ -64,8 +69,12 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init)
   if (!response.ok) {
     const body = await response.json().catch(() => null)
-    const detail = body && typeof body.detail === 'string' ? body.detail : `HTTP ${response.status}`
-    throw new ApiError(response.status, detail)
+    const detail = body?.detail
+    const duplicate = detail && typeof detail === 'object' && detail.code === 'duplicate_photo'
+      ? detail as DuplicateErrorInfo : null
+    const message = typeof detail === 'string' ? detail
+      : duplicate?.message ?? `HTTP ${response.status}`
+    throw new ApiError(response.status, message, duplicate)
   }
   return response.json() as Promise<T>
 }
@@ -403,6 +412,22 @@ export const api = {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   }),
+  duplicateGallery: (rootId: number, params: URLSearchParams) =>
+    request<DuplicateGallery>(`/api/duplicates/${rootId}?${params}`),
+  duplicateScan: (rootId: number, full: boolean) =>
+    request<DuplicateJob>(`/api/duplicates/${rootId}/scan`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ full }),
+    }),
+  duplicateScanStatus: (rootId: number) =>
+    request<DuplicateJob>(`/api/duplicates/${rootId}/scan`),
+  duplicateCancel: (rootId: number) =>
+    request<DuplicateJob>(`/api/duplicates/${rootId}/scan/cancel`, { method: 'POST' }),
+  duplicateSaveExport: (rootId: number, format: 'csv' | 'xlsx', category: string, query: string) =>
+    request<ExportSaveResult>(`/api/duplicates/${rootId}/export/save`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ format, category, query }),
+    }),
   qualityGallery: (rootId: number, params: URLSearchParams) =>
     request<QualityGallery>(`/api/quality/${rootId}?${params}`),
   qualitySettings: (rootId: number) =>

@@ -67,6 +67,54 @@ export type QualityGallery = {
   flagged_photos: number
   items: QualityItem[]
 }
+export type DuplicatePhotoRecord = {
+  photo_id: number
+  item_id: number
+  filename: string
+  relative_path: string
+  category: string
+  category_code: string
+  code: string
+  year: string
+  period: string
+  building: string
+  slot: string | null
+  mtime_ns: number
+}
+export type DuplicateGroup = {
+  sha256: string
+  count: number
+  device_count: number
+  photos: DuplicatePhotoRecord[]
+}
+export type DuplicateGallery = {
+  total: number
+  total_photos: number
+  total_devices: number
+  pending: number
+  skipped: number
+  groups: DuplicateGroup[]
+}
+export type DuplicateJob = {
+  state: string
+  phase: string
+  full: boolean
+  total: number
+  done: number
+  analyzed: number
+  cached: number
+  skipped: number
+  pending: number
+  error: string
+  started_at: number | null
+  cancel?: boolean
+}
+export type DuplicateErrorInfo = {
+  code: 'duplicate_photo'
+  message: string
+  matches: DuplicatePhotoRecord[]
+}
+
 export type QualityJob = {
   state: string
   phase?: string

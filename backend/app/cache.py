@@ -396,8 +396,8 @@ def sync_offline_queue(conn: sqlite3.Connection, root_id: int) -> dict[str, obje
                 str(row["source_name"]),
                 data,
                 replace_photo_id=replace_photo_id,
-                # Previously approved offline jobs must not be silently discarded on reconnect.
-                allow_duplicate=True,
+                # Do not bypass cross-device checks merely because the job was queued offline.
+                allow_duplicate=False,
             )
             with conn:
                 conn.execute(

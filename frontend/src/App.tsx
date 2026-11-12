@@ -1,5 +1,5 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
-import { api } from './api'
+import { api, ApiError } from './api'
 import { initialNewItemPanelOpen, newItemPanelButtonText } from './newItemPanel'
 import { photosForSlot, slotAllowsAdditional, unmappedPhotos } from './slots'
 import { fromPaste, hasDesktopClipboardBridge, readDesktopClipboardImage } from './clipboardImage'
@@ -26,6 +26,7 @@ import type {
   PhotoRenamePreview,
   PhotoSlotTransferPreview,
   PhotoRecord,
+  DuplicatePhotoRecord,
   RootRecord,
   RootStatus,
   OfflineQueueEntry,
@@ -304,7 +305,16 @@ export default function App() {
   const [clipboardAvailable, setClipboardAvailable] = useState<boolean | null>(null)
   const [showPasteHelp, setShowPasteHelp] = useState(false)
   const [pendingPaste, setPendingPaste] = useState<{ rootId: number, itemId: number, slot: string, file: File, previewUrl: string } | null>(null)
-  const [duplicateUpload, setDuplicateUpload] = useState<{ itemId: number; slot: string; file: File; replacePhotoId?: number; reason: string } | null>(null)
+  const [duplicateUpload, setDuplicateUpload] = useState<{
+    rootId: number; itemId: number; slot: string; file: File
+    replacePhotoId?: number; reason: string; matches: DuplicatePhotoRecord[]
+  } | null>(null)
+  const duplicatePreviewUrl = useMemo(() => (
+    duplicateUpload ? URL.createObjectURL(duplicateUpload.file) : null
+  ), [duplicateUpload])
+  useEffect(() => () => {
+    if (duplicatePreviewUrl) URL.revokeObjectURL(duplicatePreviewUrl)
+  }, [duplicatePreviewUrl])
   const [photoToDelete, setPhotoToDelete] = useState<PhotoRecord | null>(null)
   const [renameDialog, setRenameDialog] = useState<RenameDialogState | null>(null)
   const [lastTransfer, setLastTransfer] = useState<{ rootId: number, itemId: number, logId: number } | null>(null)
@@ -791,8 +801,14 @@ export default function App() {
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : '照片匯入失敗'
-      if (!allowDuplicate && message.startsWith('相同圖片已存在：')) {
-        setDuplicateUpload({ itemId: item.id, slot, file, replacePhotoId, reason: message })
+      if (!allowDuplicate && (
+        (err instanceof ApiError && err.details?.code === 'duplicate_photo') ||
+        message.startsWith('相同圖片已存在：')
+      )) {
+        setDuplicateUpload({
+          rootId, itemId: item.id, slot, file, replacePhotoId, reason: message,
+          matches: err instanceof ApiError ? err.details?.matches ?? [] : [],
+        })
       } else {
         setError(message)
       }
@@ -1577,8 +1593,38 @@ export default function App() {
             <div className="prompt-header">發現相同圖片</div>
             <div className="prompt-body">
               <p>{duplicateUpload.reason}</p>
-              <p>設備：{item?.code} · 槽位：{duplicateUpload.slot}</p>
-              <p>選擇取消可避免重複儲存。選擇仍要儲存會額外建立一張照片，不會覆蓋舊圖。</p>
+              <p>準備新增：{item?.code} · 槽位：{duplicateUpload.slot}</p>
+              {!!duplicateUpload.matches.length && (
+                <div className="duplicate-compare-grid">
+                  <div className="duplicate-compare-item">
+                    <strong>已有照片</strong>
+                    <img alt={duplicateUpload.matches[0].filename}
+                      src={`/api/photos/${duplicateUpload.matches[0].photo_id}/thumbnail?v=${duplicateUpload.matches[0].mtime_ns}`} />
+                    <small>{duplicateUpload.matches[0].category}／{duplicateUpload.matches[0].code}</small>
+                  </div>
+                  <div className="duplicate-compare-item">
+                    <strong>準備新增</strong>
+                    {duplicatePreviewUrl && <img alt="準備新增的照片" src={duplicatePreviewUrl} />}
+                    <small>{item?.code}／{duplicateUpload.slot}</small>
+                  </div>
+                </div>
+              )}
+              <p>相同內容出現在 {duplicateUpload.matches.length} 處：</p>
+              <ul className="duplicate-match-list">
+                {duplicateUpload.matches.map(match => (
+                  <li key={match.photo_id}>
+                    {match.category}／{match.year}／{match.period}／{match.building}
+                    ／{match.code}／{match.slot || '未對應'}／{match.filename}
+                    <small title={match.relative_path}>{match.relative_path}</small>
+                    <button type="button" onClick={() => {
+                      pendingStatsNavigation.current = { rootId: duplicateUpload.rootId, itemId: match.item_id }
+                      setDuplicateUpload(null)
+                      setView('browse')
+                    }}>查看原照片</button>
+                  </li>
+                ))}
+              </ul>
+              <p>選擇取消可避免重複儲存。選擇仍要儲存會新增另一張照片，不覆蓋原有照片。</p>
             </div>
             <div className="prompt-footer">
               <button type="button" disabled={busy} onClick={() => setDuplicateUpload(null)}>取消</button>
@@ -1586,7 +1632,7 @@ export default function App() {
                 onClick={() => {
                   const pending = duplicateUpload
                   setDuplicateUpload(null)
-                  if (item?.id !== pending.itemId) { setError('選取設備已變更，已取消'); return }
+                  if (item?.id !== pending.itemId || rootId !== pending.rootId) { setError('選取設備或來源已變更，已取消'); return }
                   void upload(pending.slot, pending.file, pending.replacePhotoId, true)
                 }}>仍要儲存</button>
             </div>

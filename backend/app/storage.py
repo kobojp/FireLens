@@ -6,7 +6,6 @@ import io
 import json
 import os
 import sqlite3
-import stat
 import uuid
 from contextlib import suppress
 from dataclasses import dataclass
@@ -15,8 +14,9 @@ from pathlib import Path
 from PIL import Image, ImageOps, UnidentifiedImageError
 from pillow_heif import register_heif_opener
 
+from .duplicates import DuplicateIndexRequired, preflight
 from .folder_catalog import register_building, register_period
-from .scanner import CATEGORY_DIRS, CLOUD_PLACEHOLDER_FLAGS, refresh_item_index, scan_root
+from .scanner import CATEGORY_DIRS, refresh_item_index, scan_root
 from .settings import custom_slots_for, excluded_root_folders
 
 register_heif_opener()
@@ -34,7 +34,16 @@ class StorageConflict(StorageError):
 
 
 class DuplicatePhotoConflict(StorageConflict):
-    """An identical output image is already in this equipment folder."""
+    """Identical bytes found in one or more indexed devices."""
+
+    def __init__(self, matches: list[dict]):
+        self.matches = matches
+        primary = matches[0]
+        message = (
+            f"相同圖片已存在：{primary['filename']}（{primary['category']}／"
+            f"{primary['code']}）；共 {len(matches)} 處。是否仍要儲存另一張？"
+        )
+        super().__init__(message)
 
 
 @dataclass(frozen=True)
@@ -292,29 +301,21 @@ def import_photo(
         _save_stage(data, source_extension, stage, output_extension)
         staged_hash = sha256_file(stage)
         if not allow_duplicate:
-            staged_size = stage.stat().st_size
-            # Inspect the actual equipment directory, not potentially stale SQLite.
-            for candidate in context.item_dir.iterdir():
-                if candidate.suffix.casefold() not in UPLOAD_EXTENSIONS:
-                    continue
-                if candidate == target and replace_row is not None:
-                    continue
-                try:
-                    info = candidate.stat(follow_symlinks=False)
-                    attributes = int(getattr(info, "st_file_attributes", 0) or 0)
-                    if (
-                        candidate.is_symlink()
-                        or not stat.S_ISREG(info.st_mode)
-                        or attributes & (CLOUD_PLACEHOLDER_FLAGS | 0x400)
-                        or info.st_size != staged_size
-                    ):
-                        continue
-                    if sha256_file(candidate) == staged_hash:
-                        raise DuplicatePhotoConflict(
-                            f"相同圖片已存在：{candidate.name}。是否仍要儲存另一張？"
-                        )
-                except FileNotFoundError:
-                    continue
+            try:
+                matches = preflight(
+                    conn,
+                    context.root_id,
+                    staged_hash,
+                    exclude_relative=(
+                        target.relative_to(context.root_path).as_posix()
+                        if replace_row is not None
+                        else ""
+                    ),
+                )
+            except DuplicateIndexRequired as exc:
+                raise StorageConflict(str(exc)) from exc
+            if matches:
+                raise DuplicatePhotoConflict(matches)
         if replace_row is None:
             _install_new(stage, target, staged_hash)
             new_installed = True
