@@ -70,7 +70,8 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   if (!response.ok) {
     const body = await response.json().catch(() => null)
     const detail = body?.detail
-    const duplicate = detail && typeof detail === 'object' && detail.code === 'duplicate_photo'
+    const duplicate = detail && typeof detail === 'object' &&
+      (detail.code === 'duplicate_photo' || detail.code === 'duplicate_index_required')
       ? detail as DuplicateErrorInfo : null
     const message = typeof detail === 'string' ? detail
       : duplicate?.message ?? `HTTP ${response.status}`

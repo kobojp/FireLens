@@ -157,6 +157,7 @@ from .shared_issues import (
     synchronize as synchronize_shared_issues,
 )
 from .storage import (
+    DuplicateIndexConflict,
     DuplicatePhotoConflict,
     StorageConflict,
     StorageError,
@@ -1158,6 +1159,11 @@ def create_app() -> FastAPI:
                         "message": str(exc),
                         "matches": exc.matches,
                     },
+                ) from exc
+            except DuplicateIndexConflict as exc:
+                raise HTTPException(
+                    status_code=409,
+                    detail={"code": "duplicate_index_required", "message": str(exc)},
                 ) from exc
             except StorageConflict as exc:
                 raise HTTPException(status_code=409, detail=str(exc)) from exc

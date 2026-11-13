@@ -34,6 +34,10 @@ class StorageConflict(StorageError):
     pass
 
 
+class DuplicateIndexConflict(StorageConflict):
+    """Upload blocked until existing photos have safe fingerprints."""
+
+
 class DuplicatePhotoConflict(StorageConflict):
     """Identical bytes found in one or more indexed devices."""
 
@@ -319,7 +323,7 @@ def import_photo(
                     ),
                 )
             except DuplicateIndexRequired as exc:
-                raise StorageConflict(str(exc)) from exc
+                raise DuplicateIndexConflict(str(exc)) from exc
             if matches:
                 raise DuplicatePhotoConflict(matches)
         timing_ms["duplicate_check"] = round((time.perf_counter() - tick) * 1000, 1)

@@ -55,7 +55,8 @@ describe('M19-C exact duplicates user workflow', () => {
   it('keeps source metadata and responsive quality table styling', () => {
     expect(panel).toContain("photo.relative_path")
     expect(panel).toContain("photo.item_id")
-    expect(panel).toContain("setPreview(photo)")
+    expect(panel).toContain("setPreview(photo.photo_id)")
+    expect(panel).toContain("<InspectorImageViewer images={images}")
     expect(panel).toContain('重複群組')
     expect(css).toContain('.duplicates-photo-grid')
     expect(css).toContain('html[data-theme="dark"] .duplicates-photo')

@@ -1,16 +1,23 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from './api'
+import { InspectorImageViewer } from './InspectorImageViewer'
 import type {
-  CategoryDefinition, DuplicateGallery, DuplicateJob, DuplicatePhotoRecord, RootRecord,
+  CategoryDefinition, DuplicateGallery, DuplicateJob, RootRecord,
 } from './types'
 
 type Props = {
   rootId: number | null
   roots: RootRecord[]
   onOpenItem: (rootId: number, itemId: number) => void
+  isActive?: boolean
+  guideTicket?: number | null
+  onGuideFinish?: () => void
+  onGuideCancel?: () => void
 }
 
-export function DuplicatePhotoPanel({ rootId, roots, onOpenItem }: Props) {
+export function DuplicatePhotoPanel({
+  rootId, roots, onOpenItem, isActive = true, guideTicket, onGuideFinish, onGuideCancel,
+}: Props) {
   const [categories, setCategories] = useState<CategoryDefinition[]>([])
   const [category, setCategory] = useState('')
   const [query, setQuery] = useState('')
@@ -19,12 +26,24 @@ export function DuplicatePhotoPanel({ rootId, roots, onOpenItem }: Props) {
   const [gallery, setGallery] = useState<DuplicateGallery | null>(null)
   const [job, setJob] = useState<DuplicateJob | null>(null)
   const [error, setError] = useState('')
-  const [preview, setPreview] = useState<DuplicatePhotoRecord | null>(null)
+  const [preview, setPreview] = useState<number | null>(null)
+  const [guideStarted, setGuideStarted] = useState(false)
+  const scanButtonRef = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    if (guideTicket == null) return
+    setGuideStarted(false)
+    setFull(false)
+    scanButtonRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  }, [guideTicket])
   const [exporting, setExporting] = useState<'csv' | 'xlsx' | null>(null)
   const [saved, setSaved] = useState<{
     filename: string; path: string; open_token: string
   } | null>(null)
   const [exportMessage, setExportMessage] = useState('')
+  useEffect(() => { setPreview(null) }, [rootId, category, query, offset])
+
+  useEffect(() => { if (!isActive) setPreview(null) }, [isActive])
+
   const params = useMemo(() => new URLSearchParams({
     category, query, limit: '20', offset: String(offset),
   }), [category, query, offset])
@@ -72,6 +91,7 @@ export function DuplicatePhotoPanel({ rootId, roots, onOpenItem }: Props) {
     setError('')
     try {
       setJob(await api.duplicateScan(rootId, full))
+      if (guideTicket != null) setGuideStarted(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : '重複掃描無法開始')
     }
@@ -118,9 +138,45 @@ export function DuplicatePhotoPanel({ rootId, roots, onOpenItem }: Props) {
     ? Math.round(job.done / job.total * 100)
     : job?.state === 'completed' ? 100 : null
 
+  const images = (gallery?.groups ?? []).flatMap(group => group.photos.map(photo => ({
+    id: photo.photo_id, filename: photo.filename,
+    title: `${photo.category} · ${photo.code} · ${photo.filename}`,
+    subtitle: `${photo.year}／${photo.period} · ${photo.building} · ${photo.slot || '未對應'}`,
+    path: photo.relative_path,
+    src: `/api/photos/${photo.photo_id}/content?v=${photo.mtime_ns}`,
+  })))
+  const visiblePreviewId = isActive && images.some(image => image.id === preview) ? preview : null
+
+  const guideComplete = guideTicket != null && guideStarted && job?.state === 'completed'
+  const guideRunning = guideTicket != null && guideStarted && job?.state === 'running'
+
   return (
     <section className="duplicates-panel" aria-label="跨設備重複圖片檢查">
       <p className="help-text">同一照片根目錄跨設備、跨月份與類別，以 SHA-256 比對內容完全相同的圖片。檢查不會修改或刪除原始照片，Google Drive 未下載照片會略過。</p>
+      {guideTicket != null && (
+        <aside className="scan-guide-banner" role="status" aria-live="polite" aria-label="重複掃描操作引導">
+          <div className="scan-guide-heading">
+            <strong>🧭 任務引導：建立重複照片索引</strong>
+            <button type="button" onClick={onGuideCancel}>關閉引導</button>
+          </div>
+          <ol>
+            <li className="scan-guide-completed">第 1 步：已進入「照片品質檢查 → 重複圖片」</li>
+            <li className={guideStarted ? 'scan-guide-completed' : 'scan-guide-current'}>
+              第 2 步：{guideStarted ? '已按下開始掃描' : '請按下面發光框的「開始重複掃描」按鈕（增量模式）'}
+            </li>
+            <li className={guideComplete ? 'scan-guide-completed' : guideRunning ? 'scan-guide-current' : ''}>
+              第 3 步：{guideComplete ? '掃描完成，可以返回照片牆重新嘗試貼上' :
+                guideRunning ? '掃描進行中，請等待完成，勿關閉程式' : '掃描完成後再返回照片牆'}
+            </li>
+          </ol>
+          {guideComplete && <button type="button" className="scan-guide-finish"
+            onClick={onGuideFinish}>完成任務，返回照片牆重新貼上 →</button>}
+          {guideStarted && ['failed', 'cancelled', 'error'].includes(job?.state ?? '') && (
+            <p className="quality-flag">掃描未完成：請查看下方錯誤／取消原因，重新按「開始重複掃描」。</p>
+          )}
+          <p className="help-text">未完成掃描前，原本的照片不會被偷偷儲存，也不會自動下載雲端佔位檔。</p>
+        </aside>
+      )}
       <div className="quality-toolbar">
         <label>設備類別
           <select value={category} onChange={e => { setCategory(e.target.value); setOffset(0) }}>
@@ -140,7 +196,9 @@ export function DuplicatePhotoPanel({ rootId, roots, onOpenItem }: Props) {
             <option value="full">完整重新掃描</option>
           </select>
         </label>
-        <button type="button" onClick={() => void startScan()}
+        <button type="button" ref={scanButtonRef}
+          className={guideTicket != null && !guideStarted ? 'scan-guide-target' : undefined}
+          onClick={() => void startScan()}
           disabled={rootId === null || job?.state === 'running'}>開始重複掃描</button>
         <button type="button" disabled={job?.state !== 'running' || rootId === null}
           onClick={() => { if (rootId !== null) void api.duplicateCancel(rootId).then(setJob) }}>
@@ -212,7 +270,7 @@ export function DuplicatePhotoPanel({ rootId, roots, onOpenItem }: Props) {
               {group.photos.map(photo => (
                 <div className="duplicates-photo" key={photo.photo_id}>
                   <button type="button" className="duplicates-image-button"
-                    onClick={() => setPreview(photo)} title={'放大 ' + photo.filename}>
+                    onClick={() => setPreview(photo.photo_id)} title={'放大 ' + photo.filename}>
                     <img loading="lazy" alt={photo.filename}
                       src={`/api/photos/${photo.photo_id}/thumbnail?v=${photo.mtime_ns}`} />
                   </button>
@@ -238,18 +296,8 @@ export function DuplicatePhotoPanel({ rootId, roots, onOpenItem }: Props) {
         <button type="button" disabled={offset + 20 >= (gallery?.total ?? 0)}
           onClick={() => setOffset(offset + 20)}>下一頁</button>
       </div>
-      {preview && (
-        <div className="preview-backdrop" role="presentation" onClick={() => setPreview(null)}>
-          <section className="prompt-dialog quality-preview" role="dialog" aria-modal="true"
-            aria-label="重複圖片原圖預覽" onClick={e => e.stopPropagation()}>
-            <button type="button" onClick={() => setPreview(null)}>關閉預覽</button>
-            <h3>{preview.category} · {preview.code} · {preview.filename}</h3>
-            <img src={`/api/photos/${preview.photo_id}/content?v=${preview.mtime_ns}`}
-              alt={preview.filename} />
-            <p>{preview.relative_path}</p>
-          </section>
-        </div>
-      )}
+      <InspectorImageViewer images={images} activeId={visiblePreviewId}
+        onSelect={setPreview} onClose={() => setPreview(null)} />
     </section>
   )
 }

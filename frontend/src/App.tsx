@@ -310,6 +310,13 @@ export default function App() {
     rootId: number; itemId: number; slot: string; file: File
     replacePhotoId?: number; reason: string; matches: DuplicatePhotoRecord[]
   } | null>(null)
+  const [indexRequired, setIndexRequired] = useState<{
+    rootId: number; itemId: number; slot: string; file: File
+    replacePhotoId?: number; message: string
+  } | null>(null)
+  const [indexGuideDialog, setIndexGuideDialog] = useState(false)
+  const [scanGuideTicket, setScanGuideTicket] = useState<number | null>(null)
+  const nextGuideTicket = useRef(0)
   const duplicatePreviewUrl = useMemo(() => (
     duplicateUpload ? URL.createObjectURL(duplicateUpload.file) : null
   ), [duplicateUpload])
@@ -808,6 +815,11 @@ export default function App() {
     setError('')
     try {
       const updated = await api.importPhoto(uploadItemId, slot, file, replacePhotoId, allowDuplicate)
+      if (indexRequired?.rootId === uploadRoot && indexRequired.itemId === uploadItemId) {
+        setIndexRequired(null)
+        setIndexGuideDialog(false)
+        setScanGuideTicket(null)
+      }
       if (activeRootRef.current === uploadRoot && selectedItemIdRef.current === uploadItemId) {
         setItem(updated)
         if (updated.offline_queued) {
@@ -828,7 +840,14 @@ export default function App() {
         })
     } catch (err) {
       const message = err instanceof Error ? err.message : '照片匯入失敗'
-      if (!allowDuplicate && (
+      if (err instanceof ApiError && err.details?.code === 'duplicate_index_required') {
+        setDuplicateUpload(null)
+        setIndexRequired({
+          rootId: uploadRoot, itemId: uploadItemId, slot, file, replacePhotoId, message,
+        })
+        setIndexGuideDialog(true)
+        setScanGuideTicket(null)
+      } else if (!allowDuplicate && (
         (err instanceof ApiError && err.details?.code === 'duplicate_photo') ||
         message.startsWith('相同圖片已存在：')
       )) {
@@ -842,6 +861,40 @@ export default function App() {
     } finally {
       setBusy(false)
     }
+  }
+
+  function openGuidedDuplicateScan() {
+    if (!indexRequired) return
+    setIndexGuideDialog(false)
+    setScanGuideTicket(++nextGuideTicket.current)
+    setRootId(indexRequired.rootId)
+    setView('quality')
+    setError('')
+  }
+
+  function returnFromGuidedScan() {
+    const pending = indexRequired
+    setScanGuideTicket(null)
+    if (pending) {
+      pendingStatsNavigation.current = { rootId: pending.rootId, itemId: pending.itemId }
+      setRootId(pending.rootId)
+      setCacheMessage('重複掃描已完成；已保留原本待貼上的照片。請按下方「重新嘗試貼上」繼續。')
+    }
+    setView('browse')
+  }
+
+  function retryAfterGuidedScan() {
+    const pending = indexRequired
+    if (!pending) return
+    if (rootId !== pending.rootId || item?.id !== pending.itemId) {
+      pendingStatsNavigation.current = { rootId: pending.rootId, itemId: pending.itemId }
+      setRootId(pending.rootId)
+      setView('browse')
+      setError('已返回原設備，確認照片後再按「重新嘗試貼上」。')
+      return
+    }
+    setIndexRequired(null)
+    void upload(pending.slot, pending.file, pending.replacePhotoId)
   }
 
   async function confirmDeleteItemFolder() {
@@ -1278,7 +1331,7 @@ export default function App() {
       <header className="topbar">
         <div>
           <strong>FireLens</strong>
-          <span>照片管理、核對與離線工作 · v{appInfo?.version ?? '1.10.1'}</span>
+          <span>照片管理、核對與離線工作 · v{appInfo?.version ?? '1.11.0'}</span>
         </div>
         <div className="root-controls">
           <label htmlFor="root-select">根目錄</label>
@@ -1428,6 +1481,18 @@ export default function App() {
 
       {error && <div className="error-banner" role="alert">{error}</div>}
       {cacheMessage && <div className="success-banner" role="status">{cacheMessage}</div>}
+      {indexRequired && !indexGuideDialog && scanGuideTicket === null && (
+        <div className="scan-guide-retry" role="status">
+          <strong>🧭 重複照片任務：待貼上的照片尚未儲存</strong>
+          <p>{indexRequired.file.name} · ${indexRequired.slot}；掃描完成後可直接重試，不需重新複製照片。</p>
+          <div>
+            <button type="button" className="primary-button" disabled={busy || scanRunning}
+              onClick={retryAfterGuidedScan}>重新嘗試貼上</button>
+            <button type="button" onClick={openGuidedDuplicateScan}>前往重複掃描</button>
+            <button type="button" onClick={() => setIndexRequired(null)}>放棄此次貼上</button>
+          </div>
+        </div>
+      )}
       {lastRename && (
         <div className="success-banner rename-undo-banner" role="status">
           <span>最近改名：{lastRename.source} → {lastRename.target}</span>
@@ -1607,6 +1672,33 @@ export default function App() {
             </div>
             <div className="prompt-footer">
               <button type="button" autoFocus onClick={() => setShowPasteHelp(false)}>關閉</button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {indexRequired && indexGuideDialog && (
+        <div className="preview-backdrop" role="presentation">
+          <section className="prompt-dialog scan-guide-dialog" role="dialog" aria-modal="true"
+            aria-label="需要先建立重複照片索引">
+            <div className="prompt-header">🧭 貼圖任務：先完成重複照片掃描</div>
+            <div className="prompt-body">
+              <strong>照片尚未儲存，不是貼上成功。</strong>
+              <p>{indexRequired.message}</p>
+              <p>待貼圖片：<b>{indexRequired.file.name}</b>　設備槽位：<b>{indexRequired.slot}</b></p>
+              <ol>
+                <li>點「前往重複掃描」，自動開啟照片品質檢查的「重複圖片」分頁。</li>
+                <li>依照高亮提示，按「開始重複掃描」（預設增量掃描）。</li>
+                <li>掃描完成再返回照片牆，點「重新嘗試貼上」。</li>
+              </ol>
+              <p className="help-text">不會自動掃描大量照片，也不會在未完成檢查前跳過重複防護。</p>
+            </div>
+            <div className="prompt-footer">
+              <button type="button" onClick={() => {
+                setIndexRequired(null); setIndexGuideDialog(false)
+              }}>取消這次貼圖</button>
+              <button type="button" className="primary-button" autoFocus
+                onClick={openGuidedDuplicateScan}>前往重複掃描 →</button>
             </div>
           </section>
         </div>
@@ -1869,6 +1961,9 @@ export default function App() {
       {(visitedTabs.quality || view === 'quality') && (
         <RetainedView visible={view === 'quality'}>
           <PhotoQualityView roots={roots} defaultRootId={rootId}
+            isActive={view === 'quality'} guideTicket={scanGuideTicket} guidedRootId={indexRequired?.rootId ?? null}
+            onGuideFinish={returnFromGuidedScan}
+            onGuideCancel={() => { setScanGuideTicket(null); setView('browse') }}
             onOpenItem={(nextRootId, itemId) => {
               pendingStatsNavigation.current = { rootId: nextRootId, itemId }
               setRootId(nextRootId)

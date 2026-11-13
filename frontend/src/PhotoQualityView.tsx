@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { qualityProgress } from './qualityProgress'
 import { DuplicatePhotoPanel } from './DuplicatePhotoPanel'
+import { InspectorImageViewer } from './InspectorImageViewer'
 import { api } from './api'
 import type { QualityGallery, QualityItem, QualityJob, QualityPhoto, RootRecord } from './types'
 
@@ -20,11 +21,16 @@ const STATUS: Record<string, string> = {
 }
 
 export function PhotoQualityView({
-  roots, defaultRootId, onOpenItem,
+  roots, defaultRootId, onOpenItem, isActive = true, guideTicket, guidedRootId, onGuideFinish, onGuideCancel,
 }: {
   roots: RootRecord[]
   defaultRootId: number | null
   onOpenItem: (rootId: number, itemId: number) => void
+  isActive?: boolean
+  guideTicket?: number | null
+  guidedRootId?: number | null
+  onGuideFinish?: () => void
+  onGuideCancel?: () => void
 }) {
   const [rootId, setRootId] = useState<number | null>(defaultRootId)
   const [mode, setMode] = useState<'quality' | 'duplicates'>('quality')
@@ -40,7 +46,7 @@ export function PhotoQualityView({
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [busyPhotoId, setBusyPhotoId] = useState<number | null>(null)
-  const [preview, setPreview] = useState<QualityPhoto | null>(null)
+  const [preview, setPreview] = useState<number | null>(null)
   const [thumbSize, setThumbSize] = useState(180)
   const [qualityFilter, setQualityFilter] = useState('')
   const [reviewFilter, setReviewFilter] = useState('')
@@ -54,10 +60,23 @@ export function PhotoQualityView({
 
 
   useEffect(() => {
+    if (guideTicket == null || guidedRootId == null) return
+    setRootId(guidedRootId)
+    setMode('duplicates')
+    setOffset(0)
+  }, [guideTicket, guidedRootId])
+
+  useEffect(() => {
     if (roots.length && !roots.some((r) => r.id === rootId)) {
       setRootId(roots[0].id)
     }
   }, [roots, rootId])
+
+  // A preview belongs only to its current root, mode and filtered page.
+  useEffect(() => { setPreview(null) }, [rootId, mode, category, period, building, query,
+    qualityFilter, reviewFilter, sortBy, problemOnly, offset])
+
+  useEffect(() => { if (!isActive) setPreview(null) }, [isActive])
 
   const params = useMemo(() => new URLSearchParams({
     category, period, building, query, problem_only: String(problemOnly),
@@ -199,6 +218,15 @@ export function PhotoQualityView({
   const progress = job ? qualityProgress(job, nowSeconds) : null
 
   const filteredCards = gallery?.items ?? []
+  // Photo order exactly follows the thumbnails shown in the current filtered page.
+  const qualityImages = filteredCards.flatMap(item => item.slots.flatMap(slot =>
+    item.photos.filter(photo => (photo.display_slot ?? photo.slot) === slot).map(photo => ({
+      id: photo.id, filename: photo.filename, title: `${item.category} · ${item.code} · ${photo.filename}`,
+      subtitle: `${item.year}／${item.period} · ${item.building} · ${slot} · ${photo.reason || '尚未掃描'} · 分數 ${photo.score ?? '—'}`,
+      path: photo.relative_path, src: api.photoUrl(photo),
+    })),
+  ))
+  const visiblePreviewId = isActive && qualityImages.some(image => image.id === preview) ? preview : null
 
   if (mode === 'duplicates') {
     return (
@@ -208,19 +236,22 @@ export function PhotoQualityView({
           <span>跨設備完全相同圖片的手動偵測，保留原始檔案</span>
         </div>
         <div className="quality-mode-switch" role="group" aria-label="照片品質檢查功能">
-          <button type="button" onClick={() => setMode('quality')}>圖片品質與缺槽位</button>
+          <button type="button" disabled={guideTicket != null}
+            onClick={() => setMode('quality')}>圖片品質與缺槽位</button>
           <button type="button" aria-current="page" className="active">重複圖片</button>
         </div>
         <div className="quality-controls">
           <label>照片來源
-            <select value={rootId ?? ''} onChange={e => {
+            <select value={rootId ?? ''} disabled={guideTicket != null} onChange={e => {
               setRootId(Number(e.target.value)); setOffset(0)
             }}>
               {roots.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}
             </select>
           </label>
         </div>
-        <DuplicatePhotoPanel roots={roots} rootId={rootId} onOpenItem={onOpenItem} />
+        <DuplicatePhotoPanel roots={roots} rootId={rootId} onOpenItem={onOpenItem}
+          isActive={isActive} guideTicket={guideTicket} onGuideFinish={onGuideFinish}
+          onGuideCancel={onGuideCancel} />
       </section>
     )
   }
@@ -370,7 +401,7 @@ export function PhotoQualityView({
                   {item.missing_slots.includes(slot) && <p className="quality-flag">缺照片</p>}
                   {item.photos.filter((photo) => (photo.display_slot ?? photo.slot) === slot).map((photo) => (
                     <div key={photo.id} className="quality-photo">
-                      <button type="button" onClick={() => setPreview(photo)} title={'放大 ' + photo.filename}>
+                      <button type="button" onClick={() => setPreview(photo.id)} title={'放大 ' + photo.filename}>
                         <img loading="lazy" src={api.thumbnailUrl(photo)} alt={photo.filename} />
                       </button>
                       <small title={photo.filename}>{photo.filename}</small>
@@ -409,16 +440,8 @@ export function PhotoQualityView({
         <span>{gallery?.total ? offset + 1 : 0}–{Math.min(offset + 40, gallery?.total ?? 0)}／{gallery?.total ?? 0}</span>
         <button type="button" disabled={offset + 40 >= (gallery?.total ?? 0)} onClick={() => setOffset(offset + 40)}>下一頁</button>
       </div>
-      {preview && <div className="preview-backdrop" role="presentation"
-        onClick={() => setPreview(null)}>
-        <section role="dialog" aria-modal="true" aria-label="照片品質檢查原圖預覽"
-          className="prompt-dialog quality-preview" onClick={(e) => e.stopPropagation()}>
-          <button type="button" onClick={() => setPreview(null)}>關閉</button>
-          <h3>{preview.filename}</h3>
-          <img src={api.photoUrl(preview)} alt={preview.filename} />
-          <p>{preview.reason || '尚未掃描'} · 分數 {preview.score ?? '—'}</p>
-        </section>
-      </div>}
+      <InspectorImageViewer images={qualityImages} activeId={visiblePreviewId}
+        onSelect={setPreview} onClose={() => setPreview(null)} />
     </section>
   )
 }

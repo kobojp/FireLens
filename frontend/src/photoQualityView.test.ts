@@ -65,8 +65,9 @@ describe('M18 photo quality page decisions', () => {
   it('renders fixed image slots, responsive card gallery and accessible original preview', () => {
     expect(view).toContain('item.slots.map((slot)')
     expect(view).toContain('display_slot ?? photo.slot')
-    expect(view).toContain('preview &&')
-    expect(view).toContain('api.photoUrl(preview)')
+    expect(view).toContain('<InspectorImageViewer images={qualityImages}')
+    expect(view).toContain('src: api.photoUrl(photo)')
+    expect(view).toContain('onClick={() => setPreview(photo.id)}')
     expect(css).toContain('.quality-gallery')
     expect(css).toContain('.quality-slots')
     expect(view).toContain('上一頁')

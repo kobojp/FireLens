@@ -110,9 +110,9 @@ export type DuplicateJob = {
   cancel?: boolean
 }
 export type DuplicateErrorInfo = {
-  code: 'duplicate_photo'
+  code: 'duplicate_photo' | 'duplicate_index_required'
   message: string
-  matches: DuplicatePhotoRecord[]
+  matches?: DuplicatePhotoRecord[]
 }
 
 export type QualityJob = {

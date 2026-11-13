@@ -1,8 +1,19 @@
 # 滅火器燈具照片管理系統 任務文件
 
-狀態：**M18 照片品質檢查已開發並通過合成測試與 Windows 打包，待實際 Windows UI／現場影像門檻校準；M17 與其他歷史功能仍有部分實機驗收項目**。目前版本 v1.10.1（M19-D／M19-E PATCH 開發版，包含頁面狀態保留及貼上加速，尚未正式發佈）；歷史 Release v1.10.0 已於 2026-11-13 由 GitHub Actions 正式發布（真實 WebView2／Google Drive 操作仍待實機驗收）；歷史 v1.9.0 已於 2026-11-12 由 GitHub Actions 正式發布為 Release（實機仍需驗收）；歷史 v1.8.0 已於 2026-11-08 由 GitHub Actions 正式發布。開發前還原點：Git commit 0f9bc7d / backup/pre-m17-20261107。歷史 v1.7.0 已正式發布至 GitHub Release。歷史 v1.6.0 與 v1.5.0 已正式發布至 GitHub Release。
+狀態：**M18 照片品質檢查已開發並通過合成測試與 Windows 打包，待實際 Windows UI／現場影像門檻校準；M17 與其他歷史功能仍有部分實機驗收項目**。目前版本 v1.11.0（M19-D／M19-E／M19-F MINOR 開發版，包含頁面狀態保留、貼上加速、大圖預覽與引導掃描，尚未正式發佈；歷史 v1.10.1 僅為未發布開發版）；歷史 Release v1.10.0 已於 2026-11-13 由 GitHub Actions 正式發布（真實 WebView2／Google Drive 操作仍待實機驗收）；歷史 v1.9.0 已於 2026-11-12 由 GitHub Actions 正式發布為 Release（實機仍需驗收）；歷史 v1.8.0 已於 2026-11-08 由 GitHub Actions 正式發布。開發前還原點：Git commit 0f9bc7d / backup/pre-m17-20261107。歷史 v1.7.0 已正式發布至 GitHub Release。歷史 v1.6.0 與 v1.5.0 已正式發布至 GitHub Release。
 M14 歷史開發版本：v1.6.0。
 M15 歷史開發版本：v1.6.1（PATCH，修正線上更新器實機失敗）。
+
+## M19-F 照片品質大圖預覽與重複掃描導覽（2026-11-13，合成測試與 Windows 打包完成，實機待驗收）
+
+**修正前問題／目標**：原本「照片品質檢查 → 重複圖片」的預覽採小型白底 `prompt-dialog quality-preview`，與照片牆深色大圖可縮放預覽不一致，難以辨識瓶身標籤；也缺乏上一張／下一張連續檢視。貼上照片遇到 `photo_fingerprint` 索引不完整時，後端雖透過 HTTP 409 拒絕未經驗證的寫入，前端卻只顯示一般錯誤，使用者不知道需要前往「照片品質檢查 → 重複圖片 → 開始重複掃描」。本任務明確改善可發現性及操作效率，**不把手動掃描變成貼上時自動全庫掃描、不跳過跨設備重複安全檢查**。
+
+- [x] **統一大圖檢視器**：在照片品質檢查的「品質圖片」與「重複圖片」清單，改用可共用的照片牆風格全螢幕深色 Modal（依視窗高度自適應），預設按 contain 顯示完整原圖、可調百分比縮放與捲動查看細節；上方顯示照片名稱及工具列，提供上一張／下一張按鈕、目前序號及關閉；支援鍵盤 ← →、Escape、合理的焦點管理／背景禁止捲動、窄視窗與深色／淺色主題可讀。上下張僅在**目前已載入清單**中依可見順序切換，不跨頁私自拉取所有原圖，也不修改圖片。保留設備編碼、槽位、相對路徑、原因及原始內容 URL；無有效圖片或失去篩選結果時安全關閉／重設。
+- [x] **索引未完成的貼上引導**：針對後端的 `DuplicateIndexRequired` 產生穩定可辨識的 HTTP 409 結構 `code=duplicate_index_required`（不影響 `duplicate_photo` 既有二次確認），前端任何新增照片／拖曳／Ctrl+V／LINE 圖片匯入遇此情形顯示明確中文原因與「前往重複掃描」單一主要操作。保留當前目錄與待上傳照片的安全暫存狀態（至少不誤稱已儲存）；啟動互動式新手引導，定位「照片品質檢查」→「重複圖片」→「開始重複掃描（增量預設）」及完成狀態，明確提示掃描成功後回來重新貼上；可關閉／跳過與重試，不要每次無條件干擾已完成索引的正常貼上，不可自動執行大規模雜湊／下載 Drive 佔位。
+- [x] **可靠性與回歸**：補足 HTTP 409 API 模式、正常重複警告、索引未建立／大量照片、離線根目錄、切 Root、掃描失敗或取消後操作的合成後端測試；新增前端大圖切換、縮放、鍵盤互動、條件切換與導覽步驟的測試，並實際執行 pytest／Vitest／Ruff check／format／TypeScript＋Vite／版本一致性與 Windows EXE＋繁中 installer 打包、portable/installer 自動更新 E2E。此 UI 大圖切換與引導屬新增能力，依 SemVer 將歷史未發布的 v1.10.1 PATCH 基線統一提升為 v1.11.0 MINOR 開發版；未獲授權不得推送 GitHub、Tag、Release。
+- [ ] **Windows WebView2／真實 Drive UI 驗收**：使用授權測試圖片，在品質清單與重複清單操作縮放、上一張／下一張、鍵盤、不同尺寸；以索引不完整的測試 root 貼圖、依引導完成手動掃描，再返回貼圖成功或出現真正重複衝突，並檢查原始圖片與資料庫未意外變更。合成測試與打包不代表實機驗收，未親自看到結果維持 [ ]。
+
+**M19-F 本輪自動驗證（2026-11-13，Windows 11）**：先依規則先寫 `TASKS.md` 並重新讀取確認，後續完成共享 `frontend/src/InspectorImageViewer.tsx`、品質與重複清單的已載入可見圖上一張／下一張、50%～400% 大圖縮放、鍵盤方向鍵／Escape、焦點與捲動鎖定恢復（包含保留背景元件 `isActive` 切頁清理）、窄視窗及暗色版面。貼圖由 `backend/app/storage.py` `DuplicateIndexConflict` → `backend/app/main.py` HTTP 409 `duplicate_index_required` → `frontend/src/App.tsx` 原始 File 記憶體暫存／三步教學／`DuplicatePhotoPanel.tsx` 高亮**人工觸發**的「開始重複掃描」，掃描成功返回原設備重試，沒有在貼圖時自動大規模掃描；真正 `duplicate_photo` 比對／二次確認保留。新增 `tests/test_m19_guided_scan.py` **2 passed**（合成未建指紋→409→手動增量掃描→成功再貼，以及已有重複仍 409），`frontend/src/inspectorGuide.test.tsx` **7 passed**（鍵盤／縮放控制、來源順序與邊界、互動引導、API 區分、隱藏頁面清理）；更新兩份既有前端檢查。完整 `uv run --locked pytest -q` **234 passed**（既有 1 項 Starlette 警告）；`npm run test -- --run` **96 passed（24 個測試檔）**；`uv run --locked ruff check .` 全通過、`uv run --locked ruff format --check .` **84 files** 通過、`npm run build` TypeScript＋Vite 通過；`uv run --locked python packaging/check_version_consistency.py` **v1.11.0 一致**。Graphify `graphify.watch._rebuild_code(Path.cwd())` 已重建並驗證 `graphify-out/graph.json`、`graphify-out/GRAPH_REPORT.md`，1,148 nodes／3,040 edges／75 communities，產物不提交。最新／最終 `powershell -NoProfile -ExecutionPolicy Bypass -File packaging/build.ps1` **Exit Code 0**；`dist/FireLens.exe`、`dist/installer/FireLens-1.11.0-setup.exe` 實際建置成功、繁中 Inno Setup Verification successful、**portable／installer、READY／HEALTHY、rollback、injected failures 更新器 E2E passed**；最終本機 Setup SHA-256 `A6E36F8AC740A8F612447E7B9DA270D446E8384C4840631617C2C27F3331B2EC`。真實 Windows WebView2／Google Drive 人工大圖操作、貼圖導覽及原圖資料驗收尚未執行，另保留 [ ]；本輪未推送、Tag 或發布 Release。
 
 ## M19-E 貼上照片效能優化：SQLite 快速比對與非阻塞更新（2026-11-13，使用者已授權）
 
