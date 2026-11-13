@@ -1,6 +1,6 @@
 # FireLens
 
-**最新正式版本：v1.10.0（2026-11-13 已發布）**。下載繁體中文 Windows 安裝版、免安裝版與已簽署的自動更新清單：<https://github.com/kobojp/FireLens/releases/tag/v1.10.0>。M19 跨設備照片重複檢查已通過合成測試與 Windows 打包，真實 Google Drive／WebView2 操作仍待實機驗收。
+**最新已發布 Release：v1.10.0（2026-11-13）**；目前 v1.10.1 為未發布的 PATCH 開發版。下載繁體中文 Windows 安裝版、免安裝版與已簽署的自動更新清單：<https://github.com/kobojp/FireLens/releases/tag/v1.10.0>。M19 跨設備照片重複檢查已通過合成測試與 Windows 打包，真實 Google Drive／WebView2 操作仍待實機驗收。
 
 FireLens 是一套以 Windows 桌面環境為主的消防設備照片管理工具，協助整理滅火器、放置盒與燈具更換照片，並搭配 Excel／文字清冊進行核對、補拍與命名整理。
 
@@ -68,6 +68,10 @@ Windows DPAPI 將 Client Secret 以目前使用者身分加密到 LocalAppData �
 新版 FireLens 對 OAuth 授權碼交換的 Google HTTP 400 錯誤，會以**白名單錯誤代碼**顯示具體原因，且不呈現授權碼、Token、Google 私人回應或 `error_description`。如 `invalid_grant` 先重新登入（可能與授權碼逾時、重複兌換、PKCE 或回呼不一致有關），`invalid_client` 檢查 Desktop OAuth Client ID，`invalid_request` 檢查授權碼交換參數，`invalid_scope` 檢查 Google Cloud 資料存取權限。回呼瀏覽器的錯誤畫面也會顯示不含敏感資訊的原因，請只提供安全錯誤代碼或截圖，**不要提供瀏覽器地址列的完整授權碼與 state**。
 
 **狀態：** v1.8.0 已正式發布至 GitHub Releases；OAuth／API 已通過合成測試，**尚未**經使用者 Windows 真實 Google 帳號與私人資料夾完整驗收，不得將發版視為該項實機驗收通過。
+
+## 返回照片牆後保留查詢（v1.10.1 PATCH 開發版）
+
+開啟「照片品質檢查」（含重複圖片）或「清冊核對」後，會在**同一次 FireLens 執行期間**保留目前選擇的根目錄、搜尋條件、過濾、頁碼、已載入查詢結果與清冊草稿。點「前往照片牆」查看設備，或暫時切換到其他主功能標籤，返回後不必重新開始查詢。從未打開過的頁面不提前載入；隱藏頁面無法被鍵盤聚焦。真正關閉 FireLens 再啟動不保證恢復暫存工作狀態。Windows WebView2 的操作還需實機驗收。
 
 ## 根目錄自動發現與重複照片提醒（v1.10.0 正式 Release）
 
@@ -249,11 +253,11 @@ FireLens 將照片磁碟內容視為真相來源；掃描功能只建立索引�
 ## 發行版
 
 Windows 可執行檔請從 GitHub Releases 下載。Release binary 不直接提交進 Git 歷史。
-GitHub Actions 會監聽 `v*` 標籤。建立正式版本前，`packaging/check_version_consistency.py` 會核對應用程式、套件、前端、TASKS 與發版文件的版本一致性；任一處不一致就停止 build／Release。確認通過後再推送 Tag：
+GitHub Actions 會監聽 `v*` 標籤。建立正式版本前，`packaging/check_version_consistency.py` 會核對應用程式、套件、前端、TASKS 與發版文件的版本一致性；任一處不一致就停止 build／Release。版本確認通過後才可推送 Tag；以下是下一個 v1.10.1 開發版**未執行**的發版範例：
 
 ```powershell
-git tag v1.10.0
-git push origin v1.10.0
+git tag v1.10.1
+git push origin v1.10.1
 ```
 
 工作流程會在 `windows-latest` 上自動執行完整測試與 PyInstaller 打包、執行 `FireLens.exe --self-test`，接著建立 GitHub Release 並上傳：

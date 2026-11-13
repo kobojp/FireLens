@@ -13,6 +13,7 @@ import type { TreeCreatePath } from './TreeView'
 import { ReconcileView } from './ReconcileView'
 import { OrganizerView } from './OrganizerView'
 import { PhotoQualityView } from './PhotoQualityView'
+import { RetainedView, initialVisitedTabs, withVisitedTab } from './RetainedView'
 import { SettingsView } from './SettingsView'
 import { PublicSheetsView } from './PublicSheetsView'
 import { StatisticsView } from './StatisticsView'
@@ -335,6 +336,10 @@ export default function App() {
   const [issueSelection, setIssueSelection] = useState<number | null>(null)
   const [zoom, setZoom] = useState(1)
   const [view, setView] = useState<'browse' | 'reconcile' | 'statistics' | 'organizer' | 'quality' | 'settings' | 'publicSheets'>('browse')
+  const [visitedTabs, setVisitedTabs] = useState(initialVisitedTabs)
+  useEffect(() => {
+    setVisitedTabs((previous) => withVisitedTab(previous, view))
+  }, [view])
   const [rootStatusInfo, setRootStatusInfo] = useState<RootStatus | null>(null)
   const [offlineQueue, setOfflineQueue] = useState<OfflineQueueEntry[]>([])
   const [cacheMessage, setCacheMessage] = useState('')
@@ -1251,7 +1256,7 @@ export default function App() {
       <header className="topbar">
         <div>
           <strong>FireLens</strong>
-          <span>照片管理、核對與離線工作 · v{appInfo?.version ?? '1.10.0'}</span>
+          <span>照片管理、核對與離線工作 · v{appInfo?.version ?? '1.10.1'}</span>
         </div>
         <div className="root-controls">
           <label htmlFor="root-select">根目錄</label>
@@ -1801,7 +1806,7 @@ export default function App() {
       )}
         </>
       ) : view === 'reconcile' ? (
-        <ReconcileView roots={roots} defaultRootId={rootId} />
+        null // ReconcileView stays mounted in RetainedView below.
       ) : view === 'statistics' ? (
         <StatisticsView
           roots={roots}
@@ -1815,12 +1820,7 @@ export default function App() {
       ) : view === 'organizer' ? (
         <OrganizerView roots={roots} defaultRootId={rootId} />
       ) : view === 'quality' ? (
-        <PhotoQualityView roots={roots} defaultRootId={rootId}
-          onOpenItem={(nextRootId, itemId) => {
-            pendingStatsNavigation.current = { rootId: nextRootId, itemId }
-            setRootId(nextRootId)
-            setView('browse')
-          }} />
+        null // PhotoQualityView stays mounted in RetainedView below.
       ) : view === 'publicSheets' ? (
         <PublicSheetsView />
       ) : (
@@ -1837,6 +1837,22 @@ export default function App() {
             if (selected?.id !== undefined) setItem(await api.item(selected.id))
           }}
         />
+      )}
+
+      {(visitedTabs.reconcile || view === 'reconcile') && (
+        <RetainedView visible={view === 'reconcile'}>
+          <ReconcileView roots={roots} defaultRootId={rootId} />
+        </RetainedView>
+      )}
+      {(visitedTabs.quality || view === 'quality') && (
+        <RetainedView visible={view === 'quality'}>
+          <PhotoQualityView roots={roots} defaultRootId={rootId}
+            onOpenItem={(nextRootId, itemId) => {
+              pendingStatsNavigation.current = { rootId: nextRootId, itemId }
+              setRootId(nextRootId)
+              setView('browse')
+            }} />
+        </RetainedView>
       )}
 
       {treeCreatePath && (
