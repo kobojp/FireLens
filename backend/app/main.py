@@ -1141,7 +1141,7 @@ def create_app() -> FastAPI:
                 result["offline_queue_entry"] = queued
                 return result
             try:
-                import_photo(
+                imported = import_photo(
                     conn,
                     item_id,
                     slot,
@@ -1165,6 +1165,7 @@ def create_app() -> FastAPI:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
             result = _item_detail(conn, item_id)
             result["offline_queued"] = False
+            result["import_timing_ms"] = imported["timing_ms"]
             return result
 
     @app.get("/api/photos/{photo_id}/content")

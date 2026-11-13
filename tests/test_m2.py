@@ -158,6 +158,11 @@ def test_box_slot_uses_incrementing_names(monkeypatch, tmp_path: Path, sample_so
         )
         assert first.status_code == 200
         assert second.status_code == 409
+        timings = first.json()["import_timing_ms"]
+        assert timings["total"] >= timings["duplicate_check"]
+        assert timings["prepare_hash"] >= 0
+        assert timings["write_verify"] >= 0
+
         assert "相同圖片已存在" in second.json()["detail"]["message"]
         assert second.json()["detail"]["matches"][0]["item_id"] == item_id
         approved = client.post(

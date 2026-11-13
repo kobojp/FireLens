@@ -1,8 +1,20 @@
 # 滅火器燈具照片管理系統 任務文件
 
-狀態：**M18 照片品質檢查已開發並通過合成測試與 Windows 打包，待實際 Windows UI／現場影像門檻校準；M17 與其他歷史功能仍有部分實機驗收項目**。目前版本 v1.10.1（M19-D PATCH 開發版，修正工作頁返回重置問題，尚未正式發佈）；歷史 Release v1.10.0 已於 2026-11-13 由 GitHub Actions 正式發布（真實 WebView2／Google Drive 操作仍待實機驗收）；歷史 v1.9.0 已於 2026-11-12 由 GitHub Actions 正式發布為 Release（實機仍需驗收）；歷史 v1.8.0 已於 2026-11-08 由 GitHub Actions 正式發布。開發前還原點：Git commit 0f9bc7d / backup/pre-m17-20261107。歷史 v1.7.0 已正式發布至 GitHub Release。歷史 v1.6.0 與 v1.5.0 已正式發布至 GitHub Release。
+狀態：**M18 照片品質檢查已開發並通過合成測試與 Windows 打包，待實際 Windows UI／現場影像門檻校準；M17 與其他歷史功能仍有部分實機驗收項目**。目前版本 v1.10.1（M19-D／M19-E PATCH 開發版，包含頁面狀態保留及貼上加速，尚未正式發佈）；歷史 Release v1.10.0 已於 2026-11-13 由 GitHub Actions 正式發布（真實 WebView2／Google Drive 操作仍待實機驗收）；歷史 v1.9.0 已於 2026-11-12 由 GitHub Actions 正式發布為 Release（實機仍需驗收）；歷史 v1.8.0 已於 2026-11-08 由 GitHub Actions 正式發布。開發前還原點：Git commit 0f9bc7d / backup/pre-m17-20261107。歷史 v1.7.0 已正式發布至 GitHub Release。歷史 v1.6.0 與 v1.5.0 已正式發布至 GitHub Release。
 M14 歷史開發版本：v1.6.0。
 M15 歷史開發版本：v1.6.1（PATCH，修正線上更新器實機失敗）。
+
+## M19-E 貼上照片效能優化：SQLite 快速比對與非阻塞更新（2026-11-13，使用者已授權）
+
+**修正前實際瓶頸**：原本每次 `import_photo()` → `preflight()` → `index_photos()` 會對整個 root 的每一張 `photo` 呼叫 `_safe_stat()`（即使已有快取）、再 `find_duplicates()` 全表查詢及掃描，Google Drive 虛擬磁碟尤其慢；前端 `upload()` 成功後串行等待 `refreshTree` + `refreshCacheState`，另外桌面剪貼簿會重新編碼 PNG＋Base64，儲存端重複計算 SHA-256。目標不犧牲跨設備完全相同提醒與文件安全，讓已完整索引 root 的單張加入不再做全 root 的檔案狀態檢查，並以實測合成資料比較快路徑延遲。
+
+- [x] **SQLite O(log N) 重複查詢**：`preflight()` 改為先在 SQLite 以 `root_id + sha256` 現有 `idx_photo_fingerprint_digest` index 查詢**可能相同**的來源照片，只有命中才對候選檔執行 `_safe_stat()`／SHA-256 二次驗證。不得每張貼上全表 `_photos()`、逐一 `lstat()` 或讀取所有照片。不改變來源格式與 HTTP 409 `duplicate_photo`、仍要儲存明確確認、重新命名／覆蓋／替換邏輯及 root/exclusion/path validation；新增 SQLite explain query plan 測試。
+- [x] **完整度與增量索引可靠性**：先用 SQLite 輕量 SQL 查 root 目前資料表是否有未索引、演算法／size／mtime 失效照片；不能將索引未完整視為「無重複」。未初始化／小型索引可限量初次自動補建一次，其他情境明示手動掃描必要，且不因檢查而自動下載 Google Drive placeholder。新圖安全寫入／換圖成功後即更新當張 `photo_fingerprint`，刪除／其他入口更新需防止舊指紋造成誤報；可保留背景「手動增量／完整掃描」負責總管直接複製與跨程式修改的照片。離線佇列依原規則重複預檢，失敗時不靜默寫入。
+- [x] **縮短照片匯入與 UI 等待**：診斷剪貼簿 PNG／Base64 與 `_save_stage`、`fsync`／`sha256_file` 重新讀取成本，只消除可證明多餘的運算，不得刪掉必要寫入後驗證、原子性與 rollback。貼上成功後先更新目前設備及結束 busy，根目錄資料樹與快取狀態非同步更新且不得被下一次選設備／切 root 時的舊請求覆蓋；確保離線佇列顯示正確及背景錯誤處理。加入使用者可在診斷中看到的逐階段毫秒計時（例如圖片轉換、預檢 SQL、候選驗證、寫入、UI 補刷新），預設不在 console 洩漏照片資料／路徑或敏感 token。
+- [x] **自動化及合成效能實測**：用合成 SQLite＋照片執行無重複／跨設備重複／候選內容不同／同檔名不同內容／index 未完成與損壞／手動重掃／Google Drive 離線與排除資料夾／加入、替換、刪除、離線佇列完整回歸；測試以 monkeypatch 保證**已有索引**貼上時 `_safe_stat` 僅針對命中候選且 `index_photos` 不重掃；對數千張合成索引在 Windows 11 比較前後耗時，記錄測試環境、樣本量、相對及絕對數據，不得虛報「1 秒內」。完整 `pytest`／Vitest／Ruff／format／Vite／版本檢查／Windows EXE/setup＋packaged E2E；同步 AGENTS／README／TASKS。此開發仍屬尚未正式 Release 的 v1.10.1 PATCH，若功能變更需另判 SemVer，不自行 push/tag/release。
+- [ ] **真實 Windows／Google Drive 驗收**：在授權測試副本用 100／1,000／10,000 張圖片、LINE 剪貼簿、WebView2、雲端佔位與離線同步實測貼上到完成的秒數；合成 benchmark 不取代這項驗收，禁止對現場照片動破壞性測試。
+
+**M19-E 實際自動驗證（2026-11-13，Windows 11）**： `uv run --locked pytest -q` **232 passed**（1 項既有 Starlette 警告）； `npm run test -- --run` **89 passed**（23 個測試檔）； `uv run --locked ruff check .`、`uv run --locked ruff format --check .`（83 files）、 `npm run build` TypeScript/Vite、`uv run --locked python packaging/check_version_consistency.py` v1.10.1 均通過。 新增 `tests/test_m19_fast_paste.py` 4 項，驗證完整索引時不逐張 stat／hash、不呼叫全庫索引、命中才核實、首次少量索引及新增／刪除立即維護指紋、候選不安全時阻擋； SQLite `EXPLAIN QUERY PLAN` 確認 `idx_photo_fingerprint_digest`、`idx_photo_relative_path` 雙索引。 另新增 `frontend/src/fastPaste.test.ts` 4 項，測非阻塞背景刷新、避免過期根目錄覆寫、時序診斷及無損剪貼簿 PNG；API 與透明 RGBA 回歸亦通過。 **合成效能實測**：同一 Windows 11，4,002 筆索引新版無命中中位數約 **3.1～5.0 ms**；舊式逐張檔案 metadata 巡查的本機近似測試中位數約 **739～1,086 ms**。 此為合成 SQLite／本機檔案 metadata 路徑比較，部分舊式巡查目標不存在，**不是** v1.10.0 完整貼上時間，也不代表真實 Google Drive／LINE 已測出這種速度。 Graphify `_rebuild_code` 已重建（1,134 nodes／2,984 edges／73 communities），`graphify-out` 未加入 Git。 Windows `powershell -NoProfile -ExecutionPolicy Bypass -File packaging/build.ps1` **Exit Code 0**，`dist/FireLens.exe`、`dist/installer/FireLens-1.10.1-setup.exe` 建置完成，繁中 Inno Setup 驗證成功； 打包後 portable／installer 更新器 READY／HEALTHY、rollback、故障注入 E2E 全通過。 安裝包 SHA-256：`DAC5A3F95AE1A982EDCBC62C0B79148397EC301F0E68653E688A6DAB531F6F4E`。 真實 Windows WebView2、Google Drive 大型同步目錄與 LINE 剪貼簿貼上延遲仍未實機測量，保留 [ ]。
 
 ## M19-D「前往照片牆」後返回原工作頁保留查詢（2026-11-13，使用者實機回報）
 

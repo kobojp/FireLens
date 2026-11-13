@@ -74,7 +74,7 @@ def test_v10_single_photo_upgrade_preserves_photo_files_and_rows(tmp_path: Path)
     initialize_database(db_path)
     upgraded = connect(db_path)
     try:
-        assert upgraded.execute("PRAGMA user_version").fetchone()[0] == 12
+        assert upgraded.execute("PRAGMA user_version").fetchone()[0] == 13
         slots = json.loads(
             upgraded.execute(
                 "SELECT slots_json FROM category WHERE code=?",

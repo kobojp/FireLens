@@ -18,6 +18,15 @@ def test_clipboard_bridge_png_payload_does_not_touch_disk(monkeypatch):
     assert result is not None and result["mime"] == "image/png"
     with Image.open(io.BytesIO(base64.b64decode(result["base64"]))) as result_image:
         assert result_image.size == source.size
+        assert result_image.convert("RGB").getpixel((2, 3)) == source.getpixel((2, 3))
+
+
+def test_clipboard_bridge_preserves_transparency():
+    source = Image.new("RGBA", (4, 3), (30, 80, 150, 42))
+    payload = clipboard.clipboard_image_payload(source)
+    assert payload is not None and payload["mime"] == "image/png"
+    with Image.open(io.BytesIO(base64.b64decode(payload["base64"]))) as actual:
+        assert actual.convert("RGBA").getpixel((0, 0)) == (30, 80, 150, 42)
 
 
 def test_clipboard_bridge_skips_files_and_empty_clipboard(monkeypatch):

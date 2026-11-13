@@ -25,6 +25,8 @@ ALGORITHM = "sha256-1"
 MAX_HASH_BYTES = 100 * 1024 * 1024
 AUTO_HASH_LIMIT = 128
 AUTO_BYTES_LIMIT = 64 * 1024 * 1024
+AUTO_BOOTSTRAP_LIMIT = 8
+AUTO_BOOTSTRAP_BYTES = 8 * 1024 * 1024
 _LOCK = threading.Lock()
 _JOBS: dict[int, dict] = {}
 
@@ -229,6 +231,96 @@ def _upsert(conn: sqlite3.Connection, rows: list[tuple]) -> None:
         )
 
 
+def _excluded_filter(conn: sqlite3.Connection, alias: str = "p") -> tuple[str, list[str]]:
+    """Keep excluded top-level folders outside both completeness and match checks."""
+    excluded = sorted(excluded_root_folders(conn))
+    if not excluded:
+        return "", []
+    placeholders = ",".join("?" for _ in excluded)
+    first = f"lower(substr({alias}.relative_path, 1, instr({alias}.relative_path, '/') - 1))"
+    return f" AND {first} NOT IN ({placeholders})", excluded
+
+
+def _missing_index_rows(
+    conn: sqlite3.Connection,
+    root_id: int,
+    *,
+    limit: int,
+) -> list[dict]:
+    clause, exclusions = _excluded_filter(conn)
+    return [
+        dict(row)
+        for row in conn.execute(
+            f"""
+            SELECT p.relative_path,p.size_bytes,p.mtime_ns
+              FROM item i JOIN photo p ON p.item_id=i.id
+              LEFT JOIN photo_fingerprint f
+                ON f.root_id=i.root_id AND f.relative_path=p.relative_path
+             WHERE i.root_id=? AND p.cloud_placeholder=0
+               AND (f.sha256 IS NULL OR f.algorithm!=?
+                    OR f.size_bytes!=p.size_bytes OR f.mtime_ns!=p.mtime_ns)
+               {clause}
+             LIMIT ?
+            """,
+            (root_id, ALGORITHM, *exclusions, limit),
+        )
+    ]
+
+
+def _index_missing_small(
+    conn: sqlite3.Connection,
+    root_id: int,
+    missing: list[dict],
+) -> None:
+    """On-demand bootstrap hashes only missing photos, never all cached files."""
+    root = _root(conn, root_id)
+    rows = []
+    for photo in missing:
+        checked = _safe_stat(root, str(photo["relative_path"]))
+        if checked is None:
+            raise DuplicateIndexRequired(
+                "有圖片尚未同步或無法安全讀取，請到照片品質檢查執行手動重複掃描"
+            )
+        path, info = checked
+        if info.st_size != photo["size_bytes"] or info.st_mtime_ns != photo["mtime_ns"]:
+            raise DuplicateIndexRequired("照片索引已變動，請先執行手動重複掃描")
+        digest = _hash_checked(path, info.st_size, info.st_mtime_ns)
+        if digest is None:
+            raise DuplicateIndexRequired("照片讀取期間已變動，請先執行手動重複掃描")
+        rows.append(
+            (root_id, photo["relative_path"], info.st_size, info.st_mtime_ns, ALGORITHM, digest)
+        )
+    if rows:
+        _upsert(conn, rows)
+
+
+def index_imported_photo(
+    conn: sqlite3.Connection,
+    root_id: int,
+    relative: str,
+    expected_digest: str,
+) -> None:
+    """Write the verified import's fingerprint immediately; no disk-wide recheck."""
+    root = _root(conn, root_id)
+    photo = conn.execute(
+        """SELECT p.relative_path,p.size_bytes,p.mtime_ns,p.cloud_placeholder
+           FROM photo p JOIN item i ON i.id=p.item_id
+           WHERE i.root_id=? AND p.relative_path=?""",
+        (root_id, relative),
+    ).fetchone()
+    if photo is None or photo["cloud_placeholder"]:
+        raise DuplicateIndexRequired("匯入後照片索引不存在或尚未同步")
+    checked = _safe_stat(root, relative)
+    if checked is None:
+        raise DuplicateIndexRequired("匯入後檔案無法安全讀取")
+    path, info = checked
+    if info.st_size != photo["size_bytes"] or info.st_mtime_ns != photo["mtime_ns"]:
+        raise DuplicateIndexRequired("匯入後檔案狀態已變更")
+    # The installed bytes have already passed _install_new/_replace_atomic
+    # and the final disk SHA-256 check in storage.import_photo.
+    _upsert(conn, [(root_id, relative, info.st_size, info.st_mtime_ns, ALGORITHM, expected_digest)])
+
+
 def find_duplicates(
     conn: sqlite3.Connection,
     root_id: int,
@@ -236,37 +328,52 @@ def find_duplicates(
     *,
     exclude_relative: str = "",
 ) -> list[dict]:
-    """Confirm matched local bytes before reporting any duplicate."""
+    """Indexed SQLite digest lookup; read ONLY genuine digest candidates."""
     root = _root(conn, root_id)
+    clause, exclusions = _excluded_filter(conn)
+    rows = conn.execute(
+        f"""
+        SELECT p.id AS photo_id,p.item_id,p.relative_path,p.filename,p.slot,
+               p.size_bytes,p.mtime_ns,i.code,i.year,i.period,i.building,
+               c.name AS category,c.code AS category_code
+          FROM photo_fingerprint f INDEXED BY idx_photo_fingerprint_digest
+          JOIN photo p INDEXED BY idx_photo_relative_path ON p.relative_path=f.relative_path
+          JOIN item i ON i.id=p.item_id AND i.root_id=f.root_id
+          JOIN category c ON c.id=i.category_id
+         WHERE f.root_id=? AND f.sha256=? AND f.algorithm=?
+           AND f.size_bytes=p.size_bytes AND f.mtime_ns=p.mtime_ns
+           AND p.cloud_placeholder=0 AND p.relative_path!=?
+           {clause}
+         ORDER BY p.id
+        """,
+        (root_id, digest, ALGORITHM, exclude_relative, *exclusions),
+    ).fetchall()
     results = []
-    for row in _photos(conn, root_id):
-        if not _valid_cache(row) or row["sha256"] != digest:
-            continue
-        if row["relative_path"] == exclude_relative:
-            continue
-        local = _safe_stat(root, row["relative_path"])
+    for row in rows:
+        local = _safe_stat(root, str(row["relative_path"]))
         if local is None:
-            continue
+            raise DuplicateIndexRequired("命中照片無法安全讀取，請完成同步後再檢查")
         path, info = local
         if info.st_size != row["size_bytes"] or info.st_mtime_ns != row["mtime_ns"]:
-            continue
-        if _hash_checked(path, info.st_size, info.st_mtime_ns) == digest:
-            results.append(
-                {
-                    "photo_id": row["id"],
-                    "item_id": row["item_id"],
-                    "filename": row["filename"],
-                    "relative_path": row["relative_path"],
-                    "category": row["category"],
-                    "category_code": row["category_code"],
-                    "code": row["code"],
-                    "year": row["year"],
-                    "period": row["period"],
-                    "building": row["building"],
-                    "slot": row["slot"],
-                    "mtime_ns": row["mtime_ns"],
-                }
-            )
+            raise DuplicateIndexRequired("命中照片在外部被修改，請執行手動重複掃描")
+        if _hash_checked(path, info.st_size, info.st_mtime_ns) != digest:
+            raise DuplicateIndexRequired("照片索引與檔案內容不同，請重新執行重複掃描")
+        results.append(
+            {
+                "photo_id": row["photo_id"],
+                "item_id": row["item_id"],
+                "filename": row["filename"],
+                "relative_path": row["relative_path"],
+                "category": row["category"],
+                "category_code": row["category_code"],
+                "code": row["code"],
+                "year": row["year"],
+                "period": row["period"],
+                "building": row["building"],
+                "slot": row["slot"],
+                "mtime_ns": row["mtime_ns"],
+            }
+        )
     return results
 
 
@@ -275,14 +382,17 @@ def preflight(
 ) -> list[dict]:
     if job_status(root_id)["state"] == "running":
         raise DuplicateIndexRequired("重複圖片索引正在建立中，請完成後再加入照片")
-    # Small, initial roots can index automatically; large roots require a manual
-    # cancellable scan so an upload never silently spends minutes hashing photos.
-    index_photos(
-        conn,
-        root_id,
-        max_new=AUTO_HASH_LIMIT,
-        max_bytes=AUTO_BYTES_LIMIT,
-    )
+    # A SQLite metadata-only check replaces the old disk-wide cached file walk.
+    # Bootstrap only a handful of newly seen photos; otherwise require the
+    # existing explicit, cancellable duplicate scan rather than stall the paste.
+    missing = _missing_index_rows(conn, root_id, limit=AUTO_BOOTSTRAP_LIMIT + 1)
+    if (
+        len(missing) > AUTO_BOOTSTRAP_LIMIT
+        or sum(int(row["size_bytes"]) for row in missing) > AUTO_BOOTSTRAP_BYTES
+    ):
+        raise DuplicateIndexRequired("部分照片尚未建立指紋，請到照片品質檢查執行手動重複掃描")
+    if missing:
+        _index_missing_small(conn, root_id, missing)
     return find_duplicates(conn, root_id, digest, exclude_relative=exclude_relative)
 
 

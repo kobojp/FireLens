@@ -6,6 +6,7 @@ import io
 import json
 import os
 import sqlite3
+import time
 import uuid
 from contextlib import suppress
 from dataclasses import dataclass
@@ -14,7 +15,7 @@ from pathlib import Path
 from PIL import Image, ImageOps, UnidentifiedImageError
 from pillow_heif import register_heif_opener
 
-from .duplicates import DuplicateIndexRequired, preflight
+from .duplicates import DuplicateIndexRequired, index_imported_photo, preflight
 from .folder_catalog import register_building, register_period
 from .scanner import CATEGORY_DIRS, refresh_item_index, scan_root
 from .settings import custom_slots_for, excluded_root_folders
@@ -268,6 +269,8 @@ def import_photo(
     *,
     allow_duplicate: bool = False,
 ) -> dict[str, object]:
+    began_at = time.perf_counter()
+    timing_ms: dict[str, float] = {}
     context = _item_context(conn, item_id)
     if slot not in (*context.slots, *custom_slots_for(conn, context.category_code)):
         raise StorageError("指定槽位不屬於此類別")
@@ -298,8 +301,11 @@ def import_photo(
     original_hash: str | None = None
     new_installed = False
     try:
+        tick = time.perf_counter()
         _save_stage(data, source_extension, stage, output_extension)
         staged_hash = sha256_file(stage)
+        timing_ms["prepare_hash"] = round((time.perf_counter() - tick) * 1000, 1)
+        tick = time.perf_counter()
         if not allow_duplicate:
             try:
                 matches = preflight(
@@ -316,6 +322,8 @@ def import_photo(
                 raise StorageConflict(str(exc)) from exc
             if matches:
                 raise DuplicatePhotoConflict(matches)
+        timing_ms["duplicate_check"] = round((time.perf_counter() - tick) * 1000, 1)
+        tick = time.perf_counter()
         if replace_row is None:
             _install_new(stage, target, staged_hash)
             new_installed = True
@@ -324,9 +332,17 @@ def import_photo(
             backup, original_hash = _replace_atomic(stage, target, staged_hash)
             action = "replace_photo"
 
-        final_hash = sha256_file(target)
+        # _install_new and _replace_atomic already verified the installed bytes
+        # against staged_hash. Do not hash the installed file a third time.
+        final_hash = staged_hash
+        timing_ms["write_verify"] = round((time.perf_counter() - tick) * 1000, 1)
+        tick = time.perf_counter()
         target_relative = target.relative_to(context.root_path).as_posix()
         refresh_item_index(conn, item_id, {target_name: final_hash})
+        try:
+            index_imported_photo(conn, context.root_id, target_relative, final_hash)
+        except DuplicateIndexRequired as exc:
+            raise StorageError(str(exc)) from exc
         _audit(
             conn,
             action,
@@ -335,6 +351,7 @@ def import_photo(
             final_hash,
             {"item_id": item_id, "slot": slot, "filename": target_name},
         )
+        timing_ms["index_audit"] = round((time.perf_counter() - tick) * 1000, 1)
     except Exception as exc:
         if backup is not None and backup.exists():
             target.unlink(missing_ok=True)
@@ -343,6 +360,13 @@ def import_photo(
                 raise StorageError("寫入後續處理失敗，且舊照片還原驗證失敗") from exc
         elif new_installed:
             target.unlink(missing_ok=True)
+        # Invalidate any fingerprint written before an unsuccessful rollback.
+        if backup is not None or new_installed:
+            with suppress(sqlite3.Error), conn:
+                conn.execute(
+                    "DELETE FROM photo_fingerprint WHERE root_id=? AND relative_path=?",
+                    (context.root_id, target.relative_to(context.root_path).as_posix()),
+                )
         # Duplicate preflight made no disk change; do not rebuild photo IDs on 409.
         if not isinstance(exc, DuplicatePhotoConflict):
             with suppress(Exception):
@@ -359,6 +383,7 @@ def import_photo(
         "filename": target_name,
         "sha256": final_hash,
         "action": action,
+        "timing_ms": {**timing_ms, "total": round((time.perf_counter() - began_at) * 1000, 1)},
     }
 
 
@@ -397,6 +422,12 @@ def delete_photo(conn: sqlite3.Connection, photo_id: int) -> int:
         {"item_id": item_id, "photo_id": photo_id},
     )
     refresh_item_index(conn, item_id)
+    with conn:
+        conn.execute(
+            """DELETE FROM photo_fingerprint
+                WHERE root_id=(SELECT root_id FROM item WHERE id=?) AND relative_path=?""",
+            (item_id, row["relative_path"]),
+        )
     return item_id
 
 

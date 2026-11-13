@@ -349,6 +349,8 @@ export default function App() {
   const [scanJob, setScanJob] = useState<ScanJobStatus | null>(null)
   const [treeQuery, setTreeQuery] = useState('')
   const activeRootRef = useRef<number | null>(null)
+  const treeRefreshSeq = useRef(0)
+  const cacheRefreshSeq = useRef(0)
   const selectedItemIdRef = useRef<number | null>(null)
   const photoPanelRef = useRef<HTMLElement>(null)
   const pendingStatsNavigation = useRef<{ rootId: number; itemId: number } | null>(null)
@@ -448,13 +450,17 @@ export default function App() {
   }
 
   async function refreshTree(id: number) {
+    const sequence = ++treeRefreshSeq.current
     const [next, definitions] = await Promise.all([api.tree(id), api.categories()])
+    if (activeRootRef.current !== id || sequence !== treeRefreshSeq.current) return
     setNodes(next)
     setCategories(definitions)
   }
 
   async function refreshCacheState(id: number) {
+    const sequence = ++cacheRefreshSeq.current
     const [status, queue] = await Promise.all([api.rootStatus(id), api.offlineQueue(id)])
+    if (activeRootRef.current !== id || sequence !== cacheRefreshSeq.current) return
     setRootStatusInfo(status)
     setOfflineQueue(queue)
   }
@@ -737,9 +743,11 @@ export default function App() {
       return
     }
     try {
+      const readStarted = performance.now()
       const file = await readDesktopClipboardImage()
       if (!file) { setError('剪貼簿沒有可使用的圖片，請先在 LINE 複製圖片'); return }
       stageClipboardImage(slot, file)
+      setCacheMessage(`剪貼簿擷取與解碼 ${Math.round(performance.now() - readStarted)} ms；確認後才儲存。`)
     } catch (error) {
       setError(error instanceof Error ? error.message : '無法讀取剪貼簿，請嘗試 Ctrl+V')
     }
@@ -790,6 +798,8 @@ export default function App() {
 
   async function upload(slot: string, file: File, replacePhotoId?: number, allowDuplicate = false) {
     if (!item || rootId === null) return
+    const uploadRoot = rootId
+    const uploadItemId = item.id
     if (scanRunning) {
       setError('掃描進行中，請等待完成或先取消掃描再匯入照片。')
       return
@@ -797,13 +807,25 @@ export default function App() {
     setBusy(true)
     setError('')
     try {
-      const updated = await api.importPhoto(item.id, slot, file, replacePhotoId, allowDuplicate)
-      setItem(updated)
-      await refreshTree(rootId)
-      await refreshCacheState(rootId)
-      if (updated.offline_queued) {
-        setCacheMessage('根目錄目前離線；照片已安全存入本機離線工作區，重新連線後可同步。')
+      const updated = await api.importPhoto(uploadItemId, slot, file, replacePhotoId, allowDuplicate)
+      if (activeRootRef.current === uploadRoot && selectedItemIdRef.current === uploadItemId) {
+        setItem(updated)
+        if (updated.offline_queued) {
+          setCacheMessage('根目錄目前離線；照片已安全存入本機離線工作區，重新連線後可同步。')
+        } else if (updated.import_timing_ms) {
+          const t = updated.import_timing_ms
+          setCacheMessage(`照片已儲存：伺服器 ${t.total} ms（處理 ${t.prepare_hash}、重複查詢 ${t.duplicate_check}、寫入 ${t.write_verify}、索引 ${t.index_audit} ms）；清單將自動更新。`)
+        }
       }
+      // Display the uploaded photo immediately. The secondary tree/cache requests
+      // must never keep the paste spinner visible or overwrite another selected root.
+      void Promise.allSettled([refreshTree(uploadRoot), refreshCacheState(uploadRoot)])
+        .then((results) => {
+          if (activeRootRef.current !== uploadRoot) return
+          if (results.some((result) => result.status === 'rejected')) {
+            setCacheMessage('照片已安全儲存，但背景清單更新失敗，請手動重新整理。')
+          }
+        })
     } catch (err) {
       const message = err instanceof Error ? err.message : '照片匯入失敗'
       if (!allowDuplicate && (

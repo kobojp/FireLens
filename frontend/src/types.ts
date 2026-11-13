@@ -184,6 +184,7 @@ export type ItemDetail = {
   custom_slots: string[]
   filename_aliases: Record<string, string>
   photos: PhotoRecord[]
+  import_timing_ms?: { prepare_hash: number; duplicate_check: number; write_verify: number; index_audit: number; total: number }
 }
 
 export type ItemFolderRenameResult = {

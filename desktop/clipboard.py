@@ -24,7 +24,8 @@ def clipboard_image_payload(image: Image.Image | None) -> dict | None:
     if image.width * image.height > MAX_CLIPBOARD_PIXELS:
         raise ValueError("剪貼簿圖片尺寸過大，請改用加入照片")
     buffer = io.BytesIO()
-    image.save(buffer, format="PNG")
+    # Faster lossless clipboard transfer while retaining all pixels and alpha.
+    image.save(buffer, format="PNG", compress_level=1)
     data = buffer.getvalue()
     if not data or len(data) > MAX_CLIPBOARD_BYTES:
         raise ValueError("剪貼簿圖片超過 100 MB，請改用加入照片")

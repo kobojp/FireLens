@@ -79,8 +79,8 @@ def test_cross_category_exact_duplicate_and_import_prompt(tmp_path):
         assert accepted["filename"] == "中.jpg"
         assert (another / "中.jpg").read_bytes() == _jpeg_bytes("red")
         assert grouped(conn, root_id)["total"] == 1
-        # Reindex incremental recognizes the newly created photo.
-        assert index_photos(conn, root_id)["analyzed"] >= 1
+        # Optimized imports index the new photo immediately; a full metadata walk is unnecessary.
+        assert index_photos(conn, root_id)["analyzed"] == 0
         assert grouped(conn, root_id)["groups"][0]["count"] == 4
     finally:
         conn.close()
@@ -233,7 +233,7 @@ def test_large_unindexed_root_requires_manual_scan(tmp_path, monkeypatch):
 
     conn, root_id, _, source, _ = _with_cross_equipment(tmp_path)
     try:
-        monkeypatch.setattr(duplicate_module, "AUTO_HASH_LIMIT", 1)
+        monkeypatch.setattr(duplicate_module, "AUTO_BOOTSTRAP_LIMIT", 1)
         with pytest.raises(duplicate_module.DuplicateIndexRequired, match="手動重複掃描"):
             preflight(conn, root_id, sha256_file(source / "編號.jpg"))
         assert (

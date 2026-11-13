@@ -9,7 +9,7 @@ from pathlib import Path
 
 from .config import get_database_path, get_legacy_database_path
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 
 MIGRATION_1 = """
 CREATE TABLE IF NOT EXISTS category (
@@ -349,6 +349,24 @@ def _migrate_12(conn: sqlite3.Connection) -> None:
         conn.execute("PRAGMA user_version = 12")
 
 
+MIGRATION_13 = """
+CREATE INDEX IF NOT EXISTS idx_photo_relative_path
+ON photo(relative_path);
+"""
+
+
+def _migrate_13(conn: sqlite3.Connection) -> None:
+    # Some migration fixtures model earlier databases without a photo table.
+    # Production M1 always has that table, and real upgrades get the index.
+    has_photo = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='photo'"
+    ).fetchone()
+    with conn:
+        if has_photo:
+            conn.executescript(MIGRATION_13)
+        conn.execute("PRAGMA user_version = 13")
+
+
 CATEGORY_SEED = (
     (
         "extinguisher",
@@ -489,6 +507,10 @@ def initialize_database(db_path: Path | None = None) -> Path:
         if current_version < 12:
             _migrate_12(conn)
             current_version = 12
+
+        if current_version < 13:
+            _migrate_13(conn)
+            current_version = 13
 
         with conn:
             conn.executemany(
