@@ -1,0 +1,118 @@
+/* M19-I: editable, accessible per-category slot tags. */
+.slot-layout-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 425px), 1fr));
+  gap: 14px;
+  margin: 12px 0 20px;
+}
+.slot-layout-card {
+  min-width: 0;
+  padding: 17px;
+  border: 1px solid #d7dfe6;
+  border-radius: 14px;
+  background: #f9fbfd;
+  box-shadow: 0 3px 12px #18233a08;
+}
+.slot-layout-card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.slot-layout-card-head h4 { margin: 0; color: #244869; font-size: 16px; }
+.slot-unsaved { color: #b64e24; font-weight: 750; font-size: 12px; }
+.slot-chip-editor { margin-top: 14px; }
+.slot-chip-editor-heading { display: grid; gap: 4px; margin-bottom: 9px; }
+.slot-chip-editor-heading strong { font-size: 13px; color: #394d60; }
+.slot-chip-editor-heading small { font-size: 11px; color: #697c8d; }
+.slot-chip-list {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  min-height: 45px; padding: 8px;
+  border: 1px solid #dbe2e9; border-radius: 10px; background: #fff;
+}
+.slot-chip {
+  display: inline-flex; align-items: center; gap: 3px; min-width: 0;
+  max-width: 100%; padding: 4px 5px; border: 1px solid #a5c7dc;
+  border-radius: 9px; color: #1c5677; background: #eaf5fd; font-size: 12px;
+}
+.slot-chip-optional { color: #63609b; border-color: #cac5e7; background: #f1edff; }
+.slot-chip-order { color: #3b6870; border-color: #b8dbd5; background: #e7f5f2; }
+.slot-chip-grip { padding: 0 2px; color: #708aa0; font-size: 15px; cursor: grab; user-select: none; }
+.slot-chip-label { padding: 1px 3px; font-weight: 750; overflow-wrap: anywhere; }
+.slot-chip-icon {
+  border: 0; border-radius: 5px; padding: 3px 5px; min-height: 26px;
+  color: inherit; background: transparent; font-size: 16px; line-height: 1;
+  cursor: pointer;
+}
+.slot-chip-icon:hover:not(:disabled) { background: #c9dfed; }
+.slot-chip-icon:disabled { opacity: .25; cursor: not-allowed; }
+.slot-chip-remove { font-size: 19px; color: #b04c36; }
+.slot-chip-add {
+  padding: 7px 10px; border: 1px dashed #8aaac3; background: #f5faff;
+  color: #24648a; border-radius: 9px; font-size: 12px; font-weight: 750;
+}
+.slot-chip-add:disabled { opacity: .45; }
+.slot-chip-entry {
+  margin-top: 9px; display: flex; gap: 6px; align-items: center;
+  flex-wrap: wrap; padding: 9px; border: 1px solid #a9c9db; border-radius: 9px; background: #f5faff;
+}
+.slot-chip-entry label { flex: 1 1 100%; font-size: 12px; font-weight: 700; }
+.slot-chip-entry input { flex: 2 1 145px; min-width: 0; height: 36px; padding: 6px 9px; }
+.slot-chip-entry button { min-height: 35px; padding: 6px 10px; border-radius: 7px; border: 1px solid #a4b7ca; }
+.slot-chip-confirm { background: #1c669d; color: #fff; }
+.slot-chip-cancel { background: #fff; color: #435a72; }
+.slot-chip-error { flex: 1 1 100%; margin: 0; color: #b23b2a; font-size: 12px; font-weight: 700; }
+.slot-order-preview {
+  margin: 14px 0 10px; padding: 10px; border-radius: 9px;
+  color: #406474; background: #edf5f8; overflow-wrap: anywhere;
+  font-size: 12px; line-height: 1.5;
+}
+.slot-layout-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 9px; }
+.slot-layout-actions button { min-height: 37px; padding: 8px 12px; border-radius: 8px; font-weight: 750; }
+.slot-chip-icon:focus-visible, .slot-chip-add:focus-visible, .slot-chip-entry button:focus-visible,
+.slot-layout-actions button:focus-visible { outline: 3px solid #ef963b; outline-offset: 2px; }
+html[data-theme="dark"] .slot-layout-card,
+html:not([data-theme]) .slot-layout-card { background: #252b33; border-color: #455366; }
+html[data-theme="dark"] .slot-layout-card h4,
+html:not([data-theme]) .slot-layout-card h4 { color: #c8e7fb; }
+html[data-theme="dark"] .slot-chip-editor-heading strong,
+html:not([data-theme]) .slot-chip-editor-heading strong { color: #e2ebf3; }
+html[data-theme="dark"] .slot-chip-editor-heading small,
+html:not([data-theme]) .slot-chip-editor-heading small { color: #aec0cf; }
+html[data-theme="dark"] .slot-chip-list,
+html:not([data-theme]) .slot-chip-list { background: #1b2128; border-color: #4b5a6b; }
+html[data-theme="dark"] .slot-chip-required,
+html:not([data-theme]) .slot-chip-required { background: #21435a; color: #d8efff; border-color: #5285a3; }
+html[data-theme="dark"] .slot-chip-optional,
+html:not([data-theme]) .slot-chip-optional { background: #37305a; color: #ebdfff; border-color: #7666a6; }
+html[data-theme="dark"] .slot-chip-order,
+html:not([data-theme]) .slot-chip-order { background: #224b49; color: #d2fff3; border-color: #4c918a; }
+html[data-theme="dark"] .slot-chip-entry,
+html:not([data-theme]) .slot-chip-entry { background: #263849; border-color: #658ba8; }
+html[data-theme="dark"] .slot-chip-entry input,
+html:not([data-theme]) .slot-chip-entry input { background: #171e25; color: #ecf5fd; border-color: #56748b; }
+html[data-theme="dark"] .slot-chip-add,
+html:not([data-theme]) .slot-chip-add { color: #d2e9fa; background: #2b4458; border-color: #749bb7; }
+html[data-theme="dark"] .slot-order-preview,
+html:not([data-theme]) .slot-order-preview { background: #1f3b49; color: #d6edf6; }
+html[data-theme="dark"] .slot-unsaved,
+html:not([data-theme]) .slot-unsaved { color: #ffb684; }
+
+/* Automatic theme must stay light on a light OS; explicit dark remains dark. */
+@media (prefers-color-scheme: light) {
+  html:not([data-theme]) .slot-layout-card { background: #f9fbfd; border-color: #d7dfe6; }
+  html:not([data-theme]) .slot-layout-card h4 { color: #244869; }
+  html:not([data-theme]) .slot-chip-editor-heading strong { color: #394d60; }
+  html:not([data-theme]) .slot-chip-editor-heading small { color: #697c8d; }
+  html:not([data-theme]) .slot-chip-list { background: #fff; border-color: #dbe2e9; }
+  html:not([data-theme]) .slot-chip-required { color: #1c5677; background: #eaf5fd; border-color: #a5c7dc; }
+  html:not([data-theme]) .slot-chip-optional { color: #63609b; border-color: #cac5e7; background: #f1edff; }
+  html:not([data-theme]) .slot-chip-order { color: #3b6870; border-color: #b8dbd5; background: #e7f5f2; }
+  html:not([data-theme]) .slot-chip-entry { background: #f5faff; border-color: #a9c9db; }
+  html:not([data-theme]) .slot-chip-entry input { background: #fff; color: #263647; border-color: #d0d9e2; }
+  html:not([data-theme]) .slot-chip-add { padding: 7px 10px; color: #24648a; background: #f5faff; border-color: #8aaac3; }
+  html:not([data-theme]) .slot-order-preview { background: #edf5f8; color: #406474; }
+  html:not([data-theme]) .slot-unsaved { color: #b64e24; }
+}
+@media (max-width: 650px) {
+  .slot-layout-grid { grid-template-columns: minmax(0, 1fr); }
+  .slot-layout-card { padding: 12px; }
+  .slot-chip-list { gap: 6px; }
+  .slot-layout-actions { justify-content: stretch; }
+  .slot-layout-actions button { flex: 1 1 135px; }
+}

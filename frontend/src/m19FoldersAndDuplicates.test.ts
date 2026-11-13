@@ -16,7 +16,8 @@ describe('M19 dynamic folders and duplicate image confirmation UI', () => {
   it('has per-category slot editor and confirms destructive name changes', () => {
     expect(settings).toContain('saveCategorySlots')
     expect(settings).toContain('slotDrafts')
-    expect(settings).toContain('照片槽位自訂')
+    expect(settings).toContain('slot-layout-card')
+    expect(settings).toContain('SlotChipEditor')
     expect(settings).toContain('未對應照片')
     expect(settings).toContain('window.confirm')
     expect(api).toContain('confirm_unmapped')

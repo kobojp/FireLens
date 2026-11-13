@@ -291,8 +291,10 @@ def update_category_slots(
     slots: list[str],
     *,
     confirm_unmapped: bool = False,
+    slot_order: list[str] | None = None,
+    custom_slots: list[str] | None = None,
 ) -> dict[str, object]:
-    """Change slot labels without modifying a single source photo."""
+    """Atomically update one category's slot labels, order and optional slots."""
     from .scanner import _slot_for, _status_for
 
     row = conn.execute(
@@ -334,12 +336,54 @@ def update_category_slots(
     ]
     if collision:
         raise SettingsError("槽位名稱與已設定的檔名同義詞衝突，請先調整同義詞")
-    custom = [slot for slot in custom_slots_for(conn, category_code) if slot not in cleaned]
+    if slot_order is None:
+        display = cleaned
+    elif (
+        not isinstance(slot_order, list)
+        or len(slot_order) != len(cleaned)
+        or any(not isinstance(name, str) for name in slot_order)
+        or set(slot_order) != set(cleaned)
+    ):
+        raise SettingsError("槽位顯示順序必須完整包含且只能包含現有基本槽位")
+    else:
+        display = list(slot_order)
+
+    if custom_slots is None:
+        custom = [slot for slot in custom_slots_for(conn, category_code) if slot not in cleaned]
+    else:
+        if not isinstance(custom_slots, list) or len(custom_slots) > MAX_CUSTOM_SLOTS_PER_CATEGORY:
+            raise SettingsError(f"每類最多 {MAX_CUSTOM_SLOTS_PER_CATEGORY} 個自訂槽位")
+        reserved = {name.casefold() for name in [*cleaned, *aliases]}
+        seen_custom: set[str] = set()
+        custom = []
+        for raw in custom_slots:
+            if not isinstance(raw, str):
+                raise SettingsError("自訂槽位名稱必須是文字")
+            name = raw.strip()
+            if (
+                not name
+                or len(name) > MAX_CUSTOM_SLOT_LENGTH
+                or name.endswith(".")
+                or _SUFFIX_RE.search(name)
+                or any(ord(ch) < 32 or ch in _ILLEGAL_SLOT_CHARS for ch in name)
+            ):
+                raise SettingsError("自訂槽位名稱不可為空、過長或含檔名禁用字元")
+            key = name.casefold()
+            if key in reserved or key in seen_custom:
+                raise SettingsError(f"自訂槽位「{name}」與基本槽位／別名重複")
+            seen_custom.add(key)
+            custom.append(name)
+
+    # Removing an optional slot can unmap existing photos just like removing
+    # a required slot. Promotion to required is not a destructive removal.
+    removed_optional = set(custom_slots_for(conn, category_code)) - set(custom) - set(cleaned)
+    if removed_optional and not confirm_unmapped:
+        raise SettingsError("移除選填槽位可能使既有照片未對應，需再次確認")
     items = conn.execute("SELECT id FROM item WHERE category_id=?", (row["id"],)).fetchall()
     order = get_setting(conn, "slot_order", {})
     if not isinstance(order, dict):
         order = {}
-    order[category_code] = cleaned
+    order[category_code] = display
     custom_all = get_setting(conn, "custom_slots", {})
     if not isinstance(custom_all, dict):
         custom_all = {}

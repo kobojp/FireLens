@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from './api'
+import { SlotChipEditor, syncRequiredOrder, validateSlotLayout } from './SlotChipEditor'
 import {
   preparedForVersion,
   UPDATE_POLL_INTERVAL_MS,
@@ -47,6 +48,10 @@ export function SettingsView({
   const [rootDrafts, setRootDrafts] = useState<Record<number, { label: string; is_cloud_stream: boolean }>>({})
   const [aliasDrafts, setAliasDrafts] = useState<Record<string, Record<string, string>>>({})
   const [slotDrafts, setSlotDrafts] = useState<Record<string, string[]>>({})
+  const [orderDrafts, setOrderDrafts] = useState<Record<string, string[]>>({})
+  const [customDrafts, setCustomDrafts] = useState<Record<string, string[]>>({})
+  // Keep edits in OTHER categories when saving/refreshing this category.
+  const dirtyCategoryCodes = useRef(new Set<string>())
   const [aliasCategory, setAliasCategory] = useState('extinguisher')
   const [newAliasName, setNewAliasName] = useState('')
   const [newAliasSlot, setNewAliasSlot] = useState('')
@@ -90,9 +95,40 @@ export function SettingsView({
       { ...category.filename_aliases },
     ])))
   }, [categories])
-  useEffect(() => setSlotDrafts(Object.fromEntries(categories.map((category) => [
-    category.code, [...category.slots],
+  useEffect(() => setSlotDrafts(previous => Object.fromEntries(categories.map(category => [
+    category.code,
+    dirtyCategoryCodes.current.has(category.code)
+      ? previous[category.code] ?? [...category.slots] : [...category.slots],
   ]))), [categories])
+  useEffect(() => {
+    setOrderDrafts(previous => Object.fromEntries(categories.map(category => [
+      category.code,
+      dirtyCategoryCodes.current.has(category.code)
+        ? previous[category.code] ?? [...category.slots]
+        : [...(settings?.slot_order?.[category.code] ?? category.slots)],
+    ])))
+    setCustomDrafts(previous => Object.fromEntries(categories.map(category => [
+      category.code,
+      dirtyCategoryCodes.current.has(category.code)
+        ? previous[category.code] ?? []
+        : [...(settings?.custom_slots?.[category.code] ?? [])],
+    ])))
+  }, [settings, categories])
+
+  function resetCategoryLayout(code: string) {
+    const category = categories.find(entry => entry.code === code)
+    if (!category) return
+    dirtyCategoryCodes.current.delete(code)
+    setSlotDrafts(previous => ({ ...previous, [code]: [...category.slots] }))
+    setOrderDrafts(previous => ({ ...previous,
+      [code]: [...(settings?.slot_order[code] ?? category.slots)],
+    }))
+    setCustomDrafts(previous => ({ ...previous,
+      [code]: [...(settings?.custom_slots?.[code] ?? [])],
+    }))
+    setError('')
+  }
+
 
   const backupUrl = useMemo(() => api.backupUrl(), [])
   const lastUpdateFailed = appInfo?.last_update && [
@@ -127,7 +163,11 @@ export function SettingsView({
     if (!draft) return
     setBusy(true); setError(''); setMessage('')
     try {
-      const updated = await api.saveSettings(draft)
+      const latest = await api.settings()
+      // These two fields belong to per-category chip saves, not general settings.
+      const updated = await api.saveSettings({ ...draft,
+        slot_order: latest.slot_order, custom_slots: latest.custom_slots,
+      })
       onSettingsChanged(updated)
       setMessage('設定已儲存。')
     } catch (err) {
@@ -149,21 +189,29 @@ export function SettingsView({
   }
 
   async function saveCategorySlots(code: string) {
-    const category = categories.find((entry) => entry.code === code)
-    if (!category) return
+    const category = categories.find(entry => entry.code === code)
+    if (!category || busy) return
     const slots = slotDrafts[code] ?? category.slots
-    const removed = category.slots.filter((slot) => !slots.includes(slot))
-    if (removed.length && !window.confirm(
-      `確定改名或移除「${category.name}」槽位：${removed.join('、')}？\n\n原有照片不會刪除或重新命名，但檔名未對應新槽位的照片會移至「未對應照片」。`
+    const displayOrder = orderDrafts[code] ?? settings?.slot_order[code] ?? category.slots
+    const optional = customDrafts[code] ?? settings?.custom_slots?.[code] ?? []
+    const issue = validateSlotLayout(slots, displayOrder, optional, category.filename_aliases)
+    if (issue) { setError(`${category.name}：${issue}`); return }
+    const removed = category.slots.filter(slot => !slots.includes(slot))
+    const removedOptional = (settings?.custom_slots?.[code] ?? []).filter(slot => !optional.includes(slot))
+    if ((removed.length > 0 || removedOptional.length > 0) && !window.confirm(
+      `確定改名或移除「${category.name}」的槽位嗎？\n基本槽位：${removed.join('、') || '無'}\n選填槽位：${removedOptional.join('、') || '無'}\n\n可能使既有照片變成「未對應照片」。原圖與檔名不會被修改或刪除。`
     )) return
     setBusy(true); setError(''); setMessage('')
     try {
-      await api.updateCategorySlots(code, slots, removed.length > 0)
+      await api.updateCategorySlots(
+        code, slots, removed.length > 0 || removedOptional.length > 0, displayOrder, optional,
+      )
+      dirtyCategoryCodes.current.delete(code)
       await onCategoriesChanged()
       onSettingsChanged(await api.settings())
-      setMessage(`${category.name} 的照片槽位已儲存。原始圖片及檔名未變更。`)
+      setMessage(`${category.name} 的基本槽位、顯示順序與自訂槽位已一次儲存。原始照片未變更。`)
     } catch (err) {
-      setError(err instanceof Error ? err.message : '儲存照片槽位失敗')
+      setError(err instanceof Error ? err.message : '儲存照片槽位失敗，草稿仍保留')
     } finally { setBusy(false) }
   }
 
@@ -360,61 +408,63 @@ export function SettingsView({
             </div>
           ))}
         </div>
-        <h3>各類別照片槽位（可自訂）</h3>
-        <p className="help-text">新增類別預設「前／中／後」，可依設備自行新增、刪除、改名或調整順序。請使用頓號「、」分隔每個槽位名稱。改名不會更動原始照片；舊檔名無法歸槽時會顯示於「未對應照片」。</p>
-        <div className="settings-grid">
-          {categories.map((category) => (
-            <div key={`slots_${category.code}`} className="settings-category-slots">
-              <label>{category.name} 的照片槽位
-                <input aria-label={`${category.name}照片槽位自訂`}
-                  value={(slotDrafts[category.code] ?? category.slots).join('、')}
-                  onChange={(event) => setSlotDrafts({
-                    ...slotDrafts,
-                    [category.code]: event.target.value.split(/[、,，]/).map((part) => part.trim()),
-                  })}
-                  placeholder="前、 中、 後" />
-              </label>
-              <button type="button" className="secondary-button" disabled={busy}
-                onClick={() => void saveCategorySlots(category.code)}>儲存{category.name}槽位</button>
-            </div>
-          ))}
-        </div>
-        <h3>槽位顯示順序</h3>
-        <div className="settings-grid">
-          {categories.map((category) => (
-            <label key={category.code}>{category.name}
-              <input
-                aria-label={`${category.name}槽位顯示順序`}
-                value={(draft.slot_order[category.code] ?? category.slots).join('、')}
-                onChange={(event) => setDraft({
-                  ...draft,
-                  slot_order: {
-                    ...draft.slot_order,
-                    [category.code]: event.target.value.split(/[、,，]/).map((part) => part.trim()).filter(Boolean),
-                  },
-                })}
-              />
-            </label>
-          ))}
-        </div>
-        <h3>自訂槽位（選填）</h3>
-        <p className="help-text">以逗號或頓號分隔。新增後即可在照片牆看見該槽位，不影響缺漏判定。</p>
-        <div className="settings-grid">
-          {categories.map((category) => (
-            <label key={`custom_${category.code}`}>{category.name} 自訂槽位
-              <input
-                aria-label={`${category.name}自訂槽位`}
-                value={(draft.custom_slots?.[category.code] ?? []).join('、')}
-                onChange={(event) => setDraft({
-                  ...draft,
-                  custom_slots: {
-                    ...draft.custom_slots,
-                    [category.code]: event.target.value.split(/[、,，]/).map((part) => part.trim()).filter(Boolean),
-                  },
-                })}
-              />
-            </label>
-          ))}
+        <h3>各類別照片槽位（標籤管理）</h3>
+        <p className="help-text">每個設備類別獨立操作：按「＋」新增，鉛筆改名、× 移除，拖曳標籤或使用左右箭頭調整順序。不須輸入分隔符號。基本槽位參與缺照判定，選填槽位不計缺漏。改名或移除不會刪除原始照片，可能導致既有照片顯示「未對應照片」，儲存前會再次確認。</p>
+        <div className="slot-layout-grid">
+          {categories.map(category => {
+            const required = slotDrafts[category.code] ?? category.slots
+            const originalOrder = settings?.slot_order[category.code] ?? category.slots
+            const order = orderDrafts[category.code] ?? originalOrder
+            const optional = customDrafts[category.code] ?? settings?.custom_slots?.[category.code] ?? []
+            const originalOptional = settings?.custom_slots?.[category.code] ?? []
+            const unsaved = JSON.stringify(required) !== JSON.stringify(category.slots)
+              || JSON.stringify(order) !== JSON.stringify(originalOrder)
+              || JSON.stringify(optional) !== JSON.stringify(originalOptional)
+            const reservedAliases = Object.keys(category.filename_aliases)
+              .filter(alias => !required.some(name => name.toLocaleLowerCase() === alias.toLocaleLowerCase()))
+            return (
+              <section key={category.code} className="slot-layout-card"
+                aria-label={`${category.name}照片槽位設定`}>
+                <div className="slot-layout-card-head">
+                  <h4>{category.name}</h4>
+                  {unsaved && <span className="slot-unsaved" role="status">● 尚未儲存</span>}
+                </div>
+                <SlotChipEditor title={`${category.name} 基本照片槽位`}
+                  slots={required} variant="required" disabled={busy}
+                  reserved={[...reservedAliases, ...optional]}
+                  onChange={next => {
+                    dirtyCategoryCodes.current.add(category.code)
+                    setSlotDrafts(previous => ({ ...previous, [category.code]: next }))
+                    setOrderDrafts(previous => ({
+                      ...previous,
+                      [category.code]: syncRequiredOrder(previous[category.code] ?? originalOrder, required, next),
+                    }))
+                  }} />
+                <SlotChipEditor title={`${category.name} 槽位顯示順序`}
+                  slots={order} variant="order" disabled={busy}
+                  onChange={next => {
+                    dirtyCategoryCodes.current.add(category.code)
+                    setOrderDrafts(previous => ({ ...previous, [category.code]: next }))
+                  }} />
+                <SlotChipEditor title={`${category.name} 自訂槽位（選填）`}
+                  slots={optional} variant="optional" disabled={busy}
+                  reserved={[...required, ...Object.keys(category.filename_aliases)]}
+                  onChange={next => {
+                    dirtyCategoryCodes.current.add(category.code)
+                    setCustomDrafts(previous => ({ ...previous, [category.code]: next }))
+                  }} />
+                <p className="slot-order-preview">
+                  照片牆順序：{[...order, ...optional].join(' → ') || '尚未設定'}
+                </p>
+                <div className="slot-layout-actions">
+                  <button type="button" className="secondary-button" disabled={busy || !unsaved}
+                    onClick={() => resetCategoryLayout(category.code)}>還原這個類別</button>
+                  <button type="button" className="primary-button" disabled={busy || !unsaved}
+                    onClick={() => void saveCategorySlots(category.code)}>儲存{category.name}槽位設定</button>
+                </div>
+              </section>
+            )
+          })}
         </div>
         <button className="primary-button" type="button" disabled={busy} onClick={() => void saveGeneral()}>儲存介面與快取設定</button>
       </section>

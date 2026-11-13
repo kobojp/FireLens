@@ -66,6 +66,8 @@ class RootSettingsUpdate(BaseModel):
 class CategorySlotsUpdate(BaseModel):
     slots: list[str]
     confirm_unmapped: bool = False
+    slot_order: list[str] | None = None
+    custom_slots: list[str] | None = None
 
 
 class CategoryAliasesUpdate(BaseModel):
@@ -208,6 +210,8 @@ def category_slot_settings(
                 category_code,
                 payload.slots,
                 confirm_unmapped=payload.confirm_unmapped,
+                slot_order=payload.slot_order,
+                custom_slots=payload.custom_slots,
             )
         except SettingsError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc

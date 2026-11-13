@@ -157,10 +157,14 @@ export const api = {
     method: 'PUT', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ label, is_cloud_stream: isCloudStream }),
   }),
-  updateCategorySlots: (code: string, slots: string[], confirmUnmapped: boolean) => request<CategoryDefinition>(
+  updateCategorySlots: (
+    code: string, slots: string[], confirmUnmapped: boolean,
+    slotOrder?: string[], customSlots?: string[],
+  ) => request<CategoryDefinition>(
     `/api/categories/${encodeURIComponent(code)}/slots`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ slots, confirm_unmapped: confirmUnmapped }),
+      body: JSON.stringify({ slots, confirm_unmapped: confirmUnmapped,
+        slot_order: slotOrder, custom_slots: customSlots }),
     },
   ),
   updateCategoryAliases: (code: string, aliases: Record<string, string>) => request<CategoryDefinition>(`/api/categories/${encodeURIComponent(code)}/aliases`, {
