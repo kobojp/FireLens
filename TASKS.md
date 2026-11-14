@@ -1,8 +1,17 @@
 # 滅火器燈具照片管理系統 任務文件
 
-狀態：**M18 照片品質檢查已開發並通過合成測試與 Windows 打包，待實際 Windows UI／現場影像門檻校準；M17 與其他歷史功能仍有部分實機驗收項目**。目前版本 v1.11.0（M19-D／M19-E／M19-F／M19-I MINOR 開發版，包含頁面狀態保留、貼上加速、大圖預覽、引導掃描及照片槽位標籤管理，尚未正式發佈；歷史 v1.10.1 僅為未發布開發版）；歷史 Release v1.10.0 已於 2026-11-13 由 GitHub Actions 正式發布（真實 WebView2／Google Drive 操作仍待實機驗收）；歷史 v1.9.0 已於 2026-11-12 由 GitHub Actions 正式發布為 Release（實機仍需驗收）；歷史 v1.8.0 已於 2026-11-08 由 GitHub Actions 正式發布。開發前還原點：Git commit 0f9bc7d / backup/pre-m17-20261107。歷史 v1.7.0 已正式發布至 GitHub Release。歷史 v1.6.0 與 v1.5.0 已正式發布至 GitHub Release。
+狀態：**M18 照片品質檢查已開發並通過合成測試與 Windows 打包，待實際 Windows UI／現場影像門檻校準；M17 與其他歷史功能仍有部分實機驗收項目**。目前版本 v1.11.0（M19-D／M19-E／M19-F／M19-I MINOR 版本，包含頁面狀態保留、貼上加速、大圖預覽、引導掃描及照片槽位標籤管理，正式 GitHub Release 程序中（CI 與資產驗證前不視為已發布）；歷史 v1.10.1 僅為未發布開發版）；歷史 Release v1.10.0 已於 2026-11-13 由 GitHub Actions 正式發布（真實 WebView2／Google Drive 操作仍待實機驗收）；歷史 v1.9.0 已於 2026-11-12 由 GitHub Actions 正式發布為 Release（實機仍需驗收）；歷史 v1.8.0 已於 2026-11-08 由 GitHub Actions 正式發布。開發前還原點：Git commit 0f9bc7d / backup/pre-m17-20261107。歷史 v1.7.0 已正式發布至 GitHub Release。歷史 v1.6.0 與 v1.5.0 已正式發布至 GitHub Release。
 M14 歷史開發版本：v1.6.0。
 M15 歷史開發版本：v1.6.1（PATCH，修正線上更新器實機失敗）。
+
+## M19-J v1.11.0 正式推送 GitHub 與 Release（2026-11-14，使用者已明確授權，執行中）
+
+**範圍與限制**：使用者於 2026-11-14 明確要求「上傳 GitHub release」。本輪只針對目前已完成且本機 Commit `558c5db` 的 v1.11.0 開發版推送 `kobojp/FireLens`，建立 `v1.11.0` Git Tag 並由現有 GitHub Actions `.github/workflows/release-windows.yml` 使用 GitHub Secrets `FIRELENS_UPDATE_PRIVATE_KEY_B64` 簽署更新 manifest、建置與上傳正式 Windows 資產；不可上傳本機憑證／金鑰／現場照片／清冊／資料庫，禁止無證據宣稱成功。繼續保留原本 M19-G、M19-H、M19-I 真實 WebView2／Google Drive 實機待驗收項目，這輪發版不代表那些項目已完成。
+
+- [x] **J-01 發版前狀態與驗證**：確認 `main` 乾淨、與 `origin/main` 先後關係、`v1.11.0` remote Tag／Release 不存在或符合預期；確認 GitHub CLI 認證、工作流程條件、版本 `desktop/version.py`／`pyproject.toml`／`uv.lock`／前端 fallback／README／TASKS 一致，執行 `uv run --locked python packaging/check_version_consistency.py --tag v1.11.0`；沿用上輪已觀察到的 Windows build＋installer E2E 記錄，必要時重跑發版驗證。
+- [ ] **J-02 發版文件準備與推送**：將 README 與 TASKS 發版說明更新為與即將發布的版本一致，先寫入／重新讀取，通過版號與 `git diff --check`，commit、推送 `origin/main`，核對遠端 SHA；不覆蓋遠端其他變更、不 force push。
+- [ ] **J-03 Tag 及 Windows CI 簽章發布**：只在前項成功後建立唯一 `v1.11.0` Tag 並推送，觸發既有 GitHub Actions；應依 CI 的 Python／Vitest／Ruff／Windows EXE／繁中 Setup／portable、更新器 E2E、Ed25519 簽名驗證發布。遇失敗保留錯誤與工作紀錄，不改用未簽名的本機二進位假冒正式 Release。
+- [ ] **J-04 Release 遠端驗證與文件完成**：核對 GitHub Actions 該 Tag 執行為 `success`、GitHub Release 非 draft／非 pre-release、正確 Tag SHA，並檢查 `FireLens-1.11.0-windows-x64.exe`、`FireLens-1.11.0-setup.exe`、`SHA256SUMS.txt`、`update-manifest.json`、`update-manifest.sig` 全部存在且版本一致，報告 release 連結。更新 README／TASKS 為實際發布狀態、同步 commit／push；真實使用者端自動更新仍需人工驗收，不可把 CI 合成測試當作已經實際升級使用者現場環境。
 
 ## M19-I 設定頁「各類別照片槽位」改為可操作標籤介面（2026-11-14，已實作並通過回歸，實機待驗收）
 

@@ -1,6 +1,6 @@
 # FireLens
 
-**最新已發布 Release：v1.10.0（2026-11-13）**；目前 v1.11.0 為尚未發布的 MINOR 開發版（含大圖預覽、照片切換、引導掃描及照片槽位標籤管理）。下載繁體中文 Windows 安裝版、免安裝版與已簽署的自動更新清單：<https://github.com/kobojp/FireLens/releases/tag/v1.10.0>。M19 跨設備照片重複檢查已通過合成測試與 Windows 打包，真實 Google Drive／WebView2 操作仍待實機驗收。
+**最新已發布 Release：v1.10.0（2026-11-13）**；目前 v1.11.0 正式發布程序已啟動，GitHub Actions 尚須完成簽章與資產驗證（包含大圖預覽、引導掃描、貼圖效能改善、照片槽位標籤管理及查詢頁狀態保留）。下載繁體中文 Windows 安裝版、免安裝版與已簽署的自動更新清單：<https://github.com/kobojp/FireLens/releases/tag/v1.10.0>。M19 跨設備照片重複檢查已通過合成測試與 Windows 打包，真實 Google Drive／WebView2 操作仍待實機驗收。
 
 FireLens 是一套以 Windows 桌面環境為主的消防設備照片管理工具，協助整理滅火器、放置盒與燈具更換照片，並搭配 Excel／文字清冊進行核對、補拍與命名整理。
 
