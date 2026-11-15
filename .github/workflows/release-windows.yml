@@ -25,6 +25,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
@@ -50,12 +51,16 @@ jobs:
       - name: Resolve and validate release version
         id: version
         shell: pwsh
+        env:
+          REQUESTED_TAG: ${{ inputs.tag }}
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
           $ErrorActionPreference = 'Stop'
-          if ('${{ github.event_name }}' -eq 'workflow_dispatch' -and '${{ inputs.tag }}') {
-            $tag = '${{ inputs.tag }}'
+          if ($env:EVENT_NAME -eq 'workflow_dispatch' -and $env:REQUESTED_TAG) {
+            $tag = $env:REQUESTED_TAG
           } else {
-            $tag = '${{ github.ref_name }}'
+            $tag = $env:REF_NAME
           }
 
           if ($tag -notmatch '^v(\d+)\.(\d+)\.(\d+)(?:[-+][0-9A-Za-z.-]+)?$') {
@@ -79,7 +84,11 @@ jobs:
 
       - name: Validate project version consistency
         shell: pwsh
-        run: python packaging/check_version_consistency.py --tag '${{ steps.version.outputs.tag }}'
+        run: uv run --locked python packaging/check_version_consistency.py --tag '${{ steps.version.outputs.tag }}'
+
+      - name: Validate committed release notes and tag
+        shell: pwsh
+        run: uv run --locked python packaging/check_release_readiness.py --tag '${{ steps.version.outputs.tag }}'
 
       - name: Build and test Windows EXE
         shell: pwsh
@@ -114,6 +123,10 @@ jobs:
             --manifest 'release\update-manifest.json' `
             --signature 'release\update-manifest.sig'
 
+      - name: Validate signed release assets
+        shell: pwsh
+        run: uv run --locked python packaging/check_release_readiness.py --tag '${{ steps.version.outputs.tag }}' --assets-dir release
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
@@ -133,13 +146,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create '${{ steps.version.outputs.tag }}' `
-            'release\${{ steps.version.outputs.asset }}' `
-            'release\${{ steps.version.outputs.setup_asset }}' `
-            'release\SHA256SUMS.txt' `
-            'release\update-manifest.json' `
-            'release\update-manifest.sig' `
-            --title 'FireLens ${{ steps.version.outputs.tag }}' `
-            --generate-notes `
-            --verify-tag
+          .\packaging\publish_release.ps1 -Tag '${{ steps.version.outputs.tag }}'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 

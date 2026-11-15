@@ -4,12 +4,18 @@
 
 使用者已要求「繼續依 TASKS 實作」，本輪先處理可獨立施工的 K-02；K-03 歷史 Release 描述、真實 Tag／push／Release、未定案封存政策與 Google Sheets 批次寫入仍不在授權內。沿用尚未發布的目前開發版本；只改 CI／發版檢查與文件，不改桌面 runtime，不另升版、不重建相同 EXE，會核對既有已驗證產物雜湊。
 
-- [ ] K2-01 先準備目前版本 `docs/releases/v1.12.0.md` 的繁中使用者說明，依已驗證 K～S／G／H 與啟動修復撰寫，明確列出未完成 Windows／Drive／多機驗收；只將 docs/releases 的 Markdown 例外納入 Git，其餘 docs 測試資料維持 ignored。通過版本閘門後先做本機文件提交，才改 workflow。
-- [ ] K2-02 新增可本機執行的 Release Notes／資產檢查器。從 desktop/version.py 決定唯一文件路徑，拒絕缺檔／空白／僅標題或 Full Changelog、版號不符、不安全連結、未提交或與 Git blob 不同的說明；指定 Tag 時必須是既有穩定版本 Tag、指向目前 HEAD 且說明包含於該提交。測試用暫存 Git repo 與測試 Tag，不修改本專案 Tag。
-- [ ] K2-03 workflow 改為檢出要求的 Tag，透過 env 傳遞輸入避免腳本插值；建置前檢查版本與已提交說明，簽章後／上傳與發布前檢查五項資產存在、manifest Ed25519 驗章／版本／EXE 大小與 SHA256、兩個安裝資產 SHA256SUMS。`gh release create` 只用已驗證的 `--notes-file` 與 `--verify-tag`，native 命令失敗立即停止，不使用 --generate-notes 或空白 fallback。
-- [ ] K2-04 先建立會失敗的回歸測試，再實作檢查器及 workflow 接線；涵蓋文件問題、Tag／HEAD／版本不符、未提交變更、缺資產、假簽章、manifest／hash／大小不符，以及本機 PowerShell 假 gh 成功／失敗的實際參數與退出碼，不接觸 GitHub。保留現有桌面／資料回歸測試。
+- [x] K2-01 先準備目前版本 `docs/releases/v1.12.0.md` 的繁中使用者說明，依已驗證 K～S／G／H 與啟動修復撰寫，明確列出未完成 Windows／Drive／多機驗收；只將 docs/releases 的 Markdown 例外納入 Git，其餘 docs 測試資料維持 ignored。通過版本閘門後先做本機文件提交 `840fe18`，才修改 workflow。
+- [x] K2-02 新增可本機執行的 Release Notes／資產檢查器。從 desktop/version.py 決定唯一文件路徑，拒絕缺檔／空白／僅標題或 Full Changelog、版號不符、不安全連結、未提交或與 Git blob 不同的說明；指定 Tag 時必須是既有穩定版本 Tag、指向目前 HEAD 且說明包含於該提交。測試用暫存 Git repo 與測試 Tag，不修改本專案 Tag。
+- [x] K2-03 workflow 改為檢出要求的 Tag，透過 env 傳遞輸入避免腳本插值；建置前檢查版本與已提交說明，簽章後／上傳與發布前檢查五項資產存在、manifest Ed25519 驗章／版本／EXE 大小與 SHA256、兩個安裝資產 SHA256SUMS。`gh release create` 只用已驗證的 `--notes-file` 與 `--verify-tag`，native 命令失敗立即停止，不使用 --generate-notes 或空白 fallback。
+- [x] K2-04 先建立會失敗的回歸測試，再實作檢查器及 workflow 接線；涵蓋文件問題、Tag／HEAD／版本不符、未提交變更、缺資產、假簽章、manifest／hash／大小不符，以及本機 PowerShell 假 gh 成功／失敗的實際參數與退出碼，不接觸 GitHub。保留現有桌面／資料回歸測試。
 - [ ] K2-05 實際跑 pytest／Vitest／Ruff／format／TypeScript／Vite、版本閘門、Graphify、文件與 staged diff 檢查，核對現有 EXE／Setup 雜湊未變；同步 AGENTS／README／TASKS，再建立本機程式還原提交。僅 CI／文件變動不重跑相同桌面封裝。
 - [ ] K2-06 遠端完整驗收：真正 GitHub runner 測試 Tag、成功發布說明與簽章資產需未來明確授權；本輪本機模擬成功不能宣稱 Actions 已在遠端執行或 Release 已發布。
+
+**K-02 本輪實作與驗證（2026-11-15）**：先確認 TASKS 寫入，再準備繁中 docs/releases/v1.12.0.md 並以 `840fe18` 本機提交，之後才新增 `packaging/check_release_readiness.py`／`packaging/publish_release.ps1` 和修改 workflow。新測試在實作前因檢查器缺檔發生 **1 個 collection error**；實作後最初針對性測試 **29 passed**，再補應用程式版本未提交情境，完整測試總計 **299 passed**（新增 **30** 項，1 項既有 Starlette 警告，46.39 秒）；Vitest **179 passed／36 files**。實際執行 `uv run --locked pytest -q`、`ruff check .`／`ruff format --check .`（**93 files**）、Node 24 `npm run test -- --run`／`npm run build`、版本一致性全部通過。用現有 base Python 的 PyYAML 唯讀解析 workflow **14 個 step**，9 個 PowerShell run 區塊經 Parser.ParseInput 通過；未新增 Python／npm 依賴。`uv run --locked python packaging/check_release_readiness.py --json` 對本機已提交說明成功。Graphify 重建成功：**1,342 nodes／3,438 edges／84 communities**，仍維持 ignored。
+
+回歸涵蓋暫存 Git repo 的已提交／未追蹤／修改未提交／空白／僅標題／僅 Changelog／錯版／Git symlink mode、Tag 不存在／錯版／不指向 HEAD，以及測試用記憶體 Ed25519 金鑰的正確與被修改 manifest／EXE／Setup／SHA256SUMS。Windows PowerShell 實際呼叫假的 uv.cmd／gh.cmd，核對完整五項資產與 --notes-file／--verify-tag 參數；uv 失敗 **19** 時不執行 gh，gh 失敗 **37** 時保留退出碼。沒有使用真實私鑰、網路發版或本專案 Tag。
+
+本輪僅 CI／文件／發版工具變更，桌面 runtime 與前端使用者行為未變，沿用未發布的目前開發版本；不重建相同 EXE。既有交付 EXE SHA256 仍為 `3E1E57A61EE54E61884DC423DDCF701AEB6C761568DD7156511633F16CDEA31E`，Setup 仍為 `921A07CD6F1E24FC2FA8C5FCD110F4859F88D31DF10D3155EAAB7F8352D0A55B`，逐項讀取雜湊相同；前輪 Windows 封裝證據維持歷史事實，不冒充本輪重打包。AGENTS／README 已同步已實作規則，K-02 拆成本機實作 [x] 與遠端完整驗收 [ ]；K-03 與其他人工矩陣維持待辦。紀錄在 ignored docs/k02-*，其餘 docs 測試資料依然 ignored，僅版本更新說明允許進 Git。
 
 ## 兩工作目錄正式整併（2026-11-15，使用者已同意執行建議）
 
@@ -198,7 +204,8 @@ M15 歷史開發版本：v1.6.1（PATCH，修正線上更新器實機失敗）�
 來源為原始工作目錄既定需求；勾選依本輪整併後自動化與合成驗證判定，不直接沿用來源 [x]。含 Windows／Drive／縮放矩陣的綜合驗收保持 [ ]；完整測試與限制見頂部 I 任務。
 
 - [x] **K-01 記錄 Release Notes 發布鐵律**：在 `AGENTS.md` 寫明每一正式版必須有 `docs/releases/vX.Y.Z.md`、根據 `TASKS.md` 的實際已驗證成果撰寫給一般使用者看的繁體中文更新內容，明確標註限制及尚未實機驗收項；建立 Release 前檢查檔案存在、非空、版號一致，缺少或檢查未通過時停止發布，不得用只有 Full Changelog 的自動產生內容替代。純文件規範調整不升版、不重跑打包、不對既有 Release 動作。
-- [ ] **K-02 未來施工：Actions 自動讀 Release Notes**：待使用者要求實作時，先寫對應版本 `docs/releases/vX.Y.Z.md` 並提交；再修改 `.github/workflows/release-windows.yml` 從 `--generate-notes` 改為 `--notes-file` 指向當版檔案，附上存在／非空／版本及簽章資產檢查，CI fail-closed。驗證測試 Tag 與後續正式 Release；未實作前不得聲稱 Actions 已支援此功能。
+- [x] **K-02a Actions 自動讀 Release Notes：本機實作與回歸**：已先提交當版繁中說明，再接入建置前文件／Tag／HEAD 檢查、簽章後五項資產核對與 --notes-file 發布；實際本機測試與命令見頂部 K2。
+- [ ] **K-02b 遠端完整驗收**：真正 GitHub runner 測試 Tag 與正式發布說明／簽章資產需未來明確授權；本輪沒有推送、建立本專案 Tag 或遠端 Release，不以本機假 gh 回歸冒充遠端成功。
 - [ ] **K-03 已發布版本補充說明（待明確授權）**：如需補足歷史已發布版的說明，先新增對應 Markdown、人工確認內容，才使用 `gh release edit ... --notes-file ...` 更新文字；不改已發布 Tag、EXE、簽章、版本 manifest 或 SHA-256，並核對遠端說明。此任務沒有取得本次直接編輯 GitHub Release 的授權。
 
 ## M19-J v1.11.0 正式推送 GitHub 與 Release（2026-11-14，CI success、簽章及發布資產已驗證）
