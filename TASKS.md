@@ -1,5 +1,16 @@
 # 滅火器燈具照片管理系統 任務文件
 
+## 繼續施工：K-02 Release Notes 發版閘門（2026-11-15）
+
+使用者已要求「繼續依 TASKS 實作」，本輪先處理可獨立施工的 K-02；K-03 歷史 Release 描述、真實 Tag／push／Release、未定案封存政策與 Google Sheets 批次寫入仍不在授權內。沿用尚未發布的目前開發版本；只改 CI／發版檢查與文件，不改桌面 runtime，不另升版、不重建相同 EXE，會核對既有已驗證產物雜湊。
+
+- [ ] K2-01 先準備目前版本 `docs/releases/v1.12.0.md` 的繁中使用者說明，依已驗證 K～S／G／H 與啟動修復撰寫，明確列出未完成 Windows／Drive／多機驗收；只將 docs/releases 的 Markdown 例外納入 Git，其餘 docs 測試資料維持 ignored。通過版本閘門後先做本機文件提交，才改 workflow。
+- [ ] K2-02 新增可本機執行的 Release Notes／資產檢查器。從 desktop/version.py 決定唯一文件路徑，拒絕缺檔／空白／僅標題或 Full Changelog、版號不符、不安全連結、未提交或與 Git blob 不同的說明；指定 Tag 時必須是既有穩定版本 Tag、指向目前 HEAD 且說明包含於該提交。測試用暫存 Git repo 與測試 Tag，不修改本專案 Tag。
+- [ ] K2-03 workflow 改為檢出要求的 Tag，透過 env 傳遞輸入避免腳本插值；建置前檢查版本與已提交說明，簽章後／上傳與發布前檢查五項資產存在、manifest Ed25519 驗章／版本／EXE 大小與 SHA256、兩個安裝資產 SHA256SUMS。`gh release create` 只用已驗證的 `--notes-file` 與 `--verify-tag`，native 命令失敗立即停止，不使用 --generate-notes 或空白 fallback。
+- [ ] K2-04 先建立會失敗的回歸測試，再實作檢查器及 workflow 接線；涵蓋文件問題、Tag／HEAD／版本不符、未提交變更、缺資產、假簽章、manifest／hash／大小不符，以及本機 PowerShell 假 gh 成功／失敗的實際參數與退出碼，不接觸 GitHub。保留現有桌面／資料回歸測試。
+- [ ] K2-05 實際跑 pytest／Vitest／Ruff／format／TypeScript／Vite、版本閘門、Graphify、文件與 staged diff 檢查，核對現有 EXE／Setup 雜湊未變；同步 AGENTS／README／TASKS，再建立本機程式還原提交。僅 CI／文件變動不重跑相同桌面封裝。
+- [ ] K2-06 遠端完整驗收：真正 GitHub runner 測試 Tag、成功發布說明與簽章資產需未來明確授權；本輪本機模擬成功不能宣稱 Actions 已在遠端執行或 Release 已發布。
+
 ## 兩工作目錄正式整併（2026-11-15，使用者已同意執行建議）
 
 目標：以目前 Orca 路徑為唯一後續開發目錄，保留本工作樹 G／H／啟動修復，整併原始工作目錄已提交 M19-L 與未提交 M19-M～S、K 的既定文件規則。原始工作目錄全程唯讀，正式 DB／原圖／清冊／Drive 事件不作寫入驗證；所有測試使用合成／隔離資料。延續尚未發布的目前 MINOR 開發版本；此輪授權包含本機備份、程式整併、測試、Windows 封裝及本機 Git 還原點，不推送／Tag／Release。K 中待未來授權的 Release 編修與 Actions 改造不混入施工。

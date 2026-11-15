@@ -39,7 +39,10 @@ desktop.ini
 .vscode/
 
 # Site-specific validation records
-/docs/
+/docs/*
+!/docs/releases/
+/docs/releases/*
+!/docs/releases/v*.md
 
 # Graphify local knowledge graph contains machine-specific absolute paths
 /graphify-out/
