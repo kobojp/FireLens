@@ -4,13 +4,13 @@ import type { ReactNode } from 'react'
  * Keep an already visited workspace mounted while another tab is active.
  * Do not use conditional children here: unmounting loses form/query/results state.
  */
-export type RetainableTab = 'quality' | 'reconcile'
+export type RetainableTab = 'quality' | 'reconcile' | 'statistics'
 export type VisitedTabs = Record<RetainableTab, boolean>
 
-export const initialVisitedTabs: VisitedTabs = { quality: false, reconcile: false }
+export const initialVisitedTabs: VisitedTabs = { quality: false, reconcile: false, statistics: false }
 
 export function withVisitedTab(previous: VisitedTabs, tab: string): VisitedTabs {
-  if (tab !== 'quality' && tab !== 'reconcile') return previous
+  if (tab !== 'quality' && tab !== 'reconcile' && tab !== 'statistics') return previous
   return previous[tab] ? previous : { ...previous, [tab]: true }
 }
 

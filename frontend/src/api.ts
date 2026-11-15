@@ -19,6 +19,7 @@ import type {
   LedgerImportPreview,
   ReconcileResult,
   RootRecord,
+  RootExclusionInfo,
   QualityGallery,
   QualityJob,
   DuplicateJob,
@@ -153,6 +154,11 @@ export const api = {
   installUpdate: (version: string) => request<UpdateInstallResult>('/api/update/install', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ version }),
   }),
+  rootExclusionList: (rootId: number) => request<RootExclusionInfo>(`/api/roots/${rootId}/excluded-folders`),
+  saveRootExclusions: (rootId: number, names: string[]) => request<{ root_id: number; saved: string[]; names: string[]; rescan_required: boolean }>(
+    `/api/roots/${rootId}/excluded-folders`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ names }),
+    }),
   updateRootSettings: (rootId: number, label: string, isCloudStream: boolean) => request<RootRecord>(`/api/roots/${rootId}/settings`, {
     method: 'PUT', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ label, is_cloud_stream: isCloudStream }),
@@ -176,6 +182,7 @@ export const api = {
     return request<BackupRestoreResult>('/api/settings/restore', { method: 'POST', body: form })
   },
   listRoots: () => request<RootRecord[]>('/api/roots'),
+  rootExclusions: (rootId: number) => request<{root_id: number; names: string[]}>(`/api/roots/${rootId}/excluded-folder-names`),
   addRoot: (path: string, label?: string) => request<RootRecord>('/api/roots', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

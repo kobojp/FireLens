@@ -4,14 +4,17 @@ import { readFileSync } from 'node:fs'
 
 const app = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8')
 const settings = readFileSync(new URL('./SettingsView.tsx', import.meta.url), 'utf8')
+const exclusions = readFileSync(new URL('./RootExclusionPanel.tsx', import.meta.url), 'utf8')
 const api = readFileSync(new URL('./api.ts', import.meta.url), 'utf8')
 
 describe('M19 dynamic folders and duplicate image confirmation UI', () => {
   it('makes newly scanned categories visible and exposes folder exclusion controls', () => {
     expect(app).toContain('api.categories()')
-    expect(settings).toContain('excluded_root_folders')
-    expect(settings).toContain('加入排除清單')
-    expect(settings).toContain('移除排除')
+    expect(settings).toContain('<RootExclusionPanel roots={roots}')
+    expect(exclusions).toContain('api.rootExclusionList(')
+    expect(exclusions).toContain('api.saveRootExclusions(')
+    expect(exclusions).toContain('type="checkbox"')
+    expect(exclusions).toContain('folder.locked')
   })
   it('has per-category slot editor and confirms destructive name changes', () => {
     expect(settings).toContain('saveCategorySlots')
@@ -19,7 +22,8 @@ describe('M19 dynamic folders and duplicate image confirmation UI', () => {
     expect(settings).toContain('slot-layout-card')
     expect(settings).toContain('SlotChipEditor')
     expect(settings).toContain('未對應照片')
-    expect(settings).toContain('window.confirm')
+    expect(settings).toContain('await confirmAction(')
+    expect(settings).not.toContain('window.confirm')
     expect(api).toContain('confirm_unmapped')
     expect(app).toContain('setItem(await api.item(selected.id))')
   })

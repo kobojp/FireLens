@@ -7,7 +7,7 @@ import io
 import os
 import subprocess
 import tempfile
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from secrets import token_urlsafe
 from threading import Lock
@@ -55,6 +55,8 @@ def export_issue_rows(
         filtered.append(item)
     if not filtered:
         raise ExportActionError("目前篩選條件沒有可匯出的異常設備")
+    snapshot_at = datetime.now(UTC).isoformat()
+    sync_context = stats.get("sync_context", {})
     headers = [
         "設備編號",
         "異常分類",
@@ -64,6 +66,9 @@ def export_issue_rows(
         "根目錄",
         "標記時間",
         "照片相對路徑",
+        "本機快照時間",
+        "同步狀態（不代表雲端完成）",
+        "最近本機讀取",
     ]
     rows = [
         [
@@ -75,6 +80,11 @@ def export_issue_rows(
             item["root_name"],
             item["updated_at"],
             item["item_relative_path"],
+            snapshot_at,
+            sync_context.get(item.get("root_id"), {}).get(
+                "description", "本機快照；共享狀態未取得"
+            ),
+            sync_context.get(item.get("root_id"), {}).get("last_read") or "尚無成功讀取紀錄",
         ]
         for item in filtered
     ]
@@ -101,6 +111,9 @@ def export_issue_rows(
         "F": 25,
         "G": 22,
         "H": 65,
+        "I": 34,
+        "J": 42,
+        "K": 34,
     }.items():
         sheet.column_dimensions[column].width = width
     data = io.BytesIO()

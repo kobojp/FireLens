@@ -69,6 +69,9 @@ def test_csv_excel_render_same_filtered_order_and_safe_text():
         "根目錄",
         "標記時間",
         "照片相對路徑",
+        "本機快照時間",
+        "同步狀態（不代表雲端完成）",
+        "最近本機讀取",
     ]
     assert parsed[1][0] == "致-08-001"
     assert parsed[2][0] == "'=1+2"
@@ -81,10 +84,16 @@ def test_csv_excel_render_same_filtered_order_and_safe_text():
     wb = load_workbook(io.BytesIO(excel_bytes))
     ws = wb.active
     assert [c.value for c in ws[1]] == parsed[0]
-    assert [c.value for c in ws[2]] == parsed[1]
-    assert [c.value for c in ws[3]] == parsed[2]
+    assert [c.value for c in ws[2]][:8] == parsed[1][:8]
+    assert [c.value for c in ws[3]][:8] == parsed[2][:8]
+    assert [c.value for c in ws[2]][9:] == parsed[1][9:]
+    assert [c.value for c in ws[3]][9:] == parsed[2][9:]
+    from datetime import datetime
+
+    assert datetime.fromisoformat(parsed[1][8]).tzinfo is not None
+    assert datetime.fromisoformat(ws["I2"].value).tzinfo is not None
     assert ws.freeze_panes == "A2"
-    assert ws.auto_filter.ref == "A1:H3"
+    assert ws.auto_filter.ref == "A1:K3"
     assert ws["A3"].data_type == "s"
     wb.close()
 
@@ -133,3 +142,21 @@ def test_issue_export_conflict_does_not_write_file(monkeypatch, tmp_path: Path):
         )
         assert zero.status_code == 400
         assert len(list((tmp_path / "exports").glob("*"))) == 1
+
+
+def test_issue_exports_include_actual_local_sync_context_and_escape_it():
+    stats = fake_stats()
+    for item in stats["items"]:
+        item["root_id"] = 7
+    stats["sync_context"] = {
+        7: {"description": "=未完成", "last_read": "2026-11-14T12:00:00+00:00"}
+    }
+    content, count = export_issue_rows(stats, file_format="csv")
+    rows = list(csv.reader(io.StringIO(content.decode("utf-8-sig"))))
+    assert count == 3
+    assert all(row[9] == "'=未完成" and row[10] == "2026-11-14T12:00:00+00:00" for row in rows[1:])
+    content, _ = export_issue_rows(stats, file_format="xlsx")
+    workbook = load_workbook(io.BytesIO(content))
+    assert workbook.active["J2"].data_type == "s"
+    assert workbook.active["J2"].value == "'=未完成"
+    workbook.close()

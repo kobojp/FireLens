@@ -1,6 +1,10 @@
+import { BackupHistoryDisclosure } from './BackupHistoryDisclosure'
+import { SyncResultPanel } from './SyncResultPanel'
+import { ModalBackdrop } from './AppDialog'
+import { confirmDialog } from './AppDialog'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from './api'
-import type { IssueLabel, IssueStatistics, RootRecord, SharedIssueStatus, SharedIssueBackup, SharedIssueConflict } from './types'
+import type { IssueLabel, IssueStatistics, RootRecord, SharedIssueStatus, SharedIssueBackup, SharedIssueConflict, SharedSyncResult } from './types'
 
 type Props = {
   roots: RootRecord[]
@@ -32,6 +36,11 @@ export function StatisticsView({ roots, onOpenItem, onLabelsChanged }: Props) {
   const [syncBusy, setSyncBusy] = useState(false)
   const [syncError, setSyncError] = useState('')
   const [syncMessage, setSyncMessage] = useState('')
+  const [syncResult, setSyncResult] = useState<SharedSyncResult | null>(null)
+  const syncBusyRef = useRef(false)
+  const syncRootRef = useRef(syncRootId)
+  syncRootRef.current = syncRootId
+  const syncRefreshVersion = useRef(0)
 
 
 
@@ -43,13 +52,16 @@ export function StatisticsView({ roots, onOpenItem, onLabelsChanged }: Props) {
 
   async function refreshSharedIssueSync(selectedRoot = syncRootId) {
     if (selectedRoot === null) return
+    const version = ++syncRefreshVersion.current
     const next = await api.sharedIssueStatus(selectedRoot)
+    if (selectedRoot !== syncRootRef.current || version !== syncRefreshVersion.current) return
     setSyncStatus(next)
     if (next.enabled && next.state !== 'offline') {
       const [history, pending] = await Promise.all([
         api.sharedIssueBackups(selectedRoot),
         api.sharedIssueConflicts(selectedRoot),
       ])
+      if (selectedRoot !== syncRootRef.current || version !== syncRefreshVersion.current) return
       setSyncBackups(history)
       setSyncConflicts(pending)
     } else {
@@ -59,7 +71,9 @@ export function StatisticsView({ roots, onOpenItem, onLabelsChanged }: Props) {
   }
 
   useEffect(() => {
+    syncRefreshVersion.current++
     setSyncStatus(null)
+    setSyncResult(null)
     setSyncBackups([])
     setSyncConflicts([])
     setSyncMessage('')
@@ -67,7 +81,7 @@ export function StatisticsView({ roots, onOpenItem, onLabelsChanged }: Props) {
     if (syncRootId === null) return
     let active = true
     void api.sharedIssueStatus(syncRootId)
-      .then((result) => { if (active) setSyncStatus(result) })
+      .then((result) => { if (active) { setSyncStatus(result); setSyncResult(result.last_result ?? null) } })
       .catch((err) => { if (active) setSyncError(err instanceof Error ? err.message : '讀取同步狀態失敗') })
     return () => { active = false }
   }, [syncRootId])
@@ -89,20 +103,26 @@ export function StatisticsView({ roots, onOpenItem, onLabelsChanged }: Props) {
   }, [syncRootId, syncStatus?.enabled])
 
   async function sharedAction(task: () => Promise<unknown>, message: string) {
-    if (syncRootId === null || syncBusy) return
+    if (syncRootId === null || syncBusyRef.current || syncRootId !== syncRootRef.current) return
+    const selectedRoot = syncRootId
+    syncBusyRef.current = true
     setSyncBusy(true)
     setSyncError('')
     setSyncMessage('')
     try {
-      await task()
-      await refreshSharedIssueSync(syncRootId)
+      const output = await task() as SharedIssueStatus
+      if (selectedRoot !== syncRootRef.current) return
+      if (output.last_result) setSyncResult(output.last_result)
+      await refreshSharedIssueSync(selectedRoot)
       await refresh()
       onLabelsChanged()
       setSyncMessage(message)
     } catch (err) {
+      if (selectedRoot !== syncRootRef.current) return
       setSyncError(err instanceof Error ? err.message : '同步操作失敗')
-      void api.sharedIssueStatus(syncRootId).then(setSyncStatus).catch(() => undefined)
+      void api.sharedIssueStatus(selectedRoot).then(value => { if (selectedRoot === syncRootRef.current) setSyncStatus(value) }).catch(() => undefined)
     } finally {
+      syncBusyRef.current = false
       setSyncBusy(false)
     }
   }
@@ -267,6 +287,8 @@ export function StatisticsView({ roots, onOpenItem, onLabelsChanged }: Props) {
         {syncStatus && <p className="help-text" role="status">
           狀態：{syncStatus.enabled
             ? syncStatus.state === 'review_required' ? '本機復原後暫停同步，需人工確認'
+              : syncStatus.state === 'conflict' ? '需處理版本衝突'
+              : syncStatus.state === 'incomplete' ? '同步未完成，保留本機資料'
               : syncStatus.state === 'offline' ? '共用資料夾離線'
                 : syncStatus.pending ? '待同步事件：' + syncStatus.pending + ' 筆'
                   : '已在本機讀取／待 Google Drive 傳送'
@@ -274,11 +296,14 @@ export function StatisticsView({ roots, onOpenItem, onLabelsChanged }: Props) {
           {syncStatus.last_read ? ' 最近本機讀取：' + syncStatus.last_read : ' 尚無成功讀取紀錄。'}
           {syncStatus.enabled ? ' 共用資料位置：' + syncStatus.shared_folder : ''}
         </p>}
+        {syncStatus?.enabled && <p>本機異常設備總數 {syncStatus.local_total} 台 · 本機待上傳事件數 {syncStatus.pending} 筆</p>}
+        {syncStatus?.sync_error && <p className="error-banner" role="alert">{syncStatus.sync_error}</p>}
+        {syncResult && <SyncResultPanel key={syncResult.at} result={syncResult} />}
         {syncError && <p className="error-banner" role="alert">{syncError}</p>}
         {syncMessage && <p role="status" className="stats-message">{syncMessage}</p>}
         <div className="shared-issue-actions">
-          <button type="button" disabled={syncBusy || syncRootId === null} onClick={() => {
-            if (syncRootId === null || !window.confirm(
+          <button type="button" disabled={syncBusy || syncRootId === null} onClick={async () => {
+            if (syncRootId === null || !await confirmDialog(
               syncStatus?.enabled
                 ? '停用這台電腦的共享同步？共享事件及本機紀錄都不會刪除。'
                 : '確定啟用多人共享？將於選定照片根目錄建立 FireLens-共享異常資料，並保留本機備份。其他電腦必須指定相同的 Google Drive 同步根目錄。',
@@ -298,13 +323,13 @@ export function StatisticsView({ roots, onOpenItem, onLabelsChanged }: Props) {
           <button type="button" disabled={syncBusy || !syncStatus?.enabled}
             onClick={() => void refreshSharedIssueSync().catch((err) =>
               setSyncError(err instanceof Error ? err.message : '讀取狀態失敗'))}>查看備份／衝突</button>
-          {syncStatus?.manual_review && <button type="button" disabled={syncBusy} onClick={() => {
-            if (syncRootId !== null && window.confirm(
+          {syncStatus?.manual_review && <button type="button" disabled={syncBusy} onClick={async () => {
+            if (syncRootId !== null && await confirmDialog(
               '本機剛從備份復原。繼續同步會以共用事件版本為準，可能再次改變本機異常紀錄。確定繼續？',
             )) void sharedAction(() => api.resumeSharedIssues(syncRootId), '已重新開始同步')
           }}>確認並恢復同步</button>}
-          {syncStatus?.enabled && <button type="button" disabled={syncBusy} onClick={() => {
-            if (syncRootId !== null && window.confirm(
+          {syncStatus?.enabled && <button type="button" disabled={syncBusy} onClick={async () => {
+            if (syncRootId !== null && await confirmDialog(
               '僅當 Google Drive 共享事件被刪除或版本退回才使用。將已驗證的本機事件封存重新放回共用資料夾，確定執行？',
             )) void sharedAction(
               () => api.recoverMissingSharedEvents(syncRootId), '已嘗試人工補回共享事件，請再次同步',
@@ -315,13 +340,13 @@ export function StatisticsView({ roots, onOpenItem, onLabelsChanged }: Props) {
           <div className="shared-issue-conflicts">
             <h3>待人工選擇的版本衝突：{syncConflicts.length} 項</h3>
             {syncConflicts.map((conflict) => <div className="panel-card" key={conflict.key}>
-              <strong>{conflict.kind === 'label' ? '異常分類' : '設備異常'}：{conflict.key}</strong>
+              <strong>{conflict.kind === 'label' ? '異常分類' : '設備異常'}：{conflict.kind === 'issue' ? String(conflict.candidates[0]?.value.code ?? '設備名稱未取得') + ' · ' + String(conflict.candidates[0]?.value.path ?? '') : conflict.candidates.map(candidate => candidate.label_name).join('／')}</strong>
               <p className="help-text">兩台電腦對同一項目有不同版本。請選擇要保留的版本，不會自動覆蓋。</p>
               {conflict.candidates.map((candidate) => (
                 <div className="shared-issue-candidate" key={candidate.event_id}>
-                  <span>{candidate.at} · 裝置 {candidate.device.slice(0, 8)} · {JSON.stringify(candidate.value)}</span>
-                  <button type="button" disabled={syncBusy} onClick={() => {
-                    if (syncRootId !== null && window.confirm('確定選擇此版本，保留其他版本於歷史事件中？')) {
+                  <span>{candidate.at} · 裝置 {candidate.device.slice(0, 8)} · {candidate.label_name}{conflict.kind === 'label' ? (candidate.value.active ? '（啟用）' : '（停用）') : ''}</span>
+                  <button type="button" disabled={syncBusy} onClick={async () => {
+                    if (syncRootId !== null && await confirmDialog(`設備／分類：${String(candidate.value.code ?? candidate.label_name)}\n採用裝置 ${candidate.device.slice(0, 8)} 的「${candidate.label_name}」？其他版本仍保留於歷史事件。`)) {
                       void sharedAction(
                         () => api.resolveSharedIssue(syncRootId, conflict.key, candidate.event_id),
                         '已保存人工衝突選擇',
@@ -333,8 +358,7 @@ export function StatisticsView({ roots, onOpenItem, onLabelsChanged }: Props) {
             </div>)}
           </div>
         )}
-        {syncStatus?.enabled && <section className="shared-issue-backups">
-          <h3>本機歷史備份（最多顯示 100 份）</h3>
+        {syncStatus?.enabled && <BackupHistoryDisclosure key={syncRootId} count={syncBackups.length} offline={syncStatus.state === 'offline'} unavailable={Boolean(syncError)}>
           {syncBackups.map((backup) => <div key={backup.id} className="shared-issue-backup-row">
             <span>{backup.time} · {backup.reason} · {backup.items} 台異常／{backup.labels} 個分類</span>
             <button type="button" disabled={syncBusy} onClick={() => {
@@ -347,18 +371,26 @@ export function StatisticsView({ roots, onOpenItem, onLabelsChanged }: Props) {
                   ' 台、變更 ' + (preview.changing ?? 0) + ' 台異常；分類 ' + preview.labels + ' 個。',
                 )).catch((err) => setSyncError(String(err)))
             }}>預覽</button>
-            <button type="button" disabled={syncBusy} onClick={() => {
-              if (syncRootId === null || !window.confirm(
-                '確定只復原本機到這個時間點？會先備份目前本機資料並暫停同步，不會自動覆蓋 Google Drive 共用事件。',
-              )) return
-              void sharedAction(
-                () => api.restoreSharedIssueBackup(syncRootId, backup.id),
-                '本機異常已復原，同步暫停，請確認資料再決定是否繼續',
-              )
+            <button type="button" disabled={syncBusy} onClick={async () => {
+              if (syncRootId === null || syncBusyRef.current) return
+              const selectedRoot = syncRootId
+              try {
+                const preview = await api.previewSharedIssueBackup(selectedRoot, backup.id)
+                if (selectedRoot !== syncRootRef.current) return
+                const affected = (preview.changes ?? []).map(row =>
+                  `${row.path}：${row.before || '無異常'} → ${row.after || '無異常'}`).join('\n')
+                if (!await confirmDialog(
+                  `復原本機至 ${preview.time}：新增 ${preview.adding ?? 0} 台、清除 ${preview.removing ?? 0} 台、變更 ${preview.changing ?? 0} 台。\n${affected || '設備異常沒有差異。'}\n將先備份目前資料並暫停同步；不會覆蓋 Google Drive 共享事件。`,
+                )) return
+                void sharedAction(() => api.restoreSharedIssueBackup(selectedRoot, backup.id),
+                  '本機異常已復原，同步暫停，請確認資料再決定是否繼續')
+              } catch (err) {
+                if (selectedRoot === syncRootRef.current) setSyncError(err instanceof Error ? err.message : '無法取得復原預覽')
+              }
             }}>復原本機</button>
           </div>)}
-          {!syncBackups.length && <p className="help-text">尚未產生本機歷史備份。</p>}
-        </section>}
+          {!syncBackups.length && !syncError && <p className="help-text">尚未產生本機歷史備份。</p>}
+        </BackupHistoryDisclosure>}
       </section>
 
       <section className="panel-card">
@@ -381,6 +413,7 @@ export function StatisticsView({ roots, onOpenItem, onLabelsChanged }: Props) {
           <button type="button" disabled={exporting !== null || refreshing || rows.length === 0} onClick={() => void saveIssueExport('csv')}>{exporting === 'csv' ? '匯出中…' : '匯出 CSV'}</button>
           <button type="button" disabled={exporting !== null || refreshing || rows.length === 0} onClick={() => void saveIssueExport('xlsx')}>{exporting === 'xlsx' ? '匯出中…' : '匯出 Excel'}</button>
         </div>
+        <p className="help-text">統計為目前本機資料；多人同步可能尚未完成，請核對上方本機讀取時間與 Google Drive 傳輸狀態。</p>
         {exportResult && <div className="export-feedback" role="status">
           <p className="stats-message">已儲存 {exportResult.filename}（{exportResult.size} bytes），位置：{exportResult.path}</p>
           <button type="button" onClick={() => void api.openExport(exportResult.open_token, 'file').catch((err) => setError(String(err)))}>開啟檔案</button>
@@ -429,7 +462,7 @@ export function StatisticsView({ roots, onOpenItem, onLabelsChanged }: Props) {
         </div>
       </section>
       {editLabel && (
-        <div className="preview-backdrop" onMouseDown={() => setEditLabel(null)}>
+        <ModalBackdrop onCancel={() => setEditLabel(null)} className="preview-backdrop" onMouseDown={() => setEditLabel(null)}>
           <section className="prompt-dialog" role="dialog" aria-modal="true" aria-label="修改異常名稱" onMouseDown={(event) => event.stopPropagation()}>
             <div className="prompt-header">修改異常分類名稱</div>
             <div className="prompt-body">
@@ -441,7 +474,7 @@ export function StatisticsView({ roots, onOpenItem, onLabelsChanged }: Props) {
               <button type="button" disabled={busy || !editName.trim()} onClick={() => void saveLabel({ name: editName }, editLabel.id)}>儲存名稱</button>
             </div>
           </section>
-        </div>
+        </ModalBackdrop>
       )}
     </section>
   )

@@ -21,6 +21,12 @@ def build_tree(conn: sqlite3.Connection, root_id: int) -> list[dict[str, Any]]:
         (root_id,),
     ).fetchall()
 
+    rows = [
+        row
+        for row in rows
+        if row["category_name"].casefold() not in excluded_root_folders(conn, root_id)
+    ]
+
     category_names = {
         str(row["code"]): str(row["name"])
         for row in conn.execute("SELECT code, name FROM category ORDER BY id")
@@ -80,7 +86,7 @@ def build_tree(conn: sqlite3.Connection, root_id: int) -> list[dict[str, Any]]:
     # Show discovered empty top-level categories as navigable nodes too.
     root = conn.execute("SELECT path FROM root WHERE id=?", (root_id,)).fetchone()
     root_path = Path(str(root["path"])) if root else None
-    excluded = excluded_root_folders(conn)
+    excluded = excluded_root_folders(conn, root_id)
     for category in conn.execute("SELECT code, name FROM category ORDER BY id"):
         code = str(category["code"])
         name = str(category["name"])

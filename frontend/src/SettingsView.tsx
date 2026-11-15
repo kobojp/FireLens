@@ -1,6 +1,10 @@
+import { ModalBackdrop } from './AppDialog'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from './api'
 import { SlotChipEditor, syncRequiredOrder, validateSlotLayout } from './SlotChipEditor'
+import { AppConfirmDialog } from './AppConfirmDialog'
+import { RootExclusionPanel } from './RootExclusionPanel'
+import { useAppConfirmation } from './useAppConfirmation'
 import {
   preparedForVersion,
   UPDATE_POLL_INTERVAL_MS,
@@ -57,13 +61,15 @@ export function SettingsView({
   const [newAliasSlot, setNewAliasSlot] = useState('')
   const [aliasHelpOpen, setAliasHelpOpen] = useState(false)
   const [testFilename, setTestFilename] = useState('')
-  const [excludeDraft, setExcludeDraft] = useState('')
   const [busy, setBusy] = useState(false)
+  const { confirmAction, confirmationDialog } = useAppConfirmation()
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null)
   const [updateProgress, setUpdateProgress] = useState<UpdatePreparationStatus | null>(null)
   const [updateBusy, setUpdateBusy] = useState(false)
+  const [pendingInstallVersion, setPendingInstallVersion] = useState<string | null>(null)
+  const installConfirmationBusy = useRef(false)
   const [oauthSettings, setOauthSettings] = useState<OAuthClientSettings | null>(null)
   const [oauthSecretDraft, setOauthSecretDraft] = useState('')
   const [oauthBusy, setOauthBusy] = useState(false)
@@ -148,7 +154,10 @@ export function SettingsView({
   }
 
   async function clearOauthSecret() {
-    if (oauthBusy || !window.confirm('確定清除本機保存的 Google OAuth Client Secret？不會刪除 Google Drive 資料。')) return
+    if (oauthBusy || !(await confirmAction(
+      '確定清除本機保存的 Google OAuth Client Secret？不會刪除 Google Drive 資料。',
+      '清除 Google OAuth Client Secret',
+    ))) return
     setOauthBusy(true); setOauthError(''); setOauthMessage('')
     try {
       setOauthSettings(await api.clearOauthClientSecret())
@@ -198,9 +207,10 @@ export function SettingsView({
     if (issue) { setError(`${category.name}：${issue}`); return }
     const removed = category.slots.filter(slot => !slots.includes(slot))
     const removedOptional = (settings?.custom_slots?.[code] ?? []).filter(slot => !optional.includes(slot))
-    if ((removed.length > 0 || removedOptional.length > 0) && !window.confirm(
-      `確定改名或移除「${category.name}」的槽位嗎？\n基本槽位：${removed.join('、') || '無'}\n選填槽位：${removedOptional.join('、') || '無'}\n\n可能使既有照片變成「未對應照片」。原圖與檔名不會被修改或刪除。`
-    )) return
+    if ((removed.length > 0 || removedOptional.length > 0) && !(await confirmAction(
+      `確定改名或移除「${category.name}」的槽位嗎？\n基本槽位：${removed.join('、') || '無'}\n選填槽位：${removedOptional.join('、') || '無'}\n\n可能使既有照片變成「未對應照片」。原圖與檔名不會被修改或刪除。`,
+      '確認變更照片槽位',
+    ))) return
     setBusy(true); setError(''); setMessage('')
     try {
       await api.updateCategorySlots(
@@ -230,7 +240,10 @@ export function SettingsView({
   }
 
   async function restore(file: File) {
-    if (!window.confirm('還原只合併受保護設定/清冊/紀錄，不會修改照片。執行前會建立 SQLite 快照。確定繼續？')) return
+    if (!(await confirmAction(
+      '還原只合併受保護設定／清冊／紀錄，不會修改照片。執行前會建立 SQLite 快照。確定繼續？',
+      '確認還原設定備份',
+    ))) return
     setBusy(true); setError(''); setMessage('')
     try {
       const result = await api.restoreBackup(file)
@@ -278,6 +291,28 @@ export function SettingsView({
     }
   }
 
+  function cancelVerifiedInstall() {
+    if (updateBusy || !pendingInstallVersion) return
+    const version = pendingInstallVersion
+    setPendingInstallVersion(null)
+    setMessage(`已取消安裝 v${version}；已驗證更新仍保留，可稍後繼續安裝。`)
+  }
+
+  async function confirmVerifiedInstall() {
+    const version = pendingInstallVersion
+    if (!version || updateBusy || installConfirmationBusy.current) return
+    if (!preparedForVersion(updateProgress, version) ||
+        !updateStatus?.available || !updateStatus.installable || updateStatus.latest_version !== version) {
+      setPendingInstallVersion(null)
+      setError('更新驗證狀態已過期，請重新檢查並驗證更新。')
+      return
+    }
+    installConfirmationBusy.current = true
+    setPendingInstallVersion(null)
+    try { await installVerifiedUpdate(version) }
+    finally { installConfirmationBusy.current = false }
+  }
+
   async function downloadAndInstallUpdate() {
     if (!updateStatus?.available || !updateStatus.installable || updateBusy) return
     const version = updateStatus.latest_version
@@ -300,15 +335,8 @@ export function SettingsView({
       if (progress.update) setUpdateStatus(progress.update)
 
       setMessage(`v${version} 已完成簽章、SHA-256 與 EXE self-test 安全驗證。`)
-      const confirmed = window.confirm(
-        `更新已驗證完成，FireLens 將關閉並更新到 v${version}，完成後自動重新啟動。確定繼續？`,
-      )
-      if (!confirmed) {
-        setMessage(`已取消安裝 v${version}；已驗證更新仍保留，可稍後繼續安裝。`)
-        setUpdateBusy(false)
-        return
-      }
-      await installVerifiedUpdate(version)
+      setPendingInstallVersion(version)
+      setUpdateBusy(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : '下載並安裝更新失敗')
       setUpdateBusy(false)
@@ -319,6 +347,16 @@ export function SettingsView({
 
   return (
     <section className="settings-page" aria-label="FireLens 設定">
+      {confirmationDialog}
+      {pendingInstallVersion && <AppConfirmDialog title="準備安裝更新"
+        cancelLabel="取消／稍後更新" confirmLabel="立即安裝並重新啟動"
+        disabled={updateBusy} onCancel={cancelVerifiedInstall}
+        onConfirm={() => { void confirmVerifiedInstall() }}>
+        <p>FireLens v{pendingInstallVersion} 已完成以下安全檢查：</p>
+        <ul><li>Ed25519 更新清單簽章已驗證</li><li>下載的 EXE SHA-256 已核對</li><li>新版 EXE 自我測試完成</li></ul>
+        <p>確認後 FireLens 將安全關閉、安裝新版並嘗試自動重新啟動。</p>
+        <p className="help-text">按「取消／稍後更新」不會安裝，已驗證的更新檔可稍後繼續使用。</p>
+      </AppConfirmDialog>}
       {error && <div className="error-banner" role="alert">{error}</div>}
       {message && <div className="success-banner" role="status">{message}</div>}
 
@@ -348,66 +386,71 @@ export function SettingsView({
 
       <section className="panel-card settings-card">
         <div className="panel-title"><h2>介面與快取</h2><span>持久化設定</span></div>
-        <div className="settings-grid">
-          <label>介面主題
-            <select value={draft.theme} onChange={(event) => setDraft({ ...draft, theme: event.target.value as AppSettings['theme'] })}>
-              <option value="system">跟隨系統</option><option value="light">淺色</option><option value="dark">深色</option>
-            </select>
-          </label>
-          <label>縮圖 JPEG 品質：{draft.thumbnail_quality}
-            <input type="range" min="60" max="95" value={draft.thumbnail_quality} onChange={(event) => setDraft({ ...draft, thumbnail_quality: Number(event.target.value) })} />
-          </label>
+        <div className="settings-subsection">
+          <h3>介面外觀</h3>
+          <div className="settings-grid">
+            <label>介面主題
+              <select value={draft.theme}
+                onChange={event => setDraft({ ...draft, theme: event.target.value as AppSettings['theme'] })}>
+                <option value="system">跟隨系統</option><option value="light">淺色</option><option value="dark">深色</option>
+              </select>
+            </label>
+          </div>
+        </div>
+        <div className="settings-subsection">
+          <h3>照片瀏覽偏好</h3>
           <label className="check-label">
-            <input
-              type="checkbox"
-              checked={draft.auto_scan_on_start}
-              onChange={(event) => setDraft({ ...draft, auto_scan_on_start: event.target.checked })}
-            />
-            啟動時自動掃描
+            <input type="checkbox" checked={draft.new_item_panel_collapsed}
+              onChange={event => setDraft({ ...draft, new_item_panel_collapsed: event.target.checked })} />
+            新增編號資料夾預設收合
           </label>
-          <label>自動掃描最短間隔（分鐘）
-            <input
-              type="number"
-              min="1"
-              max="1440"
-              value={draft.auto_scan_min_interval_minutes}
-              disabled={!draft.auto_scan_on_start}
-              onChange={(event) => setDraft({
-                ...draft,
-                auto_scan_min_interval_minutes: Math.max(1, Math.min(1440, Number(event.target.value) || 1)),
-              })}
-            />
-          </label>
+          <p className="help-text">僅決定下次進入照片瀏覽時的預設狀態；手動展開不會更改預設。</p>
         </div>
-        <p className="help-text">自動掃描預設開啟，預設至少相隔 5 分鐘才再次觸發；手動「重新掃描」不受此門檻限制。</p>
-        <h3>排除根目錄資料夾</h3>
-        <p className="help-text">只設定根目錄第一層名稱。系統自動排除 FireLens-共享異常資料與 Windows 系統資料夾；儲存後重新掃描生效，不會刪除實體資料夾。</p>
-        <div className="settings-grid">
-          <label>新增排除名稱
-            <input aria-label="新增排除資料夾名稱" value={excludeDraft}
-              onChange={(event) => setExcludeDraft(event.target.value)}
-              placeholder="例如：暫存照片" />
-          </label>
-          <button type="button" className="secondary-button"
-            disabled={!excludeDraft.trim() || busy}
-            onClick={() => {
-              if (!draft) return
-              const name = excludeDraft.trim()
-              if (!name || draft.excluded_root_folders.some((value) => value.toLowerCase() === name.toLowerCase())) return
-              setDraft({ ...draft, excluded_root_folders: [...draft.excluded_root_folders, name] })
-              setExcludeDraft('')
-            }}>加入排除清單</button>
+        <div className="settings-subsection">
+          <h3>清冊管理</h3>
+          <div className="settings-grid">
+            <label className="check-label">
+              <input type="checkbox" checked={draft.ledger_list_collapsed}
+                onChange={event => setDraft({ ...draft, ledger_list_collapsed: event.target.checked })} />
+              清冊管理清單預設收合
+            </label>
+            <label>每頁顯示筆數
+              <select value={draft.ledger_page_size}
+                onChange={event => setDraft({ ...draft, ledger_page_size: Number(event.target.value) as 5 | 10 | 20 })}>
+                <option value="5">5 筆</option><option value="10">10 筆</option><option value="20">20 筆</option>
+              </select>
+            </label>
+          </div>
         </div>
-        <div className="settings-list">
-          {draft.excluded_root_folders.map((name) => (
-            <div key={name} className="settings-row">
-              <span>{name}</span>
-              <button type="button" className="secondary-button" onClick={() => setDraft({
-                ...draft, excluded_root_folders: draft.excluded_root_folders.filter((item) => item !== name),
-              })}>移除排除</button>
-            </div>
-          ))}
+        <div className="settings-subsection">
+          <h3>縮圖與快取</h3>
+          <div className="settings-grid">
+            <label>縮圖 JPEG 品質：{draft.thumbnail_quality}
+              <input type="range" min="60" max="95" value={draft.thumbnail_quality}
+                onChange={event => setDraft({ ...draft, thumbnail_quality: Number(event.target.value) })} />
+            </label>
+          </div>
+          <p className="help-text">僅影響縮圖，不會修改原始照片。</p>
         </div>
+        <div className="settings-subsection">
+          <h3>自動掃描</h3>
+          <div className="settings-grid">
+            <label className="check-label">
+              <input type="checkbox" checked={draft.auto_scan_on_start}
+                onChange={event => setDraft({ ...draft, auto_scan_on_start: event.target.checked })} />
+              啟動時自動掃描
+            </label>
+            <label>最短間隔（分鐘）
+              <input type="number" min="1" max="1440" value={draft.auto_scan_min_interval_minutes}
+                disabled={!draft.auto_scan_on_start}
+                onChange={event => setDraft({ ...draft,
+                  auto_scan_min_interval_minutes: Math.max(1, Math.min(1440, Number(event.target.value) || 1)),
+                })} />
+            </label>
+          </div>
+          <p className="help-text">自動掃描預設至少間隔 5 分鐘；手動「重新掃描」不受限制。</p>
+        </div>
+        <RootExclusionPanel roots={roots} />
         <h3>各類別照片槽位（標籤管理）</h3>
         <p className="help-text">每個設備類別獨立操作：按「＋」新增，鉛筆改名、× 移除，拖曳標籤或使用左右箭頭調整順序。不須輸入分隔符號。基本槽位參與缺照判定，選填槽位不計缺漏。改名或移除不會刪除原始照片，可能導致既有照片顯示「未對應照片」，儲存前會再次確認。</p>
         <div className="slot-layout-grid">
@@ -550,7 +593,7 @@ export function SettingsView({
           </div>
         ))}
         {aliasHelpOpen && (
-          <div className="preview-backdrop" onMouseDown={() => setAliasHelpOpen(false)}
+          <ModalBackdrop onCancel={() => setAliasHelpOpen(false)} className="preview-backdrop" onMouseDown={() => setAliasHelpOpen(false)}
             onKeyDown={(event) => { if (event.key === 'Escape') setAliasHelpOpen(false) }}>
             <section className="prompt-dialog" role="dialog" aria-modal="true" aria-label="照片檔名辨識使用說明"
               onMouseDown={(event) => event.stopPropagation()}>
@@ -564,7 +607,7 @@ export function SettingsView({
                 <button type="button" autoFocus onClick={() => setAliasHelpOpen(false)}>我知道了</button>
               </div>
             </section>
-          </div>
+          </ModalBackdrop>
         )}
       </section>
 

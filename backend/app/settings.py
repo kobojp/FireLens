@@ -23,6 +23,9 @@ DEFAULT_SETTINGS: dict[str, object] = {
     "auto_scan_on_start": True,
     "auto_scan_min_interval_minutes": 5,
     "new_item_panel_open": True,
+    "new_item_panel_collapsed": True,
+    "ledger_list_collapsed": False,
+    "ledger_page_size": 5,
     "excluded_root_folders": [],
 }
 
@@ -169,13 +172,65 @@ SYSTEM_EXCLUDED_ROOT_FOLDERS = frozenset(
 )
 
 
-def excluded_root_folders(conn: sqlite3.Connection) -> frozenset[str]:
-    value = get_setting(conn, "excluded_root_folders", [])
+def excluded_root_folders(
+    conn: sqlite3.Connection,
+    root_id: int | None = None,
+) -> frozenset[str]:
+    """Return protected folders plus user exclusions for this single root.
+
+    With root_id omitted, retain the legacy reader for compatibility tests.
+    Once migration 14 exists a NEW root never inherits old global exclusions.
+    """
+    if root_id is not None:
+        per_root = get_setting(conn, "excluded_root_folders_by_root", None)
+        if isinstance(per_root, dict):
+            value = per_root.get(str(root_id), [])
+        else:
+            value = get_setting(conn, "excluded_root_folders", [])
+    else:
+        value = get_setting(conn, "excluded_root_folders", [])
     if not isinstance(value, list):
         return SYSTEM_EXCLUDED_ROOT_FOLDERS
     return SYSTEM_EXCLUDED_ROOT_FOLDERS | frozenset(
-        value_item.casefold() for value_item in value if isinstance(value_item, str)
+        name.casefold() for name in value if isinstance(name, str)
     )
+
+
+def saved_root_exclusions(conn: sqlite3.Connection, root_id: int) -> list[str]:
+    per_root = get_setting(conn, "excluded_root_folders_by_root", None)
+    if isinstance(per_root, dict):
+        value = per_root.get(str(root_id), [])
+    else:
+        value = get_setting(conn, "excluded_root_folders", [])
+    if not isinstance(value, list):
+        raise SettingsError("根目錄排除設定格式損壞")
+    return _validate_excluded_root_folders(value)
+
+
+def save_root_exclusions(
+    conn: sqlite3.Connection,
+    root_id: int,
+    names: object,
+) -> list[str]:
+    cleaned = _validate_excluded_root_folders(names)
+    if any(name.casefold() in SYSTEM_EXCLUDED_ROOT_FOLDERS for name in cleaned):
+        raise SettingsError("系統保護資料夾不可由使用者變更排除狀態")
+    with conn:
+        conn.execute("BEGIN IMMEDIATE")
+        if conn.execute("SELECT 1 FROM root WHERE id=?", (root_id,)).fetchone() is None:
+            raise SettingsError("找不到指定的照片根目錄")
+        per_root = get_setting(conn, "excluded_root_folders_by_root", None)
+        if not isinstance(per_root, dict):
+            raise SettingsError("根目錄排除設定尚未完成安全遷移")
+        mapping = dict(per_root)
+        mapping[str(root_id)] = cleaned
+        conn.execute(
+            """INSERT INTO setting(key,value_json) VALUES (?,?)
+               ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json,
+                 updated_at=CURRENT_TIMESTAMP""",
+            ("excluded_root_folders_by_root", json.dumps(mapping, ensure_ascii=False)),
+        )
+    return cleaned
 
 
 def _validate_excluded_root_folders(value: object) -> list[str]:
@@ -212,6 +267,9 @@ def save_settings(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict[str
         "auto_scan_on_start",
         "auto_scan_min_interval_minutes",
         "new_item_panel_open",
+        "new_item_panel_collapsed",
+        "ledger_list_collapsed",
+        "ledger_page_size",
         "excluded_root_folders",
     }
     unknown = set(payload) - allowed
@@ -249,6 +307,21 @@ def save_settings(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict[str
         updates["excluded_root_folders"] = _validate_excluded_root_folders(
             payload["excluded_root_folders"]
         )
+    if "ledger_list_collapsed" in payload:
+        collapsed = payload["ledger_list_collapsed"]
+        if not isinstance(collapsed, bool):
+            raise SettingsError("清冊管理收合設定必須是布林值")
+        updates["ledger_list_collapsed"] = collapsed
+    if "ledger_page_size" in payload:
+        page_size = payload["ledger_page_size"]
+        if type(page_size) is not int or page_size not in (5, 10, 20):
+            raise SettingsError("清冊管理每頁筆數只支援 5、10、20")
+        updates["ledger_page_size"] = page_size
+    if "new_item_panel_collapsed" in payload:
+        collapsed = payload["new_item_panel_collapsed"]
+        if not isinstance(collapsed, bool):
+            raise SettingsError("新增編號資料夾預設收合必須是布林值")
+        updates["new_item_panel_collapsed"] = collapsed
     if "new_item_panel_open" in payload:
         expanded = payload["new_item_panel_open"]
         if not isinstance(expanded, bool):

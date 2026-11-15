@@ -17,10 +17,13 @@ from pathlib import Path
 from threading import RLock
 
 from .config import get_app_data_dir, get_backup_dir
+from .scanner import _is_cloud_placeholder_stat, _is_safe_directory
 
 _SYNC_DIR = "FireLens-共享異常資料"
 _LIMIT = 10000
 _LOCK = RLock()
+_LAST_RESULTS: dict[str, dict] = {}
+_LAST_ERRORS: dict[str, str] = {}
 _EVENT_RE = re.compile(r"^[0-9a-f]{32}\.json$")
 _NAMESPACE = uuid.UUID("83b68c1e-343b-4ef3-adf9-9ed20e2e5da4")
 
@@ -70,7 +73,14 @@ def _atomic(path: Path, data: bytes, *, exclusive: bool = False) -> None:
 
 
 def _load(path: Path) -> dict:
-    if path.stat().st_size > 262144:
+    info = path.lstat()
+    if (
+        path.is_symlink()
+        or int(getattr(info, "st_file_attributes", 0) or 0) & 0x400
+        or _is_cloud_placeholder_stat(info)
+    ):
+        raise SyncError("共享資料未下載或為不安全連結，請等待 Google Drive 完成同步")
+    if info.st_size > 262144:
         raise SyncError("共享資料檔超出大小上限")
     obj = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(obj, dict):
@@ -85,8 +95,8 @@ def _root(conn: sqlite3.Connection, root_id: int) -> Path:
     path = Path(str(row["path"])).expanduser()
     if not path.is_dir():
         raise SyncError("Google Drive 同步根目錄離線，保留本機資料")
-    if path.is_symlink():
-        raise SyncError("不可在符號連結根目錄啟用共用")
+    if not _is_safe_directory(path):
+        raise SyncError("不可在符號連結或未下載根目錄啟用共用")
     return path
 
 
@@ -135,7 +145,7 @@ def _events(root: Path) -> dict[str, dict]:
     directory = root / _SYNC_DIR / "events"
     if not directory.is_dir():
         raise SyncError("共享事件資料夾消失或離線，停止同步並保留本機資料")
-    if directory.is_symlink():
+    if not _is_safe_directory(directory.parent) or not _is_safe_directory(directory):
         raise SyncError("共享事件目錄不可為符號連結")
     result: dict[str, dict] = {}
     files = list(directory.iterdir())
@@ -158,7 +168,11 @@ def _events(root: Path) -> dict[str, dict]:
         try:
             payload = _load(path)
             digest = payload.pop("sha256")
-            if payload.get("v") != 1 or payload.get("id") != path.stem or digest != _hash(payload):
+            if (
+                payload.get("v") not in (1, 2)
+                or payload.get("id") != path.stem
+                or digest != _hash(payload)
+            ):
                 raise ValueError("invalid hash or version")
             if payload.get("kind") not in {"label", "issue"}:
                 raise ValueError("invalid kind")
@@ -190,9 +204,14 @@ def _safe_event(path: Path, event: dict) -> None:
 
 
 def _emit(root: Path, state: dict, kind: str, key: str, value: object) -> str:
-    events = _events(root) if (root / _SYNC_DIR / "events").is_dir() else {}
-    # Known file history is also needed when offline; no shared files overwritten.
-    for filename in (_base(root) / "outbox").glob("*.json"):
+    # Parents describe what this device actually verified, not unseen Drive files.
+    # Otherwise first enable or offline edits silently inherit another user's edit.
+    events = {}
+    known = set(state.get("known", []))
+    archive = _base(root) / "archive"
+    files = [archive / (event_id + ".json") for event_id in known]
+    files.extend((_base(root) / "outbox").glob("*.json"))
+    for filename in files:
         entry = _load(filename)
         if entry.get("id") and entry.get("sha256") == _hash(
             {k: v for k, v in entry.items() if k != "sha256"}
@@ -205,7 +224,7 @@ def _emit(root: Path, state: dict, kind: str, key: str, value: object) -> str:
         parents = [state["applied"][key]]
     event_id = uuid.uuid4().hex
     event = {
-        "v": 1,
+        "v": 2 if kind == "issue" and str(value.get("category", "")).startswith("folder_") else 1,
         "id": event_id,
         "device": _id(),
         "kind": kind,
@@ -286,11 +305,20 @@ def configure(conn: sqlite3.Connection, root_id: int, enabled: bool) -> dict:
             # Bootstrap current local records once, with no parents, so remote
             # divergent states remain visible as conflict instead of overwrite.
             _backup(root, conn, root_id, reason="首次啟用前")
+            remote = _validated_events(root, state)
             for label in conn.execute(
                 "SELECT id,name,sort_order,active FROM issue_label ORDER BY id"
             ):
                 guid = _guid(str(label["name"]))
                 state["label_map"][guid] = int(label["id"])
+                same = {
+                    "name": str(label["name"]),
+                    "active": int(label["active"]),
+                    "sort_order": int(label["sort_order"]),
+                }
+                heads = _heads(remote, "label:" + guid)
+                if heads and all(event["value"] == same for event in heads):
+                    continue  # identical bootstrap labels need no competing event
                 _emit(
                     root,
                     state,
@@ -345,6 +373,11 @@ def status(conn: sqlite3.Connection, root_id: int) -> dict:
         "enabled": active,
         "root_id": root_id,
         "pending": pending,
+        "local_total": conn.execute(
+            "SELECT COUNT(*) FROM item_issue WHERE root_id=?", (root_id,)
+        ).fetchone()[0],
+        "last_result": _LAST_RESULTS.get(str(_base(root))),
+        "sync_error": _LAST_ERRORS.get(str(_base(root))),
         "last_read": state.get("last_read"),
         "last_device_read": state.get("last_read"),
         "warning": "使用 Google Drive 桌面版同步；本機讀寫不代表已上傳雲端",
@@ -356,8 +389,12 @@ def status(conn: sqlite3.Connection, root_id: int) -> dict:
         if state.get("manual_review")
         else "offline"
         if not root.is_dir()
+        else "incomplete"
+        if str(_base(root)) in _LAST_ERRORS
         else "pending"
         if pending
+        else "conflict"
+        if state.get("conflicts")
         else "local_read",
     }
 
@@ -473,8 +510,12 @@ def _value(event: dict) -> dict:
             or ":" in value["path"]
         ):
             raise SyncError("設備相對路徑不安全")
-        if value.get("category") not in ("extinguisher", "box", "lamp"):
-            raise SyncError("設備類別無效")
+        category = value.get("category")
+        if category not in ("extinguisher", "box", "lamp"):
+            folder = value["path"].replace("\\", "/").split("/")[0]
+            expected = "folder_" + hashlib.sha256(folder.encode("utf-8")).hexdigest()[:24]
+            if event.get("v") != 2 or category != expected:
+                raise SyncError("設備類別無效或與資料夾識別不一致")
         if not isinstance(value.get("code"), str) or not 1 <= len(value["code"]) <= 120:
             raise SyncError("設備編號格式無效")
         if value.get("label_guid") is not None and not re.fullmatch(
@@ -486,11 +527,28 @@ def _value(event: dict) -> dict:
     return value
 
 
+def _conflict_labels(events: dict[str, dict], conflicts: list[dict]) -> list[dict]:
+    for conflict in conflicts:
+        for candidate in conflict["candidates"]:
+            value = candidate["value"]
+            guid = value.get("label_guid")
+            if conflict["kind"] == "label":
+                candidate["label_name"] = value["name"]
+            elif not guid:
+                candidate["label_name"] = "清除異常"
+            else:
+                names = sorted({e["value"]["name"] for e in _heads(events, "label:" + guid)})
+                candidate["label_name"] = "／".join(names) or "分類尚未取得"
+    return conflicts
+
+
 def _merged_view(events: dict[str, dict]) -> tuple[dict[str, dict], list[dict]]:
     # Reject incomplete Drive sync, fabricated parent links and invalid older
     # events, not only current heads. Otherwise a partial upload could be
     # treated as a new authoritative head.
     for event in events.values():
+        if event.get("v") not in (1, 2):
+            raise SyncError("事件版本不支援，請更新所有電腦")
         _value(event)
         if not isinstance(event.get("device"), str) or not re.fullmatch(
             r"[0-9a-f]{32}", event["device"]
@@ -502,6 +560,22 @@ def _merged_view(events: dict[str, dict]) -> tuple[dict[str, dict], list[dict]]:
                 raise SyncError("事件繼承鏈不完整，可能尚未完成 Google Drive 同步")
             if parent == event["id"] or previous["key"] != event["key"]:
                 raise SyncError("事件繼承鏈不安全，停止套用")
+    # Reject cycles anywhere in history, including cycles hidden by a newer head.
+    remaining = {key: len(event["parents"]) for key, event in events.items()}
+    children: dict[str, list[str]] = {}
+    for key, event in events.items():
+        for parent in event["parents"]:
+            children.setdefault(parent, []).append(key)
+    ready = [key for key, count in remaining.items() if count == 0]
+    visited = 0
+    while ready:
+        visited += 1
+        for child in children.get(ready.pop(), []):
+            remaining[child] -= 1
+            if remaining[child] == 0:
+                ready.append(child)
+    if visited != len(events):
+        raise SyncError("事件繼承鏈存在循環，停止套用")
     effective: dict[str, dict] = {}
     conflicts: list[dict] = []
     for key in sorted(set(e["key"] for e in events.values())):
@@ -528,7 +602,7 @@ def _merged_view(events: dict[str, dict]) -> tuple[dict[str, dict], list[dict]]:
             )
         else:
             effective[key] = heads[0]
-    return effective, conflicts
+    return effective, _conflict_labels(events, conflicts)
 
 
 def _apply(conn: sqlite3.Connection, root_id: int, state: dict, effective: dict[str, dict]) -> int:
@@ -596,7 +670,72 @@ def _apply(conn: sqlite3.Connection, root_id: int, state: dict, effective: dict[
     return changed
 
 
+def _issue_snapshot(conn: sqlite3.Connection, root_id: int) -> dict[str, dict]:
+    return {
+        row["item_relative_path"]: dict(row)
+        for row in conn.execute(
+            "SELECT x.item_relative_path,x.category_code,x.device_code,"
+            "x.label_id,l.name AS label_name,"
+            "i.building,c.name AS category_name FROM item_issue x "
+            "JOIN issue_label l ON l.id=x.label_id "
+            "LEFT JOIN item i ON i.root_id=x.root_id AND i.relative_path=x.item_relative_path "
+            "LEFT JOIN category c ON c.code=x.category_code WHERE x.root_id=?",
+            (root_id,),
+        )
+    }
+
+
+def _change_report(conn, root_id, before, after, effective, conflicts, at):
+    changes = []
+    summary = {"added": 0, "updated": 0, "cleared": 0, "conflicts": len(conflicts)}
+    for path in sorted(before.keys() | after.keys()):
+        old, new = before.get(path), after.get(path)
+        if old and new and old["label_id"] == new["label_id"]:
+            continue
+        kind = "added" if old is None else "cleared" if new is None else "updated"
+        row = new or old
+        event = effective.get("issue:" + row["category_code"] + ":" + path, {})
+        summary[kind] += 1
+        changes.append(
+            {
+                "kind": kind,
+                "path": path,
+                "code": row["device_code"],
+                "category": row["category_code"],
+                "category_name": row["category_name"] or path.split("/")[0],
+                "building": row["building"],
+                "before": old["label_name"] if old else None,
+                "after": new["label_name"] if new else None,
+                "device": event.get("device"),
+                "at": event.get("at"),
+            }
+        )
+    return {
+        "summary": summary,
+        "changes": changes,
+        "local_total": len(after),
+        "at": at,
+        "root_id": root_id,
+        "conflicts": conflicts,
+    }
+
+
 def synchronize(conn: sqlite3.Connection, root_id: int) -> dict:
+    with _LOCK:
+        try:
+            return _synchronize(conn, root_id)
+        except (SyncError, OSError, ValueError, KeyError, TypeError) as exc:
+            row = conn.execute("SELECT path FROM root WHERE id=?", (root_id,)).fetchone()
+            if row:
+                _LAST_ERRORS[str(_base(Path(row["path"])))] = (
+                    "同步未完成，保留本機資料；請檢查共用事件及 Google Drive 狀態"
+                )
+            if isinstance(exc, SyncError):
+                raise
+            raise SyncError("同步未完成，保留本機資料；請檢查共享事件及來源狀態") from exc
+
+
+def _synchronize(conn: sqlite3.Connection, root_id: int) -> dict:
     with _LOCK:
         if not _enabled(conn, root_id):
             raise SyncError("尚未啟用此根目錄的共享異常同步")
@@ -611,7 +750,7 @@ def synchronize(conn: sqlite3.Connection, root_id: int) -> dict:
         for entry in pending.glob("*.json"):
             event = _load(entry)
             digest = event.pop("sha256", None)
-            if event.get("v") != 1 or digest != _hash(event):
+            if event.get("v") not in (1, 2) or digest != _hash(event):
                 raise SyncError("本機待同步事件損壞，停止同步")
             _value(event)
             outgoing.append((entry, event))
@@ -625,6 +764,7 @@ def synchronize(conn: sqlite3.Connection, root_id: int) -> dict:
             # Keep local archived copy before clearing outbox.
             _safe_event(_base(root) / "archive" / (event["id"] + ".json"), event)
             entry.unlink()
+        before = _issue_snapshot(conn, root_id)
         # Backup before first application of new remote data.
         incoming = {key: e for key, e in effective.items() if state["applied"].get(key) != e["id"]}
         if incoming:
@@ -640,8 +780,20 @@ def synchronize(conn: sqlite3.Connection, root_id: int) -> dict:
         state["last_read"] = datetime.now(UTC).isoformat()
         state["conflicts"] = conflicts
         _save_state(root, state)
+        report = _change_report(
+            conn,
+            root_id,
+            before,
+            _issue_snapshot(conn, root_id),
+            effective,
+            conflicts,
+            state["last_read"],
+        )
+        _LAST_RESULTS[str(_base(root))] = report
+        _LAST_ERRORS.pop(str(_base(root)), None)
         return {
             **status(conn, root_id),
+            **report,
             "applied": changed,
             "conflicts": conflicts,
             "verified_events": len(events),
@@ -675,7 +827,7 @@ def resolve(conn: sqlite3.Connection, root_id: int, key: str, event_id: str) -> 
         if chosen is None:
             raise SyncError("選擇的版本不在目前待確認候選中")
         event = {
-            "v": 1,
+            "v": chosen["v"],
             "id": uuid.uuid4().hex,
             "device": _id(),
             "kind": chosen["kind"],
@@ -739,10 +891,18 @@ def backup_preview(conn: sqlite3.Connection, root_id: int, backup_id: str) -> di
     backup_items = {str(r["item_relative_path"]): int(r["label_id"]) for r in data["items"]}
     added = sum(key not in current_items for key in backup_items)
     removed = sum(key not in backup_items for key in current_items)
-    changed = sum(
-        current_items[key] != backup_items[key]
-        for key in current_items.keys() & backup_items.keys()
-    )
+    local_names = {
+        int(r["id"]): str(r["name"]) for r in conn.execute("SELECT id,name FROM issue_label")
+    }
+    saved_names = {int(r["id"]): str(r["name"]) for r in data["labels"]}
+    details = []
+    for path in sorted(current_items.keys() | backup_items.keys()):
+        old_id, new_id = current_items.get(path), backup_items.get(path)
+        old_name, new_name = local_names.get(old_id), saved_names.get(new_id)
+        if old_id == new_id and old_name == new_name:
+            continue
+        kind = "added" if old_id is None else "cleared" if new_id is None else "updated"
+        details.append({"path": path, "before": old_name, "after": new_name, "kind": kind})
     return {
         "id": backup_id,
         "time": data["at"],
@@ -752,7 +912,8 @@ def backup_preview(conn: sqlite3.Connection, root_id: int, backup_id: str) -> di
         "current_items": len(current_items),
         "adding": added,
         "removing": removed,
-        "changing": changed,
+        "changing": sum(row["kind"] == "updated" for row in details),
+        "changes": details,
         "_data": data,
     }
 

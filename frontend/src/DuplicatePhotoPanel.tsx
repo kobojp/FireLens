@@ -1,3 +1,4 @@
+import { confirmDialog } from './AppDialog'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from './api'
 import { InspectorImageViewer } from './InspectorImageViewer'
@@ -25,6 +26,9 @@ export function DuplicatePhotoPanel({
   const [offset, setOffset] = useState(0)
   const [gallery, setGallery] = useState<DuplicateGallery | null>(null)
   const [job, setJob] = useState<DuplicateJob | null>(null)
+  const [starting, setStarting] = useState(false)
+  const startingRef = useRef(false)
+  const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
   const [preview, setPreview] = useState<number | null>(null)
   const [guideStarted, setGuideStarted] = useState(false)
@@ -54,13 +58,22 @@ export function DuplicatePhotoPanel({
 
   const refresh = useCallback(async () => {
     if (rootId === null) return
+    setRefreshing(true)
     try {
       setGallery(await api.duplicateGallery(rootId, params))
       setError('')
     } catch (err) {
       setError(err instanceof Error ? err.message : '無法讀取重複清單')
-    }
+    } finally { setRefreshing(false) }
   }, [rootId, params])
+
+  const manualRefreshBusy = useRef(false)
+  async function manualRefresh() {
+    if (rootId === null || manualRefreshBusy.current) return
+    manualRefreshBusy.current = true
+    try { await refresh() }
+    finally { manualRefreshBusy.current = false }
+  }
 
   useEffect(() => {
     let alive = true
@@ -86,15 +99,17 @@ export function DuplicatePhotoPanel({
   }, [rootId, job?.state, refresh])
 
   async function startScan() {
-    if (rootId === null) return
-    if (full && !window.confirm('完整模式會重新讀取所有安全本機圖片並計算 SHA-256，確定開始？')) return
+    if (rootId === null || startingRef.current || job?.state === 'running') return
+    if (full && !await confirmDialog('完整模式會重新讀取所有安全本機圖片並計算 SHA-256，確定開始？')) return
+    startingRef.current = true
+    setStarting(true)
     setError('')
     try {
       setJob(await api.duplicateScan(rootId, full))
       if (guideTicket != null) setGuideStarted(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : '重複掃描無法開始')
-    }
+    } finally { startingRef.current = false; setStarting(false) }
   }
 
   async function browserDownload(format: 'csv' | 'xlsx') {
@@ -197,14 +212,14 @@ export function DuplicatePhotoPanel({
           </select>
         </label>
         <button type="button" ref={scanButtonRef}
-          className={guideTicket != null && !guideStarted ? 'scan-guide-target' : undefined}
+          className={`quality-action quality-action-scan${guideTicket != null && !guideStarted ? ' scan-guide-target' : ''}`}
           onClick={() => void startScan()}
-          disabled={rootId === null || job?.state === 'running'}>開始重複掃描</button>
-        <button type="button" disabled={job?.state !== 'running' || rootId === null}
+          disabled={rootId === null || starting || job?.state === 'running'}>{starting || job?.state === 'running' ? '掃描中…' : '▶ 開始重複掃描'}</button>
+        <button type="button" className="quality-action quality-action-cancel" disabled={job?.state !== 'running' || rootId === null}
           onClick={() => { if (rootId !== null) void api.duplicateCancel(rootId).then(setJob) }}>
           取消掃描
         </button>
-        <button type="button" onClick={() => void refresh()}>重新整理清單</button>
+        <button type="button" className="quality-action quality-action-refresh" disabled={refreshing || rootId === null} onClick={() => void manualRefresh()}>{refreshing ? '整理中…' : '↻ 重新整理清單'}</button>
         <div className="quality-export-actions" role="group" aria-label="匯出重複圖片清單">
           <button type="button" className="quality-action quality-action-csv"
             disabled={rootId === null || Boolean(exporting)} onClick={() => void exportResults('csv')}>

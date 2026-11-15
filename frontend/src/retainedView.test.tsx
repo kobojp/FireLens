@@ -11,14 +11,14 @@ const reconcile = readFileSync(new URL('./ReconcileView.tsx', import.meta.url), 
 describe('M19-D return from equipment photo wall keeps workspace state', () => {
   it('mounts each page after its first visit and retains it across browse', () => {
     const first = initialVisitedTabs
-    expect(first).toEqual({ quality: false, reconcile: false })
+    expect(first).toEqual({ quality: false, reconcile: false, statistics: false })
     const visitedQuality = withVisitedTab(first, 'quality')
     const onPhotoWall = withVisitedTab(visitedQuality, 'browse')
     const visitedReconcile = withVisitedTab(onPhotoWall, 'reconcile')
     expect(onPhotoWall).toBe(visitedQuality)
     expect(withVisitedTab(visitedReconcile, 'browse')).toBe(visitedReconcile)
     expect(withVisitedTab(visitedReconcile, 'quality')).toBe(visitedReconcile)
-    expect(visitedReconcile).toEqual({ quality: true, reconcile: true })
+    expect(visitedReconcile).toEqual({ quality: true, reconcile: true, statistics: false })
   })
 
   it('hides inactive panels from keyboard access without removing their previous inputs', () => {
@@ -54,7 +54,7 @@ describe('M19-D return from equipment photo wall keeps workspace state', () => {
       expect(quality).toContain(`const [${field}, set`)
     }
     expect(quality).toContain('<DuplicatePhotoPanel')
-    for (const field of ['ledgerId', 'classificationFilter', 'missingOnly', 'result', 'textLedger']) {
+    for (const field of ['ledgerId', 'classificationFilter', 'missingOnly', 'result', 'pasteRows']) {
       expect(reconcile).toContain(`const [${field}, set`)
     }
   })

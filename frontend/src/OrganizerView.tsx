@@ -1,3 +1,4 @@
+import { confirmDialog } from './AppDialog'
 import { useEffect, useMemo, useState } from 'react'
 import { api } from './api'
 import { previewCanExecute, safeCandidateIds, toggleCandidate } from './organizer'
@@ -64,7 +65,8 @@ export function OrganizerView({ roots, defaultRootId }: Props) {
   }
 
   async function executeSelected() {
-    if (rootId === null || !previewCanExecute(preview)) return
+    if (rootId === null || busy || !previewCanExecute(preview)) return
+    if (!await confirmDialog(`確認執行所選 ${selected.length} 筆改名？請先核對逐筆預覽。只改檔名、不覆寫，每筆保留還原紀錄。`)) return
     setBusy(true)
     setError('')
     setMessage('')

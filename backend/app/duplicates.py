@@ -96,7 +96,7 @@ def _hash_checked(path: Path, size: int, mtime_ns: int) -> str | None:
 
 
 def _photos(conn: sqlite3.Connection, root_id: int) -> list[dict]:
-    excluded = excluded_root_folders(conn)
+    excluded = excluded_root_folders(conn, root_id)
     return [
         dict(row)
         for row in conn.execute(
@@ -231,9 +231,11 @@ def _upsert(conn: sqlite3.Connection, rows: list[tuple]) -> None:
         )
 
 
-def _excluded_filter(conn: sqlite3.Connection, alias: str = "p") -> tuple[str, list[str]]:
+def _excluded_filter(
+    conn: sqlite3.Connection, root_id: int, alias: str = "p"
+) -> tuple[str, list[str]]:
     """Keep excluded top-level folders outside both completeness and match checks."""
-    excluded = sorted(excluded_root_folders(conn))
+    excluded = sorted(excluded_root_folders(conn, root_id))
     if not excluded:
         return "", []
     placeholders = ",".join("?" for _ in excluded)
@@ -247,7 +249,7 @@ def _missing_index_rows(
     *,
     limit: int,
 ) -> list[dict]:
-    clause, exclusions = _excluded_filter(conn)
+    clause, exclusions = _excluded_filter(conn, root_id)
     return [
         dict(row)
         for row in conn.execute(
@@ -330,7 +332,7 @@ def find_duplicates(
 ) -> list[dict]:
     """Indexed SQLite digest lookup; read ONLY genuine digest candidates."""
     root = _root(conn, root_id)
-    clause, exclusions = _excluded_filter(conn)
+    clause, exclusions = _excluded_filter(conn, root_id)
     rows = conn.execute(
         f"""
         SELECT p.id AS photo_id,p.item_id,p.relative_path,p.filename,p.slot,

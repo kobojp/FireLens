@@ -1,6 +1,8 @@
+import { ModalBackdrop } from './AppDialog'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from './api'
 import { loadPrivateSheetListOnce } from './privateSheetAutoLoad'
+import { useAppConfirmation } from './useAppConfirmation'
 import {
   boundsFor, boundsLabel, columnName, inSelection, tsvFromRows,
   trimTrailingBlankRows, loadCopyRows,
@@ -11,6 +13,7 @@ import type { PrivateDriveStatus, PrivateSheet, PrivateTab, PrivateValues } from
 
 export function PublicSheetsView() {
   const [status, setStatus] = useState<PrivateDriveStatus | null>(null)
+  const { confirmAction, cancelConfirmation, confirmationDialog } = useAppConfirmation()
   const [sheets, setSheets] = useState<PrivateSheet[]>([])
   const [tabs, setTabs] = useState<PrivateTab[]>([])
   const [selectedSheet, setSelectedSheet] = useState('')
@@ -117,15 +120,20 @@ export function PublicSheetsView() {
       setPreparedCopy(null)
     }
   }, [status?.authenticated])
+  useEffect(() => cancelConfirmation(), [status?.authenticated, cancelConfirmation])
 
-  function discardAllowed() {
-    return !draft || draft.value === draft.expected ||
-      window.confirm('有未儲存的儲存格修改，確定放棄草稿？')
+  async function discardAllowed(): Promise<boolean> {
+    if (!draft || draft.value === draft.expected) return true
+    return confirmAction('有未儲存的儲存格修改，確定放棄草稿？', '放棄未儲存的儲存格修改')
+  }
+
+  async function dismissDraft() {
+    if (!busy && await discardAllowed()) setDraft(null)
   }
 
   async function chooseMode(next: 'read' | 'edit') {
     if (next === mode) return
-    if (busy || !discardAllowed()) return
+    if (busy || !(await discardAllowed())) return
     if (next === 'read') {
       setMode('read')
       setDraft(null)
@@ -280,14 +288,14 @@ export function PublicSheetsView() {
     return () => window.removeEventListener('keydown', listener)
   })
 
-  function selectCell(row: number, column: number, expected: string) {
-    if (mode !== 'edit' || busy || !discardAllowed()) return
+  async function selectCell(row: number, column: number, expected: string) {
+    if (mode !== 'edit' || busy || !(await discardAllowed())) return
     setDraft({ row, column, expected, value: expected })
     setSaveConfirm(false)
   }
 
   async function openInGoogleSheets() {
-    if (busy || openBrowserBusy || !selectedSheet || !discardAllowed()) return
+    if (busy || openBrowserBusy || !selectedSheet || !(await discardAllowed())) return
     const tabId = tabs.find((tab) => tab.title === selectedTab)?.id ?? null
     setOpenBrowserBusy(true)
     setError('')
@@ -337,7 +345,7 @@ export function PublicSheetsView() {
   }
 
   async function logout() {
-    if (busy || !discardAllowed()) return
+    if (busy || !(await discardAllowed())) return
     setBusy(true)
     setError('')
     try {
@@ -352,7 +360,7 @@ export function PublicSheetsView() {
   }
 
   async function loadSheets() {
-    if (busy || !discardAllowed()) return
+    if (busy || !(await discardAllowed())) return
     setDraft(null)
     setBusy(true)
     setError('')
@@ -367,7 +375,7 @@ export function PublicSheetsView() {
   }
 
   async function chooseSheet(id: string) {
-    if (busy || !discardAllowed()) return
+    if (busy || !(await discardAllowed())) return
     setDraft(null)
     setSelectedSheet(id)
     setSelectedTab('')
@@ -383,9 +391,10 @@ export function PublicSheetsView() {
     finally { setBusy(false) }
   }
 
-  async function loadValues(sheet: string, tab: string, row = 1) {
-    if (!sheet || !tab || busy || !discardAllowed()) return
+  async function loadValues(sheet: string, tab: string, row = 1, alreadyConfirmed = false) {
+    if (!sheet || !tab || busy || (!alreadyConfirmed && !(await discardAllowed()))) return
     setDraft(null)
+    if (!tab) { setData(null); return }
     setBusy(true)
     setError('')
     setData(null)
@@ -396,6 +405,7 @@ export function PublicSheetsView() {
 
   return (
     <section className="settings-page private-drive-page" aria-label="查看滅火器資料">
+      {confirmationDialog}
       <section className="panel-card settings-card private-drive-card">
         <div className="panel-title">
           <h2>查看滅火器資料</h2>
@@ -455,11 +465,14 @@ export function PublicSheetsView() {
             {!!selectedSheet && (
               <label className="public-sheet-selector">工作表
                 <select value={selectedTab} disabled={busy}
-                  onChange={(event) => {
-                    if (!discardAllowed()) return
-                    setDraft(null)
-                    setSelectedTab(event.target.value)
-                    void loadValues(selectedSheet, event.target.value)
+                  onChange={event => {
+                    const next = event.target.value
+                    void (async () => {
+                      if (!(await discardAllowed())) return
+                      setDraft(null)
+                      setSelectedTab(next)
+                      await loadValues(selectedSheet, next, 1, true)
+                    })()
                   }}>
                   <option value="">請選擇工作表</option>
                   {tabs.map((tab) => <option value={tab.title} key={tab.id}>{tab.title}</option>)}
@@ -568,8 +581,8 @@ export function PublicSheetsView() {
           </>
         )}
         {mode === 'edit' && draft && !saveConfirm && (
-          <div className="preview-backdrop private-editor-backdrop"
-            onMouseDown={() => { if (!busy && discardAllowed()) setDraft(null) }}>
+          <ModalBackdrop onCancel={async () => { if (!busy && await discardAllowed()) setDraft(null) }} className="preview-backdrop private-editor-backdrop"
+            onMouseDown={async () => { if (!busy && await discardAllowed()) setDraft(null) }}>
             <section className="prompt-dialog private-editor-dialog" role="dialog"
               aria-modal="true" aria-label="編輯 Google 試算表儲存格"
               onMouseDown={(event) => event.stopPropagation()}>
@@ -585,16 +598,16 @@ export function PublicSheetsView() {
               </div>
               <div className="prompt-footer">
                 <button type="button" disabled={busy}
-                  onClick={() => { if (discardAllowed()) setDraft(null) }}>取消</button>
+                  onClick={() => { void dismissDraft() }}>取消</button>
                 <button type="button" className="primary-button"
                   disabled={busy || draft.value === draft.expected}
                   onClick={() => setSaveConfirm(true)}>儲存變更…</button>
               </div>
             </section>
-          </div>
+          </ModalBackdrop>
         )}
         {saveConfirm && draft && (
-          <div className="preview-backdrop" onMouseDown={() => !busy && setSaveConfirm(false)}>
+          <ModalBackdrop onCancel={() => { if (!busy) setSaveConfirm(false) }} className="preview-backdrop" onMouseDown={() => !busy && setSaveConfirm(false)}>
             <section className="prompt-dialog" role="dialog" aria-modal="true" aria-label="確認修改 Google 試算表"
               onMouseDown={(event) => event.stopPropagation()}>
               <div className="prompt-header">確認修改 Google 試算表</div>
@@ -610,7 +623,7 @@ export function PublicSheetsView() {
                   disabled={busy || draft.value === draft.expected}>確認儲存</button>
               </div>
             </section>
-          </div>
+          </ModalBackdrop>
         )}
         <p className="help-text">Google 測試版 OAuth 授權可能需定期重新登入；若出現未驗證應用程式警告，請確認你在 Google Cloud 測試使用者名單，並只授權自己建立的 FireLens。</p>
       </section>

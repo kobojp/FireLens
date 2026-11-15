@@ -231,7 +231,7 @@ def test_offline_change_replays_with_previous_verified_lineage(tmp_path, monkeyp
 def test_label_name_change_propagates_across_separate_sqlite_ids(tmp_path, monkeypatch):
     shared = tmp_path / "drive-folder"
     shared.mkdir()
-    a_dir, a, ar, _ = _client(tmp_path, shared, "pc-1", monkeypatch)
+    a_dir, a, ar, ai = _client(tmp_path, shared, "pc-1", monkeypatch)
     b_dir, b, br, _ = _client(tmp_path, shared, "pc-2", monkeypatch)
     try:
         _as(monkeypatch, a_dir)
@@ -242,6 +242,12 @@ def test_label_name_change_propagates_across_separate_sqlite_ids(tmp_path, monke
         sync.synchronize(b, br)
         _as(monkeypatch, a_dir)
         old = _existing_label(a, "瓶身超過10年")
+        set_item_issue(a, ai, old["id"])
+        sync.record_item(a, ai, old["id"])
+        sync.synchronize(a, ar)
+        _as(monkeypatch, b_dir)
+        sync.synchronize(b, br)
+        _as(monkeypatch, a_dir)
         update_label(a, old["id"], name="瓶身期限異常")
         sync.record_label(a, old["id"])
         sync.synchronize(a, ar)
@@ -249,6 +255,8 @@ def test_label_name_change_propagates_across_separate_sqlite_ids(tmp_path, monke
         response = sync.synchronize(b, br)
         assert response["conflicts"] == []
         assert _existing_label(b, "瓶身期限異常")
+        assert response["summary"]["updated"] == 0
+        assert response["changes"] == []
     finally:
         a.close()
         b.close()
@@ -399,3 +407,411 @@ def test_windows_desktop_ini_is_ignored_but_unknown_files_still_fail(tmp_path, m
             sync.synchronize(conn, root_id)
     finally:
         conn.close()
+
+
+def test_dynamic_category_journal_uses_version_two_and_merges(tmp_path, monkeypatch):
+    import hashlib
+
+    folder = tmp_path / "shared"
+    folder.mkdir()
+    ad, a, ar, ai = _client(tmp_path, folder, "dynamic-a", monkeypatch)
+    bd, b, br, _ = _client(tmp_path, folder, "dynamic-b", monkeypatch)
+    code = "folder_" + hashlib.sha256("水帶".encode()).hexdigest()[:24]
+    path = "水帶/2026年/11月/F-19-13"
+    try:
+        with a:
+            category = a.execute(
+                "INSERT INTO category(code,name,slots_json) VALUES (?,?,?)",
+                (code, "水帶", '["前","中","後"]'),
+            ).lastrowid
+            a.execute(
+                "UPDATE item SET category_id=?,relative_path=? WHERE id=?", (category, path, ai)
+            )
+        _as(monkeypatch, ad)
+        label = _existing_label(a, "瓶身超過10年")
+        set_item_issue(a, ai, label["id"])
+        sync.configure(a, ar, True)
+        result = sync.synchronize(a, ar)
+        assert not result["conflicts"]
+        events = sync._events(folder)
+        issue = next(event for event in events.values() if event["kind"] == "issue")
+        assert issue["v"] == 2
+        _as(monkeypatch, bd)
+        sync.configure(b, br, True)
+        result = sync.synchronize(b, br)
+        assert result["summary"]["added"] == 1
+        assert result["changes"][0]["category"] == code
+        assert result["changes"][0]["category_name"] == "水帶"
+        assert b.execute("SELECT category_code FROM item_issue").fetchone()[0] == code
+        issue["v"] = 1
+        with pytest.raises(sync.SyncError, match="類別"):
+            sync._value(issue)
+        issue["v"] = 2
+        issue["value"]["category"] = "folder_" + "0" * 24
+        with pytest.raises(sync.SyncError, match="類別"):
+            sync._value(issue)
+    finally:
+        a.close()
+        b.close()
+
+
+def test_sync_summary_counts_sqlite_differences_and_noop(tmp_path, monkeypatch):
+    folder = tmp_path / "shared"
+    folder.mkdir()
+    ad, a, ar, ai = _client(tmp_path, folder, "summary-a", monkeypatch)
+    bd, b, br, bi = _client(tmp_path, folder, "summary-b", monkeypatch)
+    try:
+        _as(monkeypatch, ad)
+        sync.configure(a, ar, True)
+        sync.synchronize(a, ar)
+        _as(monkeypatch, bd)
+        sync.configure(b, br, True)
+        sync.synchronize(b, br)
+        label = _existing_label(b, "瓶身超過10年")
+        set_item_issue(b, bi, label["id"])
+        sync.record_item(b, bi, label["id"])
+        # Local journal publication is not a newly added local issue.
+        assert sync.synchronize(b, br)["summary"]["added"] == 0
+        _as(monkeypatch, ad)
+        first = sync.synchronize(a, ar)
+        assert first["summary"] == {"added": 1, "updated": 0, "cleared": 0, "conflicts": 0}
+        assert first["local_total"] == 1
+        assert first["changes"][0]["before"] is None
+        assert first["changes"][0]["after"] == label["name"]
+        assert first["changes"][0]["device"]
+        assert sync.status(a, ar)["last_result"] == first["last_result"]
+        again = sync.synchronize(a, ar)
+        assert again["summary"] == {"added": 0, "updated": 0, "cleared": 0, "conflicts": 0}
+        assert again["changes"] == []
+        _as(monkeypatch, bd)
+        replacement = _existing_label(b, "無法辨識")
+        set_item_issue(b, bi, replacement["id"])
+        sync.record_item(b, bi, replacement["id"])
+        sync.synchronize(b, br)
+        _as(monkeypatch, ad)
+        result = sync.synchronize(a, ar)
+        assert result["summary"]["updated"] == 1
+        assert result["changes"][0]["before"] == label["name"]
+        assert result["changes"][0]["after"] == replacement["name"]
+        _as(monkeypatch, bd)
+        set_item_issue(b, bi, None)
+        sync.record_item(b, bi, None)
+        sync.synchronize(b, br)
+        _as(monkeypatch, ad)
+        result = sync.synchronize(a, ar)
+        assert result["summary"]["cleared"] == 1
+        assert result["changes"][0]["after"] is None
+        assert result["local_total"] == 0
+    finally:
+        a.close()
+        b.close()
+
+
+def test_initial_divergent_same_equipment_requires_manual_choice(tmp_path, monkeypatch):
+    folder = tmp_path / "shared"
+    folder.mkdir()
+    ad, a, ar, ai = _client(tmp_path, folder, "initial-a", monkeypatch)
+    bd, b, br, bi = _client(tmp_path, folder, "initial-b", monkeypatch)
+    try:
+        la = _existing_label(a, "瓶身超過10年")
+        lb = _existing_label(b, "壓力錶故障")
+        set_item_issue(a, ai, la["id"])
+        set_item_issue(b, bi, lb["id"])
+        _as(monkeypatch, ad)
+        sync.configure(a, ar, True)
+        sync.synchronize(a, ar)
+        _as(monkeypatch, bd)
+        sync.configure(b, br, True)
+        result = sync.synchronize(b, br)
+        assert result["summary"]["conflicts"] == 1
+        assert result["summary"]["updated"] == 0
+        conflict = result["conflicts"][0]
+        assert {c["label_name"] for c in conflict["candidates"]} == {la["name"], lb["name"]}
+        assert _issue_label(b, br) == lb["id"]
+        _as(monkeypatch, ad)
+        assert len(sync.synchronize(a, ar)["conflicts"]) == 1
+        assert _issue_label(a, ar) == la["id"]
+    finally:
+        a.close()
+        b.close()
+
+
+def test_initial_distinct_equipment_merges_and_later_addition_preserves_history(
+    tmp_path, monkeypatch
+):
+    folder = tmp_path / "shared"
+    folder.mkdir()
+    ad, a, ar, ai = _client(tmp_path, folder, "distinct-a", monkeypatch)
+    bd, b, br, bi = _client(tmp_path, folder, "distinct-b", monkeypatch)
+    try:
+        with b:
+            b.execute("UPDATE item SET code='乙',relative_path='滅火器/乙' WHERE id=?", (bi,))
+        la = _existing_label(a, "瓶身超過10年")
+        lb = _existing_label(b, "壓力錶故障")
+        set_item_issue(a, ai, la["id"])
+        set_item_issue(b, bi, lb["id"])
+        _as(monkeypatch, ad)
+        sync.configure(a, ar, True)
+        sync.synchronize(a, ar)
+        _as(monkeypatch, bd)
+        sync.configure(b, br, True)
+        result = sync.synchronize(b, br)
+        assert result["local_total"] == 2 and not result["conflicts"]
+        assert result["summary"]["added"] == 1
+        _as(monkeypatch, ad)
+        assert sync.synchronize(a, ar)["local_total"] == 2
+        _as(monkeypatch, bd)
+        with b:
+            ci = b.execute(
+                "INSERT INTO item(root_id,category_id,year,period,building,code,relative_path) "
+                "SELECT root_id,category_id,year,period,building,'丙','滅火器/丙' "
+                "FROM item WHERE id=?",
+                (bi,),
+            ).lastrowid
+        set_item_issue(b, ci, lb["id"])
+        sync.record_item(b, ci, lb["id"])
+        sync.synchronize(b, br)
+        _as(monkeypatch, ad)
+        result = sync.synchronize(a, ar)
+        assert result["local_total"] == 3
+        assert result["summary"] == {"added": 1, "updated": 0, "cleared": 0, "conflicts": 0}
+        assert result["changes"][0]["code"] == "丙"
+        assert sync.synchronize(a, ar)["summary"]["added"] == 0
+    finally:
+        a.close()
+        b.close()
+
+
+@pytest.mark.parametrize("mode", ["unknown_version", "hidden_cycle", "placeholder"])
+def test_untrusted_history_is_rejected_before_sqlite_changes(tmp_path, monkeypatch, mode):
+    folder = tmp_path / "shared"
+    folder.mkdir()
+    local, conn, rid, item = _client(tmp_path, folder, "unsafe", monkeypatch)
+    try:
+        _as(monkeypatch, local)
+        sync.configure(conn, rid, True)
+        sync.synchronize(conn, rid)
+        label = _existing_label(conn, "無法辨識")
+        set_item_issue(conn, item, label["id"])
+        sync.record_item(conn, item, label["id"])
+        sync.synchronize(conn, rid)
+        initial = [tuple(row) for row in conn.execute("SELECT * FROM item_issue")]
+        if mode == "placeholder":
+            monkeypatch.setattr(sync, "_is_cloud_placeholder_stat", lambda info: True)
+        else:
+            event_id = "e" * 32
+            value = {"category": "box", "path": "放置盒/測試", "code": "測試", "label_guid": None}
+            event = {
+                "v": 9 if mode == "unknown_version" else 1,
+                "id": event_id,
+                "device": "d" * 32,
+                "kind": "issue",
+                "key": "issue:box:放置盒/測試",
+                "value": value,
+                "parents": ["f" * 32] if mode == "hidden_cycle" else [],
+                "at": "2026-11-14",
+            }
+            directory = folder / sync._SYNC_DIR / "events"
+            sync._safe_event(directory / (event_id + ".json"), event)
+            if mode == "hidden_cycle":
+                sync._safe_event(
+                    directory / ("f" * 32 + ".json"),
+                    {**event, "id": "f" * 32, "parents": [event_id]},
+                )
+                sync._safe_event(
+                    directory / ("a" * 32 + ".json"),
+                    {**event, "id": "a" * 32, "parents": [event_id]},
+                )
+        with pytest.raises(sync.SyncError):
+            sync.synchronize(conn, rid)
+        assert [tuple(row) for row in conn.execute("SELECT * FROM item_issue")] == initial
+        if mode != "placeholder":
+            assert sync.status(conn, rid)["state"] == "incomplete"
+            assert sync.status(conn, rid)["sync_error"]
+    finally:
+        conn.close()
+
+
+def test_backup_preview_lists_affected_equipment_before_confirmation(tmp_path, monkeypatch):
+    folder = tmp_path / "shared"
+    folder.mkdir()
+    local, conn, rid, item = _client(tmp_path, folder, "preview", monkeypatch)
+    try:
+        _as(monkeypatch, local)
+        old = _existing_label(conn, "瓶身超過10年")
+        new = _existing_label(conn, "壓力錶故障")
+        set_item_issue(conn, item, old["id"])
+        backup_id = sync._backup(folder, conn, rid, reason="合成復原預覽")
+        set_item_issue(conn, item, new["id"])
+        preview = sync.backup_preview(conn, rid, backup_id)
+        assert preview["changing"] == 1
+        assert preview["changes"] == [
+            {
+                "path": "滅火器/2026年/11月份更換/致德樓8F/致-08-66",
+                "before": new["name"],
+                "after": old["name"],
+                "kind": "updated",
+            }
+        ]
+        assert _issue_label(conn, rid) == new["id"]
+        with pytest.raises(sync.SyncError, match="確認"):
+            sync.restore(conn, rid, backup_id, False)
+        assert _issue_label(conn, rid) == new["id"]
+    finally:
+        conn.close()
+
+
+def _donor_sync_view(conn, root_id):
+    # The merged API has one authoritative nested report, not two implementations.
+    response = sync.synchronize(conn, root_id)
+    report = response["last_result"]
+    return {
+        **response,
+        "changes": {k: report["summary"][k] for k in ("added", "updated", "cleared")},
+        "change_details": [
+            {**row, "source_device": row["device"], "event_at": row["at"]}
+            for row in report["changes"]
+        ],
+    }
+
+
+def _another_item(conn, root_id, code):
+    first = conn.execute(
+        "SELECT category_id,year,period,building FROM item WHERE root_id=? LIMIT 1",
+        (root_id,),
+    ).fetchone()
+    relative = f"滅火器/{first['year']}/{first['period']}/{first['building']}/{code}"
+    with conn:
+        result = conn.execute(
+            """INSERT INTO item(root_id,category_id,year,period,building,code,relative_path)
+               VALUES (?,?,?,?,?,?,?)""",
+            (
+                root_id,
+                first["category_id"],
+                first["year"],
+                first["period"],
+                first["building"],
+                code,
+                relative,
+            ),
+        )
+    return int(result.lastrowid)
+
+
+def test_manual_sync_counts_actual_local_device_changes_not_event_count(tmp_path, monkeypatch):
+    shared = tmp_path / "shared-folder"
+    shared.mkdir()
+    a_dir, a, ar, ai = _client(tmp_path, shared, "summary-pc-a", monkeypatch)
+    b_dir, b, br, _ = _client(tmp_path, shared, "summary-pc-b", monkeypatch)
+    try:
+        bi = _another_item(b, br, "致-08-77")
+        _as(monkeypatch, a_dir)
+        a_first = _existing_label(a, "瓶身超過10年")
+        set_item_issue(a, ai, int(a_first["id"]))
+        sync.configure(a, ar, True)
+        assert _donor_sync_view(a, ar)["changes"] == {"added": 0, "updated": 0, "cleared": 0}
+        _as(monkeypatch, b_dir)
+        b_first = _existing_label(b, "壓力錶故障")
+        set_item_issue(b, bi, int(b_first["id"]))
+        sync.configure(b, br, True)
+        first_b = _donor_sync_view(b, br)
+        assert first_b["changes"]["added"] == 1
+        assert first_b["local_total"] == 2
+        assert first_b["change_details"][0]["source_device"]
+        _as(monkeypatch, a_dir)
+        first_a = _donor_sync_view(a, ar)
+        assert first_a["changes"] == {"added": 1, "updated": 0, "cleared": 0}
+        assert first_a["change_details"][0]["code"] == "致-08-77"
+        assert first_a["change_details"][0]["after"] == "壓力錶故障"
+        again = _donor_sync_view(a, ar)
+        assert again["changes"] == {"added": 0, "updated": 0, "cleared": 0}
+        assert again["change_details"] == []
+
+        _as(monkeypatch, b_dir)
+        b_other = _existing_label(b, "瓶身超過10年")
+        set_item_issue(b, bi, int(b_other["id"]))
+        sync.record_item(b, bi, int(b_other["id"]))
+        _donor_sync_view(b, br)
+        _as(monkeypatch, a_dir)
+        changed = _donor_sync_view(a, ar)
+        assert changed["changes"] == {"added": 0, "updated": 1, "cleared": 0}
+        assert changed["change_details"][0]["before"] == "壓力錶故障"
+        assert changed["change_details"][0]["after"] == "瓶身超過10年"
+
+        _as(monkeypatch, b_dir)
+        set_item_issue(b, bi, None)
+        sync.record_item(b, bi, None)
+        _donor_sync_view(b, br)
+        _as(monkeypatch, a_dir)
+        cleared = _donor_sync_view(a, ar)
+        assert cleared["changes"] == {"added": 0, "updated": 0, "cleared": 1}
+        assert cleared["change_details"][0]["before"] == "瓶身超過10年"
+        assert cleared["change_details"][0]["after"] is None
+        assert _donor_sync_view(a, ar)["changes"] == {"added": 0, "updated": 0, "cleared": 0}
+    finally:
+        a.close()
+        b.close()
+
+
+def test_dynamic_category_sync_event_requires_matching_hashed_root_folder():
+    import hashlib
+
+    folder = "水帶"
+    code = "folder_" + hashlib.sha256(folder.encode("utf-8")).hexdigest()[:24]
+    path = f"{folder}/2026年/11月份更換/中正樓/帶-01"
+    value = {"path": path, "category": code, "code": "帶-01", "label_guid": None}
+    event = {"v": 2, "kind": "issue", "key": "issue:" + code + ":" + path, "value": value}
+    assert sync._value(event) == value
+    with pytest.raises(sync.SyncError, match="設備類別"):
+        sync._value({**event, "value": {**value, "category": "folder_" + "0" * 24}})
+    with pytest.raises(sync.SyncError, match="設備相對路徑不安全"):
+        sync._value({**event, "value": {**value, "path": "../bad"}})
+    with pytest.raises(sync.SyncError, match="設備類別"):
+        sync._value({**event, "value": {**value, "category": "folder_fake"}})
+
+
+def test_dynamic_folder_category_is_merged_without_any_photo_changes(tmp_path, monkeypatch):
+    import hashlib
+
+    shared = tmp_path / "dynamic-shared-root"
+    shared.mkdir()
+    a_dir, a, ar, _ = _client(tmp_path, shared, "dynamic-a", monkeypatch)
+    b_dir, b, br, _ = _client(tmp_path, shared, "dynamic-b", monkeypatch)
+    try:
+        folder = "水帶"
+        category_code = "folder_" + hashlib.sha256(folder.encode("utf-8")).hexdigest()[:24]
+        relative = f"{folder}/2026年/11月份更換/中正樓/帶-01"
+        with b:
+            category_id = b.execute(
+                """INSERT INTO category(code,name,slots_json,filename_aliases_json)
+                   VALUES (?,?,?,?)""",
+                (category_code, folder, '["前","中","後"]', "{}"),
+            ).lastrowid
+            item_id = b.execute(
+                """INSERT INTO item(root_id,category_id,year,period,building,code,relative_path)
+                   VALUES (?,?,?,?,?,?,?)""",
+                (br, category_id, "2026年", "11月份更換", "中正樓", "帶-01", relative),
+            ).lastrowid
+        b_label = _existing_label(b, "瓶身超過10年")
+        set_item_issue(b, item_id, int(b_label["id"]))
+        _as(monkeypatch, a_dir)
+        sync.configure(a, ar, True)
+        _donor_sync_view(a, ar)
+        _as(monkeypatch, b_dir)
+        sync.configure(b, br, True)
+        _donor_sync_view(b, br)
+        _as(monkeypatch, a_dir)
+        result = _donor_sync_view(a, ar)
+        assert result["changes"] == {"added": 1, "updated": 0, "cleared": 0}
+        assert result["change_details"][0]["category"] == category_code
+        saved = a.execute(
+            "SELECT category_code,item_relative_path FROM item_issue "
+            "WHERE root_id=? AND item_relative_path=?",
+            (ar, relative),
+        ).fetchone()
+        assert saved is not None and saved["category_code"] == category_code
+        assert not any(shared.rglob("*.jpg"))  # no image created or modified
+        assert _donor_sync_view(a, ar)["changes"]["added"] == 0
+    finally:
+        a.close()
+        b.close()

@@ -11,7 +11,7 @@ from PIL import Image
 from backend.app.db import connect, initialize_database
 from backend.app.main import create_app
 from backend.app.scanner import scan_root
-from backend.app.settings import SettingsError, get_settings, save_settings
+from backend.app.settings import SettingsError, get_settings, save_root_exclusions, save_settings
 from backend.app.storage import DuplicatePhotoConflict, import_photo
 from backend.app.tree import build_tree
 
@@ -71,6 +71,7 @@ def test_dynamic_categories_exclusion_and_rescan(tmp_path):
 
         settings = save_settings(conn, {"excluded_root_folders": ["備份資料"]})
         assert settings["excluded_root_folders"] == ["備份資料"]
+        save_root_exclusions(conn, root_id, ["備份資料"])
         result = scan_root(conn, root_id)
         assert result.items == 1
         labels = {node["label"] for node in build_tree(conn, root_id)}

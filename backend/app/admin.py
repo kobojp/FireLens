@@ -7,7 +7,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictBool, StrictInt
 
 from desktop.update import (
     UpdateError,
@@ -32,10 +32,14 @@ from .config import (
 )
 from .db import SCHEMA_VERSION, database
 from .logging_config import configure_logging
+from .scanner import _is_safe_directory
 from .settings import (
+    SYSTEM_EXCLUDED_ROOT_FOLDERS,
     SettingsError,
     get_settings,
+    save_root_exclusions,
     save_settings,
+    saved_root_exclusions,
     update_category_aliases,
     update_category_slots,
     update_root_settings,
@@ -55,12 +59,85 @@ class SettingsUpdate(BaseModel):
     auto_scan_on_start: bool | None = None
     auto_scan_min_interval_minutes: int | None = None
     new_item_panel_open: bool | None = None
+    new_item_panel_collapsed: StrictBool | None = None
+    ledger_list_collapsed: StrictBool | None = None
+    ledger_page_size: StrictInt | None = None
     excluded_root_folders: list[str] | None = None
+
+
+class RootExclusionsUpdate(BaseModel):
+    names: list[str]
+
+
+@router.get("/roots/{root_id}/excluded-folders")
+def root_exclusion_options(root_id: int) -> dict[str, object]:
+    """Read only one level of the registered root, without following junctions."""
+    with database() as conn:
+        root = conn.execute("SELECT path FROM root WHERE id=?", (root_id,)).fetchone()
+        if root is None:
+            raise HTTPException(status_code=404, detail="找不到指定照片根目錄")
+        saved = saved_root_exclusions(conn, root_id)
+        path = Path(root["path"]).expanduser()
+        if not _is_safe_directory(path):
+            raise HTTPException(status_code=409, detail="根目錄離線或不可安全讀取")
+        try:
+            entries = []
+            for item in path.iterdir():
+                if item.name.startswith(".") or not _is_safe_directory(item):
+                    continue
+                entries.append(item.name)
+                if len(entries) > 3000:
+                    raise HTTPException(status_code=409, detail="第一層資料夾過多，請先整理目錄")
+        except OSError as exc:
+            raise HTTPException(status_code=409, detail="根目錄暫時無法列出資料夾") from exc
+        seen = {name.casefold() for name in entries}
+        folders = [
+            {
+                "name": name,
+                "present": True,
+                "locked": name.casefold() in SYSTEM_EXCLUDED_ROOT_FOLDERS,
+                "excluded": name.casefold() in SYSTEM_EXCLUDED_ROOT_FOLDERS
+                or name.casefold() in {saved_name.casefold() for saved_name in saved},
+            }
+            for name in sorted(entries, key=str.casefold)
+        ]
+        for name in saved:
+            if name.casefold() not in seen:
+                folders.append(
+                    {
+                        "name": name,
+                        "present": False,
+                        "locked": False,
+                        "excluded": True,
+                    }
+                )
+        return {"root_id": root_id, "saved": saved, "folders": folders}
+
+
+@router.put("/roots/{root_id}/excluded-folders")
+def save_root_exclusion_options(root_id: int, payload: RootExclusionsUpdate) -> dict[str, object]:
+    with database() as conn:
+        try:
+            saved = save_root_exclusions(conn, root_id, payload.names)
+        except SettingsError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"root_id": root_id, "saved": saved, "names": saved, "rescan_required": True}
 
 
 class RootSettingsUpdate(BaseModel):
     label: str = Field(min_length=1, max_length=160)
     is_cloud_stream: bool
+
+
+@router.get("/roots/{root_id}/excluded-folder-names")
+def get_root_exclusions(root_id: int) -> dict[str, object]:
+    with database() as conn:
+        if conn.execute("SELECT 1 FROM root WHERE id=?", (root_id,)).fetchone() is None:
+            raise HTTPException(status_code=404, detail="找不到指定的照片根目錄")
+        try:
+            return {"root_id": root_id, "names": saved_root_exclusions(conn, root_id)}
+        except SettingsError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 class CategorySlotsUpdate(BaseModel):
@@ -174,6 +251,9 @@ def settings() -> dict[str, object]:
 
 @router.put("/settings")
 def update_settings(payload: SettingsUpdate) -> dict[str, object]:
+    for key in ("ledger_list_collapsed", "ledger_page_size"):
+        if key in payload.model_fields_set and getattr(payload, key) is None:
+            raise HTTPException(status_code=400, detail=f"{key} 不可為 null")
     values: dict[str, Any] = {
         key: value for key, value in payload.model_dump().items() if value is not None
     }

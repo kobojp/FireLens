@@ -1,3 +1,4 @@
+import { ModalBackdrop } from './AppDialog'
 import { useEffect, useRef, useState } from 'react'
 
 export type InspectorImage = {
@@ -19,16 +20,16 @@ export function adjacentImage(
 
 /** The same large dark image-viewing interaction used in the photo wall. */
 export function InspectorImageViewer({
-  images, activeId, onSelect, onClose,
+  images, activeId, onSelect, onClose, label = '照片品質檢查大圖預覽',
 }: {
   images: InspectorImage[]
   activeId: number | null
   onSelect: (id: number) => void
+  label?: string
   onClose: () => void
 }) {
   const [zoom, setZoom] = useState(1)
   const [loadFailed, setLoadFailed] = useState(false)
-  const closeRef = useRef<HTMLButtonElement>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
   const dialogRef = useRef<HTMLElement>(null)
   const activeIndex = images.findIndex(image => image.id === activeId)
@@ -44,42 +45,9 @@ export function InspectorImageViewer({
   }, [activeId])
 
   useEffect(() => {
-    if (activeId === null) return
-    const formerlyFocused = document.activeElement as HTMLElement | null
-    const oldOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    closeRef.current?.focus()
-
-    return () => {
-      document.body.style.overflow = oldOverflow
-      formerlyFocused?.focus()
-    }
-  }, [activeId !== null])
-
-  useEffect(() => {
     if (activeId === null || !current) return
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        onClose()
-        return
-      }
-      if (event.key === 'Tab') {
-        const focusables = [...(dialogRef.current?.querySelectorAll<HTMLButtonElement | HTMLInputElement>('button:not(:disabled), input:not(:disabled)') ?? [])]
-        if (focusables.length) {
-          const first = focusables[0]
-          const last = focusables[focusables.length - 1]
-          if (event.shiftKey && document.activeElement === first) {
-            event.preventDefault()
-            last.focus()
-          } else if (!event.shiftKey && document.activeElement === last) {
-            event.preventDefault()
-            first.focus()
-          }
-        }
-        return
-      }
-      const element = event.target as HTMLElement | null
+      const element = event.target instanceof Element ? event.target : null
       if (element?.closest('input, textarea, select')) return
       if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
         const candidate = adjacentImage(images, current.id, event.key === 'ArrowLeft' ? -1 : 1)
@@ -99,10 +67,10 @@ export function InspectorImageViewer({
   const next = adjacentImage(images, current.id, 1)
 
   return (
-    <div className="preview-backdrop inspector-lightbox-backdrop" role="presentation"
+    <ModalBackdrop onCancel={onClose} className="preview-backdrop inspector-lightbox-backdrop" role="presentation"
       onMouseDown={event => { if (event.target === event.currentTarget) onClose() }}>
       <section className="inspector-lightbox" role="dialog" aria-modal="true"
-        ref={dialogRef} aria-label="照片品質檢查大圖預覽" tabIndex={-1}>
+        ref={dialogRef} aria-label={label} tabIndex={-1}>
         <div className="inspector-lightbox-toolbar">
           <b className="inspector-lightbox-title" title={current.title}>{current.title}</b>
           <div className="inspector-lightbox-navigation" role="group" aria-label="照片切換">
@@ -118,7 +86,7 @@ export function InspectorImageViewer({
               aria-label="圖片縮放" />
             <span>{Math.round(zoom * 100)}%</span>
           </label>
-          <button type="button" className="inspector-lightbox-close" ref={closeRef}
+          <button type="button" className="inspector-lightbox-close" data-dialog-cancel
             onClick={onClose} aria-label="關閉預覽">關閉</button>
         </div>
         <div className="inspector-lightbox-canvas" ref={canvasRef}>
@@ -137,6 +105,6 @@ export function InspectorImageViewer({
           <small>方向鍵 ← → 切換照片 · Esc 關閉 · 縮放後可捲動檢查標籤細節</small>
         </footer>
       </section>
-    </div>
+    </ModalBackdrop>
   )
 }

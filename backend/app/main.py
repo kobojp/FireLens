@@ -90,6 +90,7 @@ from .photo_quality import (
 from .photo_transfer import execute_slot_transfer, preview_slot_transfer, undo_slot_transfer
 from .private_drive import PrivateDriveError, PrivateDriveService
 from .reconcile import (
+    LedgerNameConflict,
     ReconcileError,
     build_reconciliation,
     delete_ledger,
@@ -1051,6 +1052,28 @@ def create_app() -> FastAPI:
     def issue_export_save(payload: IssueExportSave) -> dict[str, object]:
         with database() as conn:
             stats = issue_statistics(conn, payload.root_id)
+            context = {}
+            for root_id in {
+                item["root_id"] for item in stats["items"] if item.get("root_id") is not None
+            }:
+                try:
+                    state = shared_status(conn, root_id)
+                    description = {
+                        "disabled": "未啟用共享同步",
+                        "review_required": "本機復原後暫停",
+                        "offline": "共享來源離線",
+                        "incomplete": "同步未完成",
+                        "conflict": "需處理版本衝突",
+                        "pending": "本機事件待上傳",
+                        "local_read": "本機已讀取；雲端傳輸未確認",
+                    }.get(state["state"], "狀態未確認")
+                    context[root_id] = {
+                        "description": description,
+                        "last_read": state.get("last_read"),
+                    }
+                except (SyncError, OSError, ValueError):
+                    context[root_id] = {"description": "共享狀態無法讀取；雲端傳輸未確認"}
+            stats["sync_context"] = context
         try:
             content, count = export_issue_rows(
                 stats,
@@ -1470,14 +1493,19 @@ def create_app() -> FastAPI:
         except ReconcileError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         with database() as conn:
-            ledger_id = import_ledger(
-                conn,
-                name=name or file.filename or "Excel 清冊",
-                source_type="xlsx",
-                rows=rows,
-                source_bytes=data,
-                source_filename=file.filename,
-            )
+            try:
+                ledger_id = import_ledger(
+                    conn,
+                    name=name or file.filename or "Excel 清冊",
+                    source_type="xlsx",
+                    rows=rows,
+                    source_bytes=data,
+                    source_filename=file.filename,
+                )
+            except LedgerNameConflict as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            except ReconcileError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
             return next(row for row in list_ledgers(conn) if row["id"] == ledger_id)
 
     @app.post("/api/ledgers/excel/preview")
@@ -1499,14 +1527,19 @@ def create_app() -> FastAPI:
         except ReconcileError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         with database() as conn:
-            ledger_id = import_ledger(
-                conn,
-                name=payload.name,
-                source_type="text",
-                rows=rows,
-                source_bytes=payload.text.encode("utf-8"),
-                source_text=payload.text,
-            )
+            try:
+                ledger_id = import_ledger(
+                    conn,
+                    name=payload.name,
+                    source_type="text",
+                    rows=rows,
+                    source_bytes=payload.text.encode("utf-8"),
+                    source_text=payload.text,
+                )
+            except LedgerNameConflict as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            except ReconcileError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
             return next(row for row in list_ledgers(conn) if row["id"] == ledger_id)
 
     @app.post("/api/ledgers/text/preview")
@@ -1529,6 +1562,8 @@ def create_app() -> FastAPI:
         with database() as conn:
             try:
                 return rename_ledger(conn, ledger_id, payload.name)
+            except LedgerNameConflict as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
             except ReconcileError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
 

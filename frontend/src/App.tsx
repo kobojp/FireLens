@@ -1,8 +1,12 @@
+import { InspectorImageViewer } from './InspectorImageViewer'
+import { photosInDisplayOrder } from './slots'
+import { ModalBackdrop } from './AppDialog'
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { api, ApiError } from './api'
 import { initialNewItemPanelOpen, newItemPanelButtonText } from './newItemPanel'
-import { photosForSlot, slotAllowsAdditional, unmappedPhotos } from './slots'
+import { displaySlotsForItem, photosForSlot, slotAllowsAdditional, unmappedPhotos } from './slots'
 import { fromPaste, hasDesktopClipboardBridge, readDesktopClipboardImage } from './clipboardImage'
+import { chooseDesktopRootFolder, hasDesktopFolderPicker } from './rootFolderPicker'
 import { scanSummaryText, shouldAutoScan } from './scanPolicy'
 import {
   branchPathKey, countByStatus, countItems, itemBranchPath,
@@ -284,6 +288,14 @@ export default function App() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [newRootPath, setNewRootPath] = useState('')
+  const [folderPickerReady, setFolderPickerReady] = useState(false)
+  const [folderPicking, setFolderPicking] = useState(false)
+  useEffect(() => {
+    const check = () => setFolderPickerReady(hasDesktopFolderPicker())
+    document.addEventListener('pywebviewready', check)
+    check()
+    return () => document.removeEventListener('pywebviewready', check)
+  }, [])
   const [showNewItem, setShowNewItem] = useState(initialNewItemPanelOpen(undefined))
   const [treeCreatePath, setTreeCreatePath] = useState<TreeCreatePath | null>(null)
   const [treeCreateName, setTreeCreateName] = useState('')
@@ -341,7 +353,6 @@ export default function App() {
   const [newFolderName, setNewFolderName] = useState('')
   const [issueLabels, setIssueLabels] = useState<IssueLabel[]>([])
   const [issueSelection, setIssueSelection] = useState<number | null>(null)
-  const [zoom, setZoom] = useState(1)
   const [view, setView] = useState<'browse' | 'reconcile' | 'statistics' | 'organizer' | 'quality' | 'settings' | 'publicSheets'>('browse')
   const [visitedTabs, setVisitedTabs] = useState(initialVisitedTabs)
   useEffect(() => {
@@ -392,13 +403,10 @@ export default function App() {
 
   const orderedSlots = useMemo(() => {
     if (!item) return []
-    const preferred = appSettings?.slot_order[item.category_code]
-    const base = preferred && preferred.length === item.slots.length ? preferred : item.slots
-    const custom = item.custom_slots || []
-    return [...base, ...custom]
+    return displaySlotsForItem(item, appSettings?.slot_order[item.category_code])
   }, [item, appSettings])
+  useEffect(() => { setPreview(null) }, [rootId, item])
   const scanRunning = rootId !== null && scanJob?.root_id === rootId && scanJob.state === 'running'
-
   useEffect(() => {
     setIssueSelection(null)
     if (!item) return
@@ -519,13 +527,21 @@ export default function App() {
     void api.settings().then((settings) => {
       setAppSettings(settings)
       setNewItem((current) => ({ ...current, ...settings.quick_create }))
-      setShowNewItem(initialNewItemPanelOpen(settings.new_item_panel_open))
+      setShowNewItem(initialNewItemPanelOpen(settings.new_item_panel_collapsed))
       setQuickCreateHydrated(true)
     }).catch((err) => {
       setError(err instanceof Error ? err.message : '讀取應用設定失敗')
     })
     void api.appInfo().then(setAppInfo).catch(() => undefined)
   }, [])
+
+  const lastViewForNewItemPanel = useRef(view)
+  useEffect(() => {
+    if (view === 'browse' && lastViewForNewItemPanel.current !== 'browse' && appSettings) {
+      setShowNewItem(initialNewItemPanelOpen(appSettings.new_item_panel_collapsed))
+    }
+    lastViewForNewItemPanel.current = view
+  }, [view, appSettings])
 
   useEffect(() => {
     const theme = appSettings?.theme ?? 'system'
@@ -706,17 +722,23 @@ export default function App() {
     }
   }
 
-  async function toggleNewItemPanel() {
+  function toggleNewItemPanel() {
     if (rootId === null) return
-    const next = !showNewItem
-    setShowNewItem(next)
-    if (!appSettings) return
+    // Temporary UI state only. The initial preference belongs to Settings.
+    setShowNewItem((previous) => !previous)
+  }
+
+  async function browseRootFolder() {
+    if (folderPicking || busy) return
+    setFolderPicking(true)
+    setError('')
     try {
-      const updated = await api.saveSettings({ ...appSettings, new_item_panel_open: next })
-      setAppSettings(updated)
+      const chosen = await chooseDesktopRootFolder()
+      if (chosen !== null) setNewRootPath(chosen)
     } catch (err) {
-      setShowNewItem(!next)
-      setError(err instanceof Error ? err.message : '記錄新增資料夾展開狀態失敗')
+      setError(err instanceof Error ? err.message : '選擇資料夾失敗')
+    } finally {
+      setFolderPicking(false)
     }
   }
 
@@ -1323,7 +1345,6 @@ export default function App() {
 
   function openPreview(photo: PhotoRecord) {
     setPreview(photo)
-    setZoom(1)
   }
 
   return (
@@ -1331,7 +1352,7 @@ export default function App() {
       <header className="topbar">
         <div>
           <strong>FireLens</strong>
-          <span>照片管理、核對與離線工作 · v{appInfo?.version ?? '1.11.0'}</span>
+          <span>照片管理、核對與離線工作 · v{appInfo?.version ?? '1.12.0'}</span>
         </div>
         <div className="root-controls">
           <label htmlFor="root-select">根目錄</label>
@@ -1378,6 +1399,11 @@ export default function App() {
           placeholder="輸入照片根目錄路徑"
           disabled={busy}
         />
+        <button type="button" className="root-browse-button" onClick={() => void browseRootFolder()}
+          disabled={!folderPickerReady || busy || folderPicking}
+          title={folderPickerReady ? '選擇 Windows 資料夾，仍須按加入確認' : '僅 Windows 桌面版提供資料夾瀏覽'}>
+          {folderPicking ? '選取中…' : '瀏覽…'}
+        </button>
         <button type="button" onClick={() => void addRoot()} disabled={busy || !newRootPath.trim()}>加入</button>
         <button
           type="button"
@@ -1605,7 +1631,7 @@ export default function App() {
                         </button>
                         <div className="unmapped-actions">
                           <button type="button" onClick={() => openManualRename(photo)} disabled={busy || scanRunning}>重新命名</button>
-                          {item.slots.map((slot) => (
+                          {orderedSlots.map((slot) => (
                             <button
                               key={slot}
                               type="button"
@@ -1659,7 +1685,7 @@ export default function App() {
       </section>
 
       {showPasteHelp && !pendingPaste && (
-        <div className="preview-backdrop" role="presentation"
+        <ModalBackdrop onCancel={() => setShowPasteHelp(false)} className="preview-backdrop" role="presentation"
           onMouseDown={() => setShowPasteHelp(false)}
           onKeyDown={(event) => { if (event.key === 'Escape') setShowPasteHelp(false) }}>
           <section className="prompt-dialog paste-confirm-dialog" role="dialog" aria-modal="true"
@@ -1674,11 +1700,11 @@ export default function App() {
               <button type="button" autoFocus onClick={() => setShowPasteHelp(false)}>關閉</button>
             </div>
           </section>
-        </div>
+        </ModalBackdrop>
       )}
 
       {indexRequired && indexGuideDialog && (
-        <div className="preview-backdrop" role="presentation">
+        <ModalBackdrop onCancel={() => { if (!busy) setIndexGuideDialog(false) }} className="preview-backdrop" role="presentation">
           <section className="prompt-dialog scan-guide-dialog" role="dialog" aria-modal="true"
             aria-label="需要先建立重複照片索引">
             <div className="prompt-header">🧭 貼圖任務：先完成重複照片掃描</div>
@@ -1701,11 +1727,11 @@ export default function App() {
                 onClick={openGuidedDuplicateScan}>前往重複掃描 →</button>
             </div>
           </section>
-        </div>
+        </ModalBackdrop>
       )}
 
       {duplicateUpload && (
-        <div className="preview-backdrop" role="presentation"
+        <ModalBackdrop onCancel={() => { if (!busy) setDuplicateUpload(null) }} className="preview-backdrop" role="presentation"
           onMouseDown={() => !busy && setDuplicateUpload(null)}>
           <section className="prompt-dialog paste-confirm-dialog" role="dialog" aria-modal="true"
             aria-label="確認儲存重複圖片" onMouseDown={(event) => event.stopPropagation()}>
@@ -1756,11 +1782,11 @@ export default function App() {
                 }}>仍要儲存</button>
             </div>
           </section>
-        </div>
+        </ModalBackdrop>
       )}
 
       {pendingPaste && (
-        <div className="preview-backdrop" role="presentation" onMouseDown={() => !busy && closePaste()}
+        <ModalBackdrop onCancel={() => { if (!busy) closePaste() }} className="preview-backdrop" role="presentation" onMouseDown={() => !busy && closePaste()}
           onKeyDown={(event) => { if (event.key === 'Escape' && !busy) closePaste() }}>
           <section className="prompt-dialog paste-confirm-dialog" role="dialog" aria-modal="true"
             aria-label="確認貼上照片" onMouseDown={(event) => event.stopPropagation()}>
@@ -1777,29 +1803,19 @@ export default function App() {
                 onClick={() => void confirmPaste()}>確認貼上</button>
             </div>
           </section>
-        </div>
+        </ModalBackdrop>
       )}
 
-      {preview && (
-        <div className="preview-backdrop" role="presentation" onMouseDown={() => setPreview(null)}>
-          <section className="preview-dialog" role="dialog" aria-modal="true" aria-label={`預覽 ${preview.filename}`} onMouseDown={(event) => event.stopPropagation()}>
-            <div className="preview-toolbar">
-              <b>{preview.filename}</b>
-              <label>縮放
-                <input type="range" min="0.5" max="3" step="0.1" value={zoom} onChange={(event) => setZoom(Number(event.target.value))} />
-                <span>{Math.round(zoom * 100)}%</span>
-              </label>
-              <button type="button" onClick={() => setPreview(null)} aria-label="關閉照片預覽">關閉</button>
-            </div>
-            <div className="preview-canvas">
-              <img src={api.photoUrl(preview)} alt={preview.filename} style={{ transform: `scale(${zoom})` }} />
-            </div>
-          </section>
-        </div>
-      )}
+      <InspectorImageViewer images={item ? photosInDisplayOrder(item, orderedSlots).map(photo => ({
+        id: photo.id, filename: photo.filename, title: `${item.code} · ${photo.filename}`,
+        subtitle: `${categories.find(category => category.code === item.category_code)?.name ?? item.category_code} · ${photo.slot || '未對應／舊制照片'}`,
+        path: photo.relative_path, src: api.photoUrl(photo),
+      })) : []} activeId={preview?.id ?? null}
+        onSelect={id => setPreview(item?.photos.find(photo => photo.id === id) ?? null)}
+        onClose={() => setPreview(null)} label="同一設備照片預覽" />
 
       {slotTransfer && item && (
-        <div className="preview-backdrop" onMouseDown={() => !busy && setSlotTransfer(null)}
+        <ModalBackdrop onCancel={() => { if (!busy) setSlotTransfer(null) }} className="preview-backdrop" onMouseDown={() => !busy && setSlotTransfer(null)}
           onKeyDown={(event) => { if (event.key === 'Escape' && !busy) setSlotTransfer(null) }}>
           <section className="prompt-dialog slot-transfer-dialog" role="dialog" aria-modal="true"
             aria-label="確認照片移動或交換" onMouseDown={(event) => event.stopPropagation()}>
@@ -1851,11 +1867,11 @@ export default function App() {
                 onClick={() => void confirmSlotTransfer()}>確認移動／交換</button>
             </div>
           </section>
-        </div>
+        </ModalBackdrop>
       )}
 
       {renameDialog && (
-        <div className="preview-backdrop" onMouseDown={() => !busy && setRenameDialog(null)}>
+        <ModalBackdrop onCancel={() => { if (!busy) setRenameDialog(null) }} className="preview-backdrop" onMouseDown={() => !busy && setRenameDialog(null)}>
           <section className="rename-dialog" role="dialog" aria-modal="true" aria-label={`重新命名 ${renameDialog.photo.filename}`} onMouseDown={(event) => event.stopPropagation()}>
             <div className="prompt-header">重新命名照片</div>
             <div className="prompt-body rename-dialog-body">
@@ -1916,21 +1932,13 @@ export default function App() {
               </button>
             </div>
           </section>
-        </div>
+        </ModalBackdrop>
       )}
         </>
       ) : view === 'reconcile' ? (
         null // ReconcileView stays mounted in RetainedView below.
       ) : view === 'statistics' ? (
-        <StatisticsView
-          roots={roots}
-          onLabelsChanged={() => void refreshIssueLabels().catch((err) => setError(String(err)))}
-          onOpenItem={(nextRootId, itemId) => {
-            pendingStatsNavigation.current = { rootId: nextRootId, itemId }
-            setRootId(nextRootId)
-            setView('browse')
-          }}
-        />
+        null // StatisticsView stays mounted below.
       ) : view === 'organizer' ? (
         <OrganizerView roots={roots} defaultRootId={rootId} />
       ) : view === 'quality' ? (
@@ -1953,9 +1961,22 @@ export default function App() {
         />
       )}
 
+      {(visitedTabs.statistics || view === 'statistics') && (
+        <RetainedView visible={view === 'statistics'}>
+        <StatisticsView
+          roots={roots}
+          onLabelsChanged={() => void refreshIssueLabels().catch((err) => setError(String(err)))}
+          onOpenItem={(nextRootId, itemId) => {
+            pendingStatsNavigation.current = { rootId: nextRootId, itemId }
+            setRootId(nextRootId)
+            setView('browse')
+          }}
+        />
+        </RetainedView>
+      )}
       {(visitedTabs.reconcile || view === 'reconcile') && (
         <RetainedView visible={view === 'reconcile'}>
-          <ReconcileView roots={roots} defaultRootId={rootId} />
+<ReconcileView roots={roots} defaultRootId={rootId} settings={appSettings} isActive={view === 'reconcile'} />
         </RetainedView>
       )}
       {(visitedTabs.quality || view === 'quality') && (
@@ -1973,7 +1994,7 @@ export default function App() {
       )}
 
       {treeCreatePath && (
-        <div className="preview-backdrop" onMouseDown={() => !busy && setTreeCreatePath(null)}
+        <ModalBackdrop onCancel={() => { if (!busy) setTreeCreatePath(null) }} className="preview-backdrop" onMouseDown={() => !busy && setTreeCreatePath(null)}
           onKeyDown={(event) => { if (event.key === 'Escape' && !busy) setTreeCreatePath(null) }}>
           <section className="prompt-dialog" role="dialog" aria-modal="true"
             aria-label={TREE_CREATE_LABELS[treeCreatePath[treeCreatePath.length - 1].type] || '新增資料夾'}
@@ -1995,11 +2016,11 @@ export default function App() {
                 onClick={() => void createFolderFromTree()}>新增資料夾</button>
             </div>
           </section>
-        </div>
+        </ModalBackdrop>
       )}
 
       {folderRename && (
-        <div className="preview-backdrop" onMouseDown={() => !busy && setFolderRename(null)}>
+        <ModalBackdrop onCancel={() => { if (!busy) setFolderRename(null) }} className="preview-backdrop" onMouseDown={() => !busy && setFolderRename(null)}>
           <section className="prompt-dialog" role="dialog" aria-modal="true" aria-label="更改設備資料夾名稱" onMouseDown={(event) => event.stopPropagation()}>
             <div className="prompt-header">更改設備資料夾名稱</div>
             <div className="prompt-body">
@@ -2016,12 +2037,12 @@ export default function App() {
               <button type="button" className="primary-button" onClick={() => void confirmFolderRename()} disabled={busy || scanRunning || !newFolderName.trim() || newFolderName === folderRename.code}>確認更名</button>
             </div>
           </section>
-        </div>
+        </ModalBackdrop>
       )}
 
       {folderToDelete && (
-        <div className="preview-backdrop" onClick={() => { setFolderToDelete(null); setFolderDeleteInput('') }}>
-          <div className="prompt-dialog" onClick={(e) => e.stopPropagation()}>
+        <ModalBackdrop onCancel={() => { if (!busy) { setFolderToDelete(null); setFolderDeleteInput('') } }} className="preview-backdrop" onClick={() => { setFolderToDelete(null); setFolderDeleteInput('') }}>
+          <div className="prompt-dialog" role="dialog" aria-modal="true" aria-label="確認刪除" onClick={(e) => e.stopPropagation()}>
             <div className="prompt-header">刪除資料夾</div>
             <div className="prompt-body">
               <p>請輸入資料夾名稱 <strong>{folderToDelete.code}</strong> 確認刪除：</p>
@@ -2044,12 +2065,12 @@ export default function App() {
               >確定</button>
             </div>
           </div>
-        </div>
+        </ModalBackdrop>
       )}
 
       {photoToDelete && (
-        <div className="preview-backdrop" onClick={() => setPhotoToDelete(null)}>
-          <div className="prompt-dialog" onClick={(e) => e.stopPropagation()}>
+        <ModalBackdrop onCancel={() => { if (!busy) setPhotoToDelete(null) }} className="preview-backdrop" onClick={() => setPhotoToDelete(null)}>
+          <div className="prompt-dialog" role="dialog" aria-modal="true" aria-label="確認刪除" onClick={(e) => e.stopPropagation()}>
             <div className="prompt-header">刪除照片</div>
             <div className="prompt-body">
               <p>確定要刪除照片 <strong>{photoToDelete.filename}</strong> 嗎？</p>
@@ -2060,7 +2081,7 @@ export default function App() {
               <button type="button" className="danger" onClick={() => void confirmDeletePhoto()} disabled={busy}>確定</button>
             </div>
           </div>
-        </div>
+        </ModalBackdrop>
       )}
     </main>
   )

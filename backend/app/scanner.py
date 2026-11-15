@@ -186,7 +186,7 @@ def scan_root(
     }
     item_rows: dict[str, tuple[object, ...]] = {}
     photo_rows_by_relative: dict[str, list[tuple[str, str, str, str | None, int, int, int]]] = {}
-    excluded = excluded_root_folders(conn)
+    excluded = excluded_root_folders(conn, root_id)
     discovered = dict(CATEGORY_DIRS)
     for candidate in root_path.iterdir():
         if candidate.name.startswith(".") or candidate.name.casefold() in excluded:

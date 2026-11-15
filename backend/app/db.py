@@ -9,7 +9,7 @@ from pathlib import Path
 
 from .config import get_database_path, get_legacy_database_path
 
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 
 MIGRATION_1 = """
 CREATE TABLE IF NOT EXISTS category (
@@ -367,6 +367,32 @@ def _migrate_13(conn: sqlite3.Connection) -> None:
         conn.execute("PRAGMA user_version = 13")
 
 
+def _migrate_14(conn: sqlite3.Connection) -> None:
+    """Freeze legacy global exclusions for EXISTING roots only.
+
+    New roots start with an empty user exclusion list. The legacy setting
+    remains untouched for recovery; all root-scoped callers use the map.
+    """
+    has_root = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='root'"
+    ).fetchone()
+    roots = conn.execute("SELECT id FROM root").fetchall() if has_root else []
+    legacy_row = conn.execute(
+        "SELECT value_json FROM setting WHERE key='excluded_root_folders'"
+    ).fetchone()
+    legacy = json.loads(legacy_row[0]) if legacy_row else []
+    if not isinstance(legacy, list) or any(not isinstance(x, str) for x in legacy):
+        raise ValueError("舊版排除設定格式不正確，已中止升級並保留備份")
+    migrated = {str(row["id"]): list(legacy) for row in roots}
+    with conn:
+        conn.execute(
+            """INSERT INTO setting(key,value_json) VALUES (?,?)
+               ON CONFLICT(key) DO NOTHING""",
+            ("excluded_root_folders_by_root", json.dumps(migrated, ensure_ascii=False)),
+        )
+        conn.execute("PRAGMA user_version = 14")
+
+
 CATEGORY_SEED = (
     (
         "extinguisher",
@@ -511,6 +537,10 @@ def initialize_database(db_path: Path | None = None) -> Path:
         if current_version < 13:
             _migrate_13(conn)
             current_version = 13
+
+        if current_version < 14:
+            _migrate_14(conn)
+            current_version = 14
 
         with conn:
             conn.executemany(

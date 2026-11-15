@@ -12,7 +12,7 @@ from pathlib import Path
 from backend.app.config import get_app_data_dir, get_install_dir
 from backend.app.db import initialize_database
 from backend.app.logging_config import configure_logging, get_logger
-from desktop.clipboard import ClipboardApi
+from desktop.folder_picker import DesktopBridge
 from desktop.server import start_server
 from desktop.single_instance import AlreadyRunning, SingleInstance
 from desktop.update import UpdateError, mark_update_healthy, schedule_local_update_e2e
@@ -67,14 +67,16 @@ def run_desktop(update_transaction: str | None = None, update_state: str | None 
             try:
                 import webview
 
+                bridge = DesktopBridge()
                 window = webview.create_window(
                     f"FireLens {__version__}",
                     handle.url,
                     width=1440,
                     height=900,
                     min_size=(1100, 700),
-                    js_api=ClipboardApi(),
+                    js_api=bridge,
                 )
+                bridge.bind_window(window)
                 if update_transaction and update_state:
 
                     def on_loaded(_window=None) -> None:

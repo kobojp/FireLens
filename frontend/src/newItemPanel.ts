@@ -1,5 +1,5 @@
-export function initialNewItemPanelOpen(saved: boolean | undefined): boolean {
-  return saved ?? true
+export function initialNewItemPanelOpen(preferCollapsed: boolean | undefined): boolean {
+  return !(preferCollapsed ?? true)
 }
 
 export function newItemPanelButtonText(expanded: boolean, rootSelected: boolean): string {

@@ -563,7 +563,7 @@ def _structure_context(
     if (
         category_row is None
         or (category_row["name"] not in CATEGORY_DIRS and not category_code.startswith("folder_"))
-        or category_row["name"].casefold() in excluded_root_folders(conn)
+        or category_row["name"].casefold() in excluded_root_folders(conn, root_id)
     ):
         raise StorageError("找不到指定類別或類別已排除")
     root_path = Path(root_row["path"]).expanduser().resolve()
@@ -712,7 +712,7 @@ def create_item_folder(
     if (
         category_row is None
         or (category_row["name"] not in CATEGORY_DIRS and not category_code.startswith("folder_"))
-        or category_row["name"].casefold() in excluded_root_folders(conn)
+        or category_row["name"].casefold() in excluded_root_folders(conn, root_id)
     ):
         raise StorageError("找不到指定類別或類別已排除")
 

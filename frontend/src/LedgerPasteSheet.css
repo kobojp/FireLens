@@ -1,0 +1,94 @@
+/* FireLens M19-L: full-width editable ledger spreadsheet. */
+.reconcile-import-grid.ledger-sources-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 780px) { .reconcile-import-grid.ledger-sources-grid { grid-template-columns: minmax(0, 1fr); } }
+.ledger-paste-card { min-width: 0; display: grid; gap: 12px; }
+.ledger-paste-head { display: flex; align-items: start; justify-content: space-between; gap: 15px; flex-wrap: wrap; }
+.ledger-paste-head h2 { margin: 0 0 6px; }
+.ledger-paste-head .help-text { margin: 0; }
+.ledger-paste-name { display: grid; gap: 5px; max-width: 450px; width: 100%; font-size: 12px; font-weight: 750; color: #596b7e; }
+.ledger-paste-name input { width: 100%; min-height: 42px; border: 1px solid #cbd8e3; border-radius: 8px; padding: 8px 12px; background: #fff; color: #263747; font-size: 15px; }
+.ledger-paste-name input:focus-visible, .ledger-sheet input:focus-visible { outline: 2px solid #3d8dc8; outline-offset: -2px; }
+.ledger-paste-toolbar, .ledger-paste-footer {
+  display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between;
+}
+.ledger-paste-toolbar small, .ledger-paste-footer span { color: #677f91; }
+.ledger-paste-toolbar > div { display: flex; flex-wrap: wrap; gap: 7px; }
+.ledger-paste-toolbar button, .ledger-sheet-pagination button {
+  min-height: 36px; padding: 7px 13px; border: 1px solid #b7cadb; border-radius: 8px;
+  background: #f3f8fc; color: #27638d; font-weight: 750;
+}
+.ledger-paste-toolbar button:disabled, .ledger-sheet-pagination button:disabled { opacity: .42; cursor: not-allowed; }
+.ledger-sheet .help-text { margin: 0 0 10px; line-height: 1.65; }
+.ledger-sheet-scroll {
+  width: 100%; min-width: 0; max-height: min(520px, 62vh); overflow: auto;
+  border: 1px solid #c7d8e6; border-radius: 11px; overscroll-behavior: contain;
+}
+.ledger-sheet-table {
+  border-collapse: separate; border-spacing: 0; table-layout: fixed;
+  width: 100%; min-width: 620px; font-size: 13px;
+}
+.ledger-sheet-table th, .ledger-sheet-table td {
+  border-right: 1px solid #d3e0eb; border-bottom: 1px solid #d3e0eb; padding: 0;
+}
+.ledger-sheet-table thead th {
+  position: sticky; top: 0; z-index: 2; padding: 11px 12px;
+  text-align: left; background: #eaf3fa; color: #315a79; font-weight: 800;
+}
+.ledger-sheet-table .ledger-sheet-index { width: 65px; text-align: center; background: #f0f6fa; color: #5e778a; }
+.ledger-sheet-table td { height: 43px; background: #fff; }
+.ledger-sheet-table td.ledger-cell-selected { background: #dfecfa; }
+.ledger-sheet-table td input {
+  width: 100%; height: 43px; min-width: 0; padding: 8px 13px;
+  border: 0; border-radius: 0; outline: 0; font: inherit;
+  color: #253e54; background: transparent;
+}
+.ledger-sheet-table tr:hover td { background-color: #f5f9fc; }
+.ledger-sheet-table td.ledger-cell-selected:hover { background: #dfecfa; }
+.ledger-sheet-pagination { display: flex; justify-content: center; gap: 12px; align-items: center; padding: 9px; color: #61778a; font-size: 12px; }
+.ledger-paste-footer .primary-button { padding: 10px 16px; min-height: 40px; }
+.ledger-manager-compact { gap: 8px; }
+.ledger-manager-compact .ledger-row { padding: 7px 12px; }
+.ledger-manager-pagination { display: flex; justify-content: center; align-items: center; gap: 11px; flex-wrap: wrap; padding: 5px; }
+.ledger-manager-pagination span { font-size: 12px; color: #687786; }
+.ledger-manager-pagination button, .ledger-manager-toggle {
+  min-height: 33px; padding: 6px 11px; border: 1px solid #c5d3df; border-radius: 7px;
+  background: #f6f9fb; color: #315d7f; font-weight: 750;
+}
+.ledger-manager-toggle { white-space: nowrap; }
+.ledger-manager-pagination button:disabled { opacity: .4; }
+html[data-theme="dark"] .ledger-paste-name input,
+html[data-theme="dark"] .ledger-sheet-table td,
+html[data-theme="dark"] .ledger-sheet-table td input { background: #20272f; color: #eff6ff; }
+html[data-theme="dark"] .ledger-sheet-table thead th,
+html[data-theme="dark"] .ledger-sheet-table .ledger-sheet-index { background: #2b3a48; color: #dceefc; }
+html[data-theme="dark"] .ledger-sheet-table td.ledger-cell-selected { background: #264d6f; }
+html[data-theme="dark"] .ledger-sheet-table td.ledger-cell-selected input { background: transparent; }
+html[data-theme="dark"] .ledger-sheet-scroll { border-color: #49637a; }
+html[data-theme="dark"] .ledger-sheet-table th,
+html[data-theme="dark"] .ledger-sheet-table td { border-color: #415362; }
+html[data-theme="dark"] .ledger-paste-toolbar button,
+html[data-theme="dark"] .ledger-sheet-pagination button,
+html[data-theme="dark"] .ledger-manager-toggle,
+html[data-theme="dark"] .ledger-manager-pagination button { background: #2b4357; color: #e5f3ff; border-color: #5f829d; }
+@media (prefers-color-scheme: dark) {
+  html:not([data-theme]) .ledger-paste-name input,
+  html:not([data-theme]) .ledger-sheet-table td,
+  html:not([data-theme]) .ledger-sheet-table td input { background: #20272f; color: #eff6ff; }
+  html:not([data-theme]) .ledger-sheet-table thead th,
+  html:not([data-theme]) .ledger-sheet-table .ledger-sheet-index { background: #2b3a48; color: #dceefc; }
+  html:not([data-theme]) .ledger-sheet-table td.ledger-cell-selected { background: #264d6f; }
+  html:not([data-theme]) .ledger-sheet-table td.ledger-cell-selected input { background: transparent; }
+  html:not([data-theme]) .ledger-sheet-scroll { border-color: #49637a; }
+  html:not([data-theme]) .ledger-sheet-table th,
+  html:not([data-theme]) .ledger-sheet-table td { border-color: #415362; }
+  html:not([data-theme]) .ledger-paste-toolbar button,
+  html:not([data-theme]) .ledger-sheet-pagination button,
+  html:not([data-theme]) .ledger-manager-toggle,
+  html:not([data-theme]) .ledger-manager-pagination button { background: #2b4357; color: #e5f3ff; border-color: #5f829d; }
+}
+@media (max-width: 750px) {
+  .ledger-paste-card { padding: 12px; }
+  .ledger-paste-name { max-width: 100%; }
+  .ledger-paste-toolbar, .ledger-paste-footer { align-items: start; }
+  .ledger-paste-footer .primary-button { width: 100%; }
+}

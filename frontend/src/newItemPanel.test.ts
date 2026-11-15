@@ -2,13 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { initialNewItemPanelOpen, newItemPanelButtonText } from './newItemPanel'
 
 describe('new item panel preference', () => {
-  it('defaults to expanded for a fresh profile', () => {
-    expect(initialNewItemPanelOpen(undefined)).toBe(true)
-  })
-
-  it('restores a saved collapsed preference after restart', () => {
-    expect(initialNewItemPanelOpen(false)).toBe(false)
-    expect(initialNewItemPanelOpen(true)).toBe(true)
+  it('defaults to collapsed for fresh or upgraded profiles without explicit new preference', () => {
+    expect(initialNewItemPanelOpen(undefined)).toBe(false)
+    expect(initialNewItemPanelOpen(true)).toBe(false)
+    expect(initialNewItemPanelOpen(false)).toBe(true)
   })
 
   it('provides explicit expanded, collapsed and no-root labels', () => {

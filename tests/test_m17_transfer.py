@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from backend.app.db import connect
+from backend.app.db import SCHEMA_VERSION, connect
 from tests.test_m2 import setup_client
 from tests.test_m11 import _photo_for
 
@@ -190,7 +190,7 @@ def test_migration_8_to_9_preserves_data_and_creates_backup(db_path: Path) -> No
     initialize_database(db_path)
     conn = connect(db_path)
     try:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 13
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
         assert conn.execute("SELECT name FROM ledger").fetchone()[0] == "歷史清冊"
         columns = {row[1] for row in conn.execute("PRAGMA table_info(slot_transfer_log)")}
         assert {"source_before", "source_after", "reverted_at"} <= columns

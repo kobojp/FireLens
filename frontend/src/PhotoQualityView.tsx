@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { qualityProgress } from './qualityProgress'
 import { DuplicatePhotoPanel } from './DuplicatePhotoPanel'
 import { InspectorImageViewer } from './InspectorImageViewer'
 import { api } from './api'
-import type { QualityGallery, QualityItem, QualityJob, QualityPhoto, RootRecord } from './types'
-
+import { qualityPeriodsFromTree } from './qualityPeriods'
+import { useAppConfirmation } from './useAppConfirmation'
+import type { QualityGallery, QualityItem, QualityJob, QualityPhoto, RootRecord, TreeNode } from './types'
 const CATEGORY = [
   { value: '', label: '全部設備' },
   { value: 'extinguisher', label: '滅火器' },
@@ -36,15 +37,25 @@ export function PhotoQualityView({
   const [mode, setMode] = useState<'quality' | 'duplicates'>('quality')
   const [category, setCategory] = useState('')
   const [period, setPeriod] = useState('')
+  const [periodTree, setPeriodTree] = useState<{ rootId: number; nodes: TreeNode[] } | null>(null)
+  const [periodTreeLoading, setPeriodTreeLoading] = useState(false)
+  const [periodTreeError, setPeriodTreeError] = useState('')
   const [building, setBuilding] = useState('')
   const [query, setQuery] = useState('')
   const [problemOnly, setProblemOnly] = useState(true)
   const [full, setFull] = useState(false)
+  const { confirmAction, cancelConfirmation, confirmationDialog } = useAppConfirmation()
+  useEffect(() => cancelConfirmation(), [rootId, mode, cancelConfirmation])
   const [offset, setOffset] = useState(0)
   const [gallery, setGallery] = useState<QualityGallery | null>(null)
   const [job, setJob] = useState<QualityJob | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [savingSensitivity, setSavingSensitivity] = useState(false)
+  const [startingScan, setStartingScan] = useState(false)
+  const [cancellingScan, setCancellingScan] = useState(false)
+  const [manualRefreshing, setManualRefreshing] = useState(false)
+  const actionLocks = useRef({ save: false, start: false, cancel: false, refresh: false })
   const [busyPhotoId, setBusyPhotoId] = useState<number | null>(null)
   const [preview, setPreview] = useState<number | null>(null)
   const [thumbSize, setThumbSize] = useState(180)
@@ -71,6 +82,33 @@ export function PhotoQualityView({
       setRootId(roots[0].id)
     }
   }, [roots, rootId])
+
+  useEffect(() => {
+    if (rootId === null) return
+    let active = true
+    setPeriodTreeLoading(true)
+    setPeriodTreeError('')
+    void api.tree(rootId).then((nodes) => {
+      if (!active) return
+      setPeriodTree({ rootId, nodes })
+      setPeriodTreeLoading(false)
+    }).catch((err) => {
+      if (!active) return
+      setPeriodTreeError(err instanceof Error ? err.message : '無法載入月份／批次')
+      setPeriodTreeLoading(false)
+    })
+    return () => { active = false }
+  }, [rootId])
+
+  const periodOptions = useMemo(() => periodTree?.rootId === rootId
+    ? qualityPeriodsFromTree(periodTree.nodes, category) : [], [periodTree, rootId, category])
+  const periodOptionsReady = periodTree?.rootId === rootId
+  useEffect(() => {
+    if (periodOptionsReady && period && !periodOptions.includes(period)) {
+      setPeriod('')
+      setOffset(0)
+    }
+  }, [periodOptionsReady, periodOptions, period])
 
   // A preview belongs only to its current root, mode and filtered page.
   useEffect(() => { setPreview(null) }, [rootId, mode, category, period, building, query,
@@ -135,7 +173,10 @@ export function PhotoQualityView({
   }, [job?.state])
 
   async function saveSettings() {
-    if (rootId === null) return
+    if (rootId === null || actionLocks.current.save || sensitivity === savedSensitivity || job?.state === 'running') return
+    actionLocks.current.save = true
+    setSavingSensitivity(true)
+    setError('')
     try {
       const saved = await api.saveQualitySettings(rootId, sensitivity)
       setSavedSensitivity(saved.sensitivity)
@@ -143,18 +184,45 @@ export function PhotoQualityView({
       await refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : '無法儲存偵測靈敏度')
+    } finally {
+      actionLocks.current.save = false
+      setSavingSensitivity(false)
     }
   }
 
   async function startScan() {
-    if (rootId === null) return
-    if (full && !window.confirm('完整重新掃描會重新分析此範圍全部照片，確定開始？')) return
+    if (rootId === null || actionLocks.current.start || sensitivity !== savedSensitivity || job?.state === 'running') return
+    if (full && !(await confirmAction(
+      '完整重新掃描會重新分析此範圍全部照片，確定開始？', '完整照片品質掃描',
+    ))) return
+    actionLocks.current.start = true
+    setStartingScan(true)
     setError('')
     try {
       setJob(await api.qualityScan(rootId, full, category, period))
     } catch (err) {
       setError(err instanceof Error ? err.message : '無法開始掃描')
+    } finally {
+      actionLocks.current.start = false
+      setStartingScan(false)
     }
+  }
+
+  async function cancelScan() {
+    if (rootId === null || job?.state !== 'running' || actionLocks.current.cancel) return
+    actionLocks.current.cancel = true
+    setCancellingScan(true)
+    try { setJob(await api.cancelQualityScan(rootId)) }
+    catch (err) { setError(err instanceof Error ? err.message : '取消掃描失敗') }
+    finally { actionLocks.current.cancel = false; setCancellingScan(false) }
+  }
+
+  async function refreshList() {
+    if (rootId === null || actionLocks.current.refresh) return
+    actionLocks.current.refresh = true
+    setManualRefreshing(true)
+    try { await refresh() }
+    finally { actionLocks.current.refresh = false; setManualRefreshing(false) }
   }
 
   async function saveReview(photo: QualityPhoto, value: string) {
@@ -259,6 +327,7 @@ export function PhotoQualityView({
   return (
     <section className="panel quality-page">
       <div className="panel-title">
+        {confirmationDialog}
         <h2>照片品質檢查</h2>
         <span>只分析圖片品質，不修改原圖，也不改設備異常紀錄</span>
       </div>
@@ -268,7 +337,9 @@ export function PhotoQualityView({
       </div>
       <div className="quality-controls">
         <label>照片來源
-          <select value={rootId ?? ''} onChange={(e) => { setRootId(Number(e.target.value)); setOffset(0) }}>
+          <select value={rootId ?? ''} onChange={(e) => {
+            setRootId(Number(e.target.value)); setPeriod(''); setOffset(0)
+          }}>
             {roots.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
           </select>
         </label>
@@ -278,8 +349,13 @@ export function PhotoQualityView({
           </select>
         </label>
         <label>月份／批次
-          <input value={period} onChange={(e) => { setPeriod(e.target.value); setOffset(0) }} placeholder="全部月份" />
+          <select value={period} disabled={periodTreeLoading || !periodOptionsReady}
+            onChange={(e) => { setPeriod(e.target.value); setOffset(0) }}>
+            <option value="">全部月份／批次</option>
+            {periodOptions.map((value) => <option key={value} value={value}>{value}</option>)}
+          </select>
         </label>
+        {periodTreeError && <span className="quality-period-error" role="alert">月份／批次讀取失敗：{periodTreeError}（原有結果保留）</span>}
         <label>棟別
           <input value={building} onChange={(e) => { setBuilding(e.target.value); setOffset(0) }} placeholder="全部棟別" />
         </label>
@@ -292,24 +368,33 @@ export function PhotoQualityView({
         </label>
       </div>
       <div className="quality-toolbar">
-        <label>掃描方式
-          <select value={full ? 'full' : 'incremental'}
-            onChange={(e) => setFull(e.target.value === 'full')} disabled={job?.state === 'running'}>
-            <option value="incremental">增量掃描（預設，只掃新照片／已變動）</option>
-            <option value="full">完整重新掃描（重新分析全部）</option>
-          </select>
-        </label>
-        <label>模糊偵測靈敏度（{sensitivity.toFixed(1)}）
-          <input type="range" min="0.5" max="1.5" step="0.1" value={sensitivity}
-            onChange={(e) => setSensitivity(Number(e.target.value))} />
-        </label>
-        <button type="button" disabled={rootId === null || sensitivity === savedSensitivity || job?.state === 'running'}
-          onClick={() => void saveSettings()}>儲存靈敏度</button>
-        <button type="button" disabled={rootId === null || sensitivity !== savedSensitivity || job?.state === 'running'}
-          onClick={() => void startScan()}>開始掃描</button>
-        <button type="button" disabled={job?.state !== 'running' || rootId === null}
-          onClick={() => { if (rootId !== null) void api.cancelQualityScan(rootId).then(setJob) }}>取消掃描</button>
-        <button type="button" onClick={() => void refresh()}>重新整理清單</button>
+        <div className="quality-parameter-group" role="group" aria-label="掃描參數">
+          <label>掃描方式
+            <select value={full ? 'full' : 'incremental'}
+              onChange={(e) => setFull(e.target.value === 'full')} disabled={job?.state === 'running'}>
+              <option value="incremental">增量掃描（預設，只掃新照片／已變動）</option>
+              <option value="full">完整重新掃描（重新分析全部）</option>
+            </select>
+          </label>
+          <label>模糊偵測靈敏度（{sensitivity.toFixed(1)}）
+            <input type="range" min="0.5" max="1.5" step="0.1" value={sensitivity}
+              onChange={(e) => setSensitivity(Number(e.target.value))} />
+          </label>
+          <button type="button" className="quality-action quality-action-save"
+            disabled={rootId === null || sensitivity === savedSensitivity || job?.state === 'running' || savingSensitivity}
+            onClick={() => void saveSettings()}>{savingSensitivity ? '儲存中…' : '儲存靈敏度'}</button>
+        </div>
+        <div className="quality-operation-group" role="group" aria-label="掃描操作">
+          <button type="button" className="quality-action quality-action-scan"
+            disabled={rootId === null || sensitivity !== savedSensitivity || job?.state === 'running' || startingScan || savingSensitivity}
+            onClick={() => void startScan()}>{startingScan || job?.state === 'running' ? '掃描中…' : '開始掃描'}</button>
+          <button type="button" className="quality-action quality-action-cancel"
+            disabled={job?.state !== 'running' || rootId === null || cancellingScan}
+            onClick={() => void cancelScan()}>{cancellingScan ? '取消中…' : '取消掃描'}</button>
+          <button type="button" className="quality-action quality-action-refresh"
+            disabled={rootId === null || manualRefreshing || loading}
+            onClick={() => void refreshList()}>{manualRefreshing ? '整理中…' : '重新整理清單'}</button>
+        </div>
         <label><input type="checkbox" checked={problemOnly}
           onChange={(e) => { setProblemOnly(e.target.checked); setOffset(0) }} /> 只顯示異常設備</label>
         <label>品質

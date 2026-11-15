@@ -1,4 +1,18 @@
+export type SharedIssueChange = {
+  path: string
+  category: string
+  category_name: string
+  code: string
+  building: string | null
+  kind: 'added' | 'updated' | 'cleared'
+  before: string | null
+  after: string | null
+  source_device: string | null
+  event_at: string | null
+}
+
 export type SharedIssueCandidate = {
+  label_name: string
   event_id: string
   device: string
   value: Record<string, unknown>
@@ -10,6 +24,9 @@ export type SharedIssueConflict = {
   candidates: SharedIssueCandidate[]
 }
 export type SharedIssueStatus = {
+  local_total: number
+  last_result?: SharedSyncResult | null
+  sync_error?: string | null
   enabled: boolean
   root_id: number
   pending: number
@@ -19,8 +36,30 @@ export type SharedIssueStatus = {
   warning: string
   manual_review: boolean
   applied?: number
+  synced_at?: string
+  changes?: { added: number, updated: number, cleared: number }
+  change_details?: SharedIssueChange[]
   conflicts?: SharedIssueConflict[]
   verified_events?: number
+}
+export type SharedSyncResult = {
+  root_id: number
+  at: string
+  local_total: number
+  summary: { added: number; updated: number; cleared: number; conflicts: number }
+  conflicts: SharedIssueConflict[]
+  changes: {
+    kind: 'added' | 'updated' | 'cleared'
+    path: string
+    code: string
+    category: string
+    category_name: string
+    building: string | null
+    before: string | null
+    after: string | null
+    device: string | null
+    at: string | null
+  }[]
 }
 export type SharedIssueBackup = {
   id: string
@@ -32,6 +71,7 @@ export type SharedIssueBackup = {
   adding?: number
   removing?: number
   changing?: number
+  changes?: { path: string; before: string | null; after: string | null; kind: string }[]
 }
 export type QualityPhoto = PhotoRecord & {
   status: 'high' | 'possible' | 'normal' | 'uncertain' | 'unscanned'
@@ -641,6 +681,9 @@ export type ImportPhotoResult = ItemDetail & {
   offline_queue_entry?: OfflineQueueEntry
 }
 
+export type RootExcludedFolder = { name: string; present: boolean; locked: boolean; excluded: boolean }
+export type RootExclusionInfo = { root_id: number; saved: string[]; folders: RootExcludedFolder[] }
+
 export type AppSettings = {
   theme: 'system' | 'light' | 'dark'
   thumbnail_quality: number
@@ -655,6 +698,9 @@ export type AppSettings = {
   auto_scan_on_start: boolean
   auto_scan_min_interval_minutes: number
   new_item_panel_open: boolean
+  new_item_panel_collapsed: boolean
+  ledger_list_collapsed: boolean
+  ledger_page_size: 5 | 10 | 20
   excluded_root_folders: string[]
 }
 

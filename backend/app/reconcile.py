@@ -58,6 +58,27 @@ class ReconcileError(ValueError):
     pass
 
 
+class LedgerNameConflict(ReconcileError):
+    """A saved ledger already owns this case-insensitive human name."""
+
+
+def _safe_ledger_name(name: str) -> str:
+    cleaned = name.strip()
+    if not cleaned or len(cleaned) > 200:
+        raise ReconcileError("清冊名稱必須有 1～200 個字元")
+    return cleaned
+
+
+def _assert_unique_ledger_name(
+    conn: sqlite3.Connection, name: str, *, except_id: int | None = None
+) -> None:
+    key = unicodedata.normalize("NFKC", name).casefold()
+    for existing in conn.execute("SELECT id, name FROM ledger"):
+        existing_key = unicodedata.normalize("NFKC", existing["name"].strip()).casefold()
+        if existing["id"] != except_id and existing_key == key:
+            raise LedgerNameConflict("清冊名稱已存在，請換一個名稱")
+
+
 def _text(value: object) -> str:
     if value is None:
         return ""
@@ -277,14 +298,18 @@ def import_ledger(
     if not rows:
         raise ReconcileError("清冊沒有有效資料")
     source_sha256 = hashlib.sha256(source_bytes).hexdigest() if source_bytes is not None else None
+    clean_name = _safe_ledger_name(name)
     with conn:
+        if not conn.in_transaction:
+            conn.execute("BEGIN IMMEDIATE")
+        _assert_unique_ledger_name(conn, clean_name)
         cursor = conn.execute(
             """
             INSERT INTO ledger(name, source_type, source_sha256, source_text, source_filename)
             VALUES (?, ?, ?, ?, ?)
             """,
             (
-                name.strip() or "未命名清冊",
+                clean_name,
                 source_type,
                 source_sha256,
                 source_text if source_type == "text" else None,
@@ -357,15 +382,15 @@ def get_ledger_detail(conn: sqlite3.Connection, ledger_id: int) -> dict[str, obj
 
 
 def rename_ledger(conn: sqlite3.Connection, ledger_id: int, name: str) -> dict[str, object]:
-    new_name = name.strip()
-    if not new_name:
-        raise ReconcileError("清冊名稱不可為空")
-    if len(new_name) > 200:
-        raise ReconcileError("清冊名稱過長")
-    current = conn.execute("SELECT name FROM ledger WHERE id=?", (ledger_id,)).fetchone()
-    if current is None:
-        raise ReconcileError("找不到指定清冊")
+    new_name = _safe_ledger_name(name)
     with conn:
+        if not conn.in_transaction:
+            conn.execute("BEGIN IMMEDIATE")
+        current = conn.execute("SELECT name FROM ledger WHERE id=?", (ledger_id,)).fetchone()
+        if current is None:
+            raise ReconcileError("找不到指定清冊")
+        if new_name != current["name"].strip():
+            _assert_unique_ledger_name(conn, new_name, except_id=ledger_id)
         conn.execute("UPDATE ledger SET name=? WHERE id=?", (new_name, ledger_id))
         conn.execute(
             "INSERT INTO audit_log(action, detail_json) VALUES ('rename_ledger', ?)",

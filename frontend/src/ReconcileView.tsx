@@ -1,13 +1,19 @@
+import { ModalBackdrop } from './AppDialog'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from './api'
 import { filterReconcileRows } from './reconcile'
 import { createReconcileRequestGuard, DEVICE_CATEGORY_LABELS, isDeviceCategory, periodsForCategory } from './reconcileScope'
 import type { DeviceCategory } from './reconcileScope'
 import { LedgerManager } from './LedgerManager'
+import { AppConfirmDialog } from './AppConfirmDialog'
+import { isLedgerNameConflict, ledgerNameInUse } from './ledgerNameNotice'
+import { LedgerPasteSheet, blankLedgerRows, serializeLedgerRows, filledLedgerCount } from './LedgerPasteSheet'
+import type { LedgerPasteRow } from './LedgerPasteSheet'
 import type {
   AliasRecord,
   LedgerImportPreview,
   LedgerRecord,
+  AppSettings,
   ReconcileResult,
   RootRecord,
   TreeNode,
@@ -41,7 +47,6 @@ const CLASSIFICATION_LABELS: Record<string, string> = {
   unmapped_legacy: '有未對應／舊制照片',
 }
 
-const TUTORIAL_KEY = 'firelens.reconcile.tutorial.dismissed.v1'
 
 function suggestedLedgerName(now = new Date()) {
   const month = String(now.getMonth() + 1).padStart(2, '0')
@@ -57,9 +62,11 @@ type PendingImport = {
 type Props = {
   roots: RootRecord[]
   defaultRootId: number | null
+  isActive?: boolean
+  settings?: AppSettings | null
 }
 
-export function ReconcileView({ roots, defaultRootId }: Props) {
+export function ReconcileView({ roots, defaultRootId, isActive = true, settings }: Props) {
   const [rootId, setRootId] = useState<number | null>(defaultRootId)
   const [ledgers, setLedgers] = useState<LedgerRecord[]>([])
   const [ledgerId, setLedgerId] = useState<number | null>(null)
@@ -72,27 +79,46 @@ export function ReconcileView({ roots, defaultRootId }: Props) {
   const [missingOnly, setMissingOnly] = useState(false)
   const [missingSlot, setMissingSlot] = useState('')
   const [textName, setTextName] = useState(() => suggestedLedgerName())
-  const [textLedger, setTextLedger] = useState('')
+  const [pasteRows, setPasteRows] = useState<LedgerPasteRow[]>(() => blankLedgerRows())
+  const [pasteUndo, setPasteUndo] = useState<LedgerPasteRow[][]>([])
+  const [confirmClear, setConfirmClear] = useState(false)
+  const textLedger = useMemo(() => serializeLedgerRows(pasteRows), [pasteRows])
   const [pendingImport, setPendingImport] = useState<PendingImport | null>(null)
-  const [tutorialOpen, setTutorialOpen] = useState(
-    () => typeof window !== 'undefined' && window.localStorage.getItem(TUTORIAL_KEY) !== '1',
-  )
-  const [tutorialDontShow, setTutorialDontShow] = useState(false)
+  const [tutorialOpen, setTutorialOpen] = useState(false)
   const [aliases, setAliases] = useState<AliasRecord[]>([])
   const [aliasSource, setAliasSource] = useState('')
   const [aliasTarget, setAliasTarget] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [duplicateNameNotice, setDuplicateNameNotice] = useState<string | null>(null)
+  const [nameWasEdited, setNameWasEdited] = useState(false)
+  const [importMessage, setImportMessage] = useState('')
+  const ledgerNameRef = useRef<HTMLInputElement>(null)
   const [exporting, setExporting] = useState<'csv' | 'xlsx' | null>(null)
   const [exportMessage, setExportMessage] = useState('')
   const [exportToken, setExportToken] = useState('')
   const [scopeTree, setScopeTree] = useState<TreeNode[]>([])
   const [loadingScopeTree, setLoadingScopeTree] = useState(false)
   const resultRequestVersion = useRef(createReconcileRequestGuard())
+  const reconcileBusyVersion = useRef<number | null>(null)
+  const [reconcilingId, setReconcilingId] = useState<number | null>(null)
   const treeRequestVersion = useRef(0)
+  const resultTarget = useRef<HTMLElement>(null)
+  const scrollResult = useRef<ReconcileResult | null>(null)
+  useEffect(() => {
+    if (!isActive) { setTutorialOpen(false); scrollResult.current = null }
+  }, [isActive])
+  useEffect(() => {
+    if (!result || scrollResult.current !== result) return
+    scrollResult.current = null
+    if (!isActive) return
+    resultTarget.current?.scrollIntoView({ block: 'start',
+      behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
+  }, [result, isActive])
 
   function clearStaleResults() {
     resultRequestVersion.current.invalidate()
+    scrollResult.current = null
     setResult(null)
     setClassificationFilter('')
     setSectionFilter('')
@@ -155,6 +181,36 @@ export function ReconcileView({ roots, defaultRootId }: Props) {
     void refreshAliases().catch((err) => setError(err instanceof Error ? err.message : '讀取別名失敗'))
   }, [])
 
+  const ledgerNameUsed = ledgerNameInUse(textName, ledgers)
+
+  function showDuplicateNameNotice() {
+    setError('')
+    setDuplicateNameNotice(textName.trim())
+  }
+
+  function closeDuplicateNameNotice() {
+    setDuplicateNameNotice(null)
+    // Acknowledging this unchanged name must not reopen the dialog on next blur.
+    setNameWasEdited(false)
+    // Restore focus after the dialog unmount cleanup returns focus to its trigger.
+    window.setTimeout(() => ledgerNameRef.current?.focus(), 0)
+  }
+
+  function changePasteRows(next: LedgerPasteRow[]) {
+    setPasteUndo(history => [...history.slice(-29), pasteRows])
+    setPasteRows(next)
+    if (pendingImport?.kind === 'text') setPendingImport(null)
+    setError('')
+  }
+
+  function undoPasteRows() {
+    const previous = pasteUndo[pasteUndo.length - 1]
+    if (!previous) return
+    setPasteUndo(history => history.slice(0, -1))
+    setPasteRows(previous)
+    if (pendingImport?.kind === 'text') setPendingImport(null)
+  }
+
   async function previewExcel(file: File) {
     setBusy(true)
     setError('')
@@ -169,11 +225,15 @@ export function ReconcileView({ roots, defaultRootId }: Props) {
   }
 
   async function previewText() {
-    if (!textLedger.trim()) return
+    if (ledgerNameUsed) { showDuplicateNameNotice(); return }
+    if (!textLedger.trim() || !textName.trim()) {
+      setError('請輸入清冊名稱及清冊內容')
+      return
+    }
     setBusy(true)
     setError('')
     try {
-      const preview = await api.previewTextLedger(textName.trim() || suggestedLedgerName(), textLedger)
+      const preview = await api.previewTextLedger(textName.trim(), textLedger)
       setPendingImport({ kind: 'text', preview })
     } catch (err) {
       setError(err instanceof Error ? err.message : '文字清冊預覽失敗')
@@ -183,7 +243,10 @@ export function ReconcileView({ roots, defaultRootId }: Props) {
   }
 
   async function confirmImport() {
-    if (!pendingImport) return
+    if (!pendingImport || busy) return
+    if (ledgerNameUsed) { showDuplicateNameNotice(); return }
+    if (!textName.trim()) { setError('請輸入清冊名稱'); return }
+    const version = resultRequestVersion.current.next()
     setBusy(true)
     setError('')
     try {
@@ -191,7 +254,14 @@ export function ReconcileView({ roots, defaultRootId }: Props) {
       const created = pendingImport.kind === 'text'
         ? await api.importTextLedger(name, textLedger)
         : await api.importExcelLedger(pendingImport.file!, name)
-      const version = resultRequestVersion.current.next()
+      if (!resultRequestVersion.current.isCurrent(version)) { await refreshLedgers(); return }
+      setTextName('')
+      setNameWasEdited(false)
+      setDuplicateNameNotice(null)
+      setPendingImport(null)
+      setError('')
+      setImportMessage(`已儲存清冊「${name}」；以下可查看核對結果。`)
+      scrollResult.current = null
       setResult(null)
       setExportMessage('')
       setExportToken('')
@@ -199,6 +269,7 @@ export function ReconcileView({ roots, defaultRootId }: Props) {
       if (rootId !== null) {
         const next = await api.reconcile(rootId, created.id, period || undefined, categoryCode)
         if (resultRequestVersion.current.isCurrent(version)) {
+          scrollResult.current = next
           setResult(next)
           setClassificationFilter('')
           setSectionFilter('')
@@ -209,24 +280,32 @@ export function ReconcileView({ roots, defaultRootId }: Props) {
       }
       setPendingImport(null)
     } catch (err) {
-      setError(err instanceof Error ? err.message : '清冊匯入失敗')
+      const message = err instanceof Error ? err.message : '清冊匯入失敗'
+      if (isLedgerNameConflict(err)) showDuplicateNameNotice()
+      else setError(message)
     } finally {
       setBusy(false)
     }
   }
 
-  async function runReconcile() {
-    if (rootId === null || ledgerId === null) return
+  async function runReconcile(clickedLedgerId: number | null = ledgerId) {
+    if (rootId === null || clickedLedgerId === null || busy || exporting !== null || loadingScopeTree ||
+        reconcileBusyVersion.current !== null || !ledgers.some(row => row.id === clickedLedgerId)) return
     const version = resultRequestVersion.current.next()
+    reconcileBusyVersion.current = version
+    setReconcilingId(clickedLedgerId)
+    setLedgerId(clickedLedgerId)
     setBusy(true)
     setError('')
+    scrollResult.current = null
     setResult(null)
     setExportMessage('')
     setExportToken('')
     try {
-      const next = await api.reconcile(rootId, ledgerId, period || undefined, categoryCode)
+      const next = await api.reconcile(rootId, clickedLedgerId, period || undefined, categoryCode)
       if (!resultRequestVersion.current.isCurrent(version)) return
-      setResult(next)
+      scrollResult.current = next
+          setResult(next)
       setClassificationFilter('')
       setSectionFilter('')
       setCategoryFilter('')
@@ -237,7 +316,11 @@ export function ReconcileView({ roots, defaultRootId }: Props) {
         setError(err instanceof Error ? err.message : '核對失敗')
       }
     } finally {
-      setBusy(false)
+      if (reconcileBusyVersion.current === version) {
+        reconcileBusyVersion.current = null
+        setReconcilingId(null)
+        setBusy(false)
+      }
     }
   }
 
@@ -310,7 +393,6 @@ export function ReconcileView({ roots, defaultRootId }: Props) {
   }
 
   function closeTutorial() {
-    if (tutorialDontShow) window.localStorage.setItem(TUTORIAL_KEY, '1')
     setTutorialOpen(false)
   }
 
@@ -333,9 +415,17 @@ export function ReconcileView({ roots, defaultRootId }: Props) {
   return (
     <section className="reconcile-page" aria-label="照片清冊核對">
       {error && <div className="error-banner" role="alert">{error}</div>}
+      {importMessage && <p className="stats-message" role="status">{importMessage}</p>}
+      {duplicateNameNotice !== null && (
+        <AppConfirmDialog title="清冊名稱已存在" cancelLabel={null} confirmLabel="確認"
+          onCancel={closeDuplicateNameNotice} onConfirm={closeDuplicateNameNotice}>
+          <p>清冊名稱「<strong>{duplicateNameNotice}</strong>」已被使用，請更換一個名稱。</p>
+          <p className="help-text">為保護既有資料，FireLens 不會覆蓋或刪除已儲存的清冊。</p>
+        </AppConfirmDialog>
+      )}
 
       {tutorialOpen && (
-        <div className="preview-backdrop" onMouseDown={closeTutorial} onKeyDown={(event) => { if (event.key === 'Escape') closeTutorial() }}>
+        <ModalBackdrop onCancel={closeTutorial} className="preview-backdrop" onMouseDown={closeTutorial} onKeyDown={(event) => { if (event.key === 'Escape') closeTutorial() }}>
           <section className="panel-card reconcile-tutorial" role="dialog" aria-modal="true" aria-label="清冊使用教學" onMouseDown={(event) => event.stopPropagation()}>
             <div className="panel-title"><h2>清冊核對快速教學</h2><button type="button" aria-label="關閉教學" onClick={closeTutorial}>×</button></div>
           <ol>
@@ -352,17 +442,17 @@ export function ReconcileView({ roots, defaultRootId }: Props) {
           </div>
           <div className="tutorial-actions">
             <button type="button" onClick={() => void navigator.clipboard.writeText('致德樓8F\t致-08-19\n中正樓B2F\t中-B2-05').catch(() => setError('複製範例失敗'))}>複製雙欄範例</button>
-            <label><input type="checkbox" checked={tutorialDontShow} onChange={(event) => setTutorialDontShow(event.target.checked)} /> 下次不再自動顯示</label>
+            <span>教學只在您主動開啟時顯示。</span>
             <button type="button" onClick={closeTutorial}>我知道了</button>
           </div>
           </section>
-        </div>
+        </ModalBackdrop>
       )}
 
       <section className="reconcile-controls panel-card">
         <div className="panel-title">
           <h2>清冊與核對範圍</h2>
-          <button type="button" className="text-button" onClick={() => { setTutorialDontShow(false); setTutorialOpen(true) }}>查看範例／使用教學</button>
+          <button type="button" className="text-button" onClick={() => { setTutorialOpen(true) }}>查看範例／使用教學</button>
         </div>
         <div className="control-grid">
           <label>照片根目錄
@@ -418,21 +508,25 @@ export function ReconcileView({ roots, defaultRootId }: Props) {
       <LedgerManager
         ledgers={ledgers}
         selectedId={ledgerId}
+        onReconcile={(id) => { void runReconcile(id) }}
+        reconcileDisabled={busy || exporting !== null || rootId === null || loadingScopeTree}
+        reconcilingLedgerId={reconcilingId}
         onSelect={(id) => { clearStaleResults(); setLedgerId(id) }}
-        onChanged={async (preferredId) => { clearStaleResults(); await refreshLedgers(preferredId) }}
+        onChanged={async (preferredId) => { clearStaleResults(); await refreshLedgers(preferredId); setError(''); setDuplicateNameNotice(null) }}
+        defaultCollapsed={settings?.ledger_list_collapsed ?? false}
+        pageSize={settings?.ledger_page_size ?? 5}
         onError={setError}
       />
 
-      <section className="reconcile-import-grid">
+      <section className="reconcile-import-grid ledger-sources-grid">
         <section className="panel-card">
           <div className="panel-title"><h2>匯入 Excel</h2></div>
-          <input value={textName} onChange={(event) => setTextName(event.target.value)} aria-label="清冊名稱" placeholder="清冊名稱" />
           <label className="file-drop compact">
             選擇 .xlsx 清冊
             <input
               type="file"
               accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-              disabled={busy}
+              disabled={busy || !textName.trim()}
               onChange={(event) => {
                 const file = event.target.files?.[0]
                 if (file) void previewExcel(file)
@@ -440,25 +534,12 @@ export function ReconcileView({ roots, defaultRootId }: Props) {
               }}
             />
           </label>
-          <small>設備編號為唯一必要欄位；棟別樓層可省略。支援有／無標題的一欄或兩欄資料，多餘欄位會忽略。</small>
+          <small>與下方表格共用「清冊名稱」；設備編號必填，棟別樓層可省略。</small>
         </section>
-
-        <section className="panel-card">
-          <div className="panel-title"><h2>貼上文字清冊</h2></div>
-          <input value={textName} onChange={(event) => setTextName(event.target.value)} aria-label="文字清冊名稱" />
-          <textarea
-            value={textLedger}
-            onChange={(event) => setTextLedger(event.target.value)}
-            placeholder={'動-01-15\n動-03-08\n\n或直接從 Excel 複製兩欄：\n致德樓8F\t致-08-19\n中正樓B2F\t中-B2-05'}
-            aria-label="貼上文字清冊"
-          />
-          <button type="button" className="secondary-action" onClick={() => void previewText()} disabled={busy || !textLedger.trim()}>解析預覽</button>
-        </section>
-
         <section className="panel-card alias-card">
           <div className="panel-title"><h2>棟別別名</h2><span>{aliases.length}</span></div>
           <div className="alias-add">
-            <input value={aliasSource} onChange={(event) => setAliasSource(event.target.value)} placeholder="清冊名稱" aria-label="別名來源" />
+            <input value={aliasSource} onChange={(event) => setAliasSource(event.target.value)} placeholder="清冊別名" aria-label="別名來源" />
             <span>→</span>
             <input value={aliasTarget} onChange={(event) => setAliasTarget(event.target.value)} placeholder="照片資料夾名稱" aria-label="別名目標" />
             <button type="button" onClick={() => void saveAlias()} disabled={busy || !aliasSource.trim() || !aliasTarget.trim()}>儲存</button>
@@ -467,6 +548,54 @@ export function ReconcileView({ roots, defaultRootId }: Props) {
             {aliases.map((alias) => <span key={alias.id}>{alias.source_value} → {alias.target_value}</span>)}
           </div>
         </section>
+      </section>
+
+      <section className="panel-card ledger-paste-card" aria-label="貼上文字清冊表格區">
+        <div className="ledger-paste-head">
+          <div><h2>貼上文字清冊｜表格編輯</h2>
+            <p className="help-text">獨立大型工作區，複製 Excel／Google 試算表的棟別樓層與設備編號，直接貼入下方儲存格。</p>
+          </div>
+          <span className="help-text">最多 10,000 列 · 先預覽再儲存</span>
+        </div>
+        <label className="ledger-paste-name">清冊名稱（文字與 Excel 共用，不可重複）
+          <input ref={ledgerNameRef} aria-label="清冊名稱" aria-invalid={ledgerNameUsed} maxLength={200} value={textName}
+            disabled={busy} placeholder="例如：2026/11 滅火器清冊"
+            onBlur={() => { if (nameWasEdited && ledgerNameUsed && !duplicateNameNotice) showDuplicateNameNotice() }}
+            onChange={(event) => {
+              setTextName(event.target.value)
+              setNameWasEdited(true)
+              setDuplicateNameNotice(null)
+              setImportMessage('')
+              if (error.includes('清冊名稱')) setError('')
+              if (pendingImport?.kind === 'text') setPendingImport(null)
+            }} />
+        </label>
+        <div className="ledger-paste-toolbar">
+          <small>已填 {filledLedgerCount(pasteRows)} 筆（可逐格修改，不會自動儲存）</small>
+          <div>
+            <button type="button" disabled={busy || !pasteUndo.length} onClick={undoPasteRows}>↶ 復原</button>
+            <button type="button" disabled={busy || !filledLedgerCount(pasteRows)} onClick={() => setConfirmClear(true)}>清空表格</button>
+          </div>
+        </div>
+        {confirmClear && <div className="danger-confirm" role="alert">
+          <b>確定清空目前貼上的表格嗎？</b>
+          <span>不會刪除已儲存的清冊，仍可按「復原」回到清空前。</span>
+          <div className="ledger-confirm-actions">
+            <button type="button" onClick={() => setConfirmClear(false)}>取消</button>
+            <button type="button" className="danger-button" onClick={() => {
+              changePasteRows(blankLedgerRows()); setConfirmClear(false)
+            }}>確認清空</button>
+          </div>
+        </div>}
+        <LedgerPasteSheet rows={pasteRows} disabled={busy}
+          onChange={changePasteRows} onUndo={undoPasteRows} onError={setError} />
+        <div className="ledger-paste-footer">
+          <span>格式範例：致德樓8F　致-08-19 ／ 單欄：動-01-15</span>
+          <button type="button" className="primary-button" onClick={() => void previewText()}
+            disabled={busy || !textLedger.trim() || !textName.trim()}>
+            {busy ? '正在解析…' : '解析預覽'}
+          </button>
+        </div>
       </section>
 
       {pendingImport && (
@@ -494,7 +623,7 @@ export function ReconcileView({ roots, defaultRootId }: Props) {
           </div>
           <div className="preview-actions">
             <button type="button" onClick={() => setPendingImport(null)} disabled={busy}>取消</button>
-            <button type="button" className="primary-button" onClick={() => void confirmImport()} disabled={busy || pendingImport.preview.valid_count === 0}>儲存並開始核對</button>
+            <button type="button" className="primary-button" onClick={() => void confirmImport()} disabled={busy || pendingImport.preview.valid_count === 0 || !textName.trim()}>儲存並開始核對</button>
           </div>
         </section>
       )}
@@ -507,7 +636,7 @@ export function ReconcileView({ roots, defaultRootId }: Props) {
             {result.period || '全部月份／批次'} ／
             清冊「{result.ledger_name}」，共 {result.total} 筆。僅核對此清冊內設備。
           </p>
-          <section className="reconcile-summary">
+          <section className="reconcile-summary reconcile-result-target" ref={resultTarget} aria-label="核對結果摘要">
             <div className="summary-main"><strong>{result.completion_rate}%</strong><span>清冊完成率</span><small>{result.complete} / {result.total}</small></div>
             {Object.entries(result.classification_counts).map(([classification, count]) => (
               <div key={classification} className={`summary-status status-${classification}`}>
@@ -525,7 +654,7 @@ export function ReconcileView({ roots, defaultRootId }: Props) {
             </div>
           </section>
 
-          <section className="panel-card result-card">
+          <section className="panel-card result-card reconcile-result-target" aria-label="核對結果區段">
             <div className="result-toolbar">
               <label>核對結果
                 <select value={classificationFilter} onChange={(event) => setClassificationFilter(event.target.value)}>
