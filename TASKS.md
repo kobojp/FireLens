@@ -1,5 +1,15 @@
 # 滅火器燈具照片管理系統 任務文件
 
+## 上方綠色操作提示自動消失（2026-11-15）
+
+使用者回報剪貼簿擷取等綠色訊息一直佔據上方空間。僅調整 App 的 success-banner 操作回饋：顯示 5 秒後自動清除，每次設定新訊息（包含相同文字）重新計時，清空與卸載時取消舊計時；錯誤、掃描進度及需操作的引導面板保留原機制。不修改照片、資料庫或其他工作樹。沿用尚未發布的目前開發版本，不另增版號。
+
+- [x] T-01 先建立可重現持續顯示的自動化測試，再實作綠色訊息 5 秒自動清除；涵蓋到期前仍顯示、到期移除、新／相同訊息重新計時、手動清空與卸載清理。真實 App DOM 配合 fake timers，修正前 3 failed／1 passed，修正後 4 passed。
+- [x] T-02 執行針對性與完整 Vitest、pytest、Ruff check／format、TypeScript／Vite、版本一致性、Graphify；同步 AGENTS／TASKS 及更新說明，確認不影響錯誤與需操作引導。完整 Vitest 183 passed／37 files、pytest 299 passed（1 項既有 Starlette 警告）、Ruff check／format 93 files、TypeScript／Vite 與版本閘門通過；Graphify 1,346 nodes／3,443 edges／84 communities。
+- [x] T-03 重建 Windows EXE／Setup 並執行打包 self-test 與更新器 E2E，記錄實際結果；僅本機產物與還原點，不推送／Tag／Release。`powershell -NoProfile -ExecutionPolicy Bypass -File packaging/build.ps1` 實際 exit 0（docs/transient-windows-build.exit／.log），EXE self-test、portable／installer READY／HEALTHY、rollback 與 7 種故障注入全部通過。新版 EXE SHA256 `1ECCB23087B74BC1E6AA8CFA61192DDD4A4508557BB86AE08408D232216F084C`、繁中 Setup SHA256 `3325C5F3F478452E0C236E62DEDF85AD4D4B6226D1A984EE7F318F732C50EAA6`；這組是目前 dist，較早章節產物雜湊僅代表歷史封裝。
+- [ ] T-04 真實 Windows WebView2 貼上後綠色訊息消失的人工驗收；自動化與封裝測試不代替實機操作。
+  - 已以新建隔離 SQLite 與 10 張合成照片啟動 Windows WebView2，點「建立縮圖快取」後觀察到綠色提示與原生 accessibility 狀態，後續完整 accessibility tree 確認提示已移除。前圖可見提示；後圖受其他應用遮擋，只以本視窗 tree 判定，未冒充完整像素見證或實際剪貼簿貼上。測試視窗正常關閉 exit 0；10／10 合成照片 SHA256／mtime_ns 不變。紀錄在 ignored docs/transient-ui-*。
+
 ## 繼續施工：K-02 Release Notes 發版閘門（2026-11-15）
 
 使用者已要求「繼續依 TASKS 實作」，本輪先處理可獨立施工的 K-02；K-03 歷史 Release 描述、真實 Tag／push／Release、未定案封存政策與 Google Sheets 批次寫入仍不在授權內。沿用尚未發布的目前開發版本；只改 CI／發版檢查與文件，不改桌面 runtime，不另升版、不重建相同 EXE，會核對既有已驗證產物雜湊。

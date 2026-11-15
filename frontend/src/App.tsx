@@ -1,7 +1,7 @@
 import { InspectorImageViewer } from './InspectorImageViewer'
 import { photosInDisplayOrder } from './slots'
 import { ModalBackdrop } from './AppDialog'
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { api, ApiError } from './api'
 import { initialNewItemPanelOpen, newItemPanelButtonText } from './newItemPanel'
 import { displaySlotsForItem, photosForSlot, slotAllowsAdditional, unmappedPhotos } from './slots'
@@ -360,7 +360,15 @@ export default function App() {
   }, [view])
   const [rootStatusInfo, setRootStatusInfo] = useState<RootStatus | null>(null)
   const [offlineQueue, setOfflineQueue] = useState<OfflineQueueEntry[]>([])
-  const [cacheMessage, setCacheMessage] = useState('')
+  const [cacheNotice, setCacheNotice] = useState({ message: '' })
+  const cacheMessage = cacheNotice.message
+  // A fresh notice also restarts the timer when its text is unchanged.
+  const setCacheMessage = useCallback((message: string) => setCacheNotice({ message }), [])
+  useEffect(() => {
+    if (!cacheNotice.message) return
+    const timeout = window.setTimeout(() => setCacheNotice({ message: '' }), 5000)
+    return () => window.clearTimeout(timeout)
+  }, [cacheNotice])
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null)
   const [quickCreateHydrated, setQuickCreateHydrated] = useState(false)
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null)
