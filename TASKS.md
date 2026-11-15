@@ -1,5 +1,14 @@
 # 滅火器燈具照片管理系統 任務文件
 
+## 正式 GitHub Release v1.12.0（2026-11-15）
+
+使用者已明確要求「上傳 github 跟 Releases」，授權將目前整併版本與綠色提示修正提交推送 GitHub，建立新版本 Tag 並以既有 Windows Actions 建置、Ed25519 簽章及發布五項資產。本段取代較早輪次「未授權／不推送／不發版」的當時限制；不改寫歷史 Release 或其他工作目錄，不上傳現場資料、DB 或秘密。
+
+- [ ] R12-01 核對 origin／遠端 main、Tag／Release 未存在、目前版本、已提交繁中 Release Notes、Actions 與簽章 Secret 名稱；將待發布說明改為正式說明並保留未實機驗收限制，檢查待推送差異無機器實際路徑／現場資料／秘密。版本沿用目前已驗證的 MINOR，不重複升版。
+- [ ] R12-02 版本與 Release Notes 閘門通過後提交發版文件，將當前整併 HEAD 以非強制 fast-forward 推送 origin/main；確認遠端 commit，再建立與推送 annotated v1.12.0。保留原始工作目錄與本機 main，不因推送改動其他工作樹。
+- [ ] R12-03 追蹤實際 Windows Actions run 至完成，確認測試、EXE／Setup、self-test／更新器 E2E、SHA256SUMS、manifest Ed25519 簽章、Release Notes 及五項資產上傳全部成功；失敗時保留真實錯誤並修復，不宣稱發布完成。
+- [ ] R12-04 回讀正式 Release 狀態／描述／Tag commit，下載五項資產校驗 SHA256、內建公鑰簽章、版本與檔名／大小；記錄 Run URL／Release URL／正式資產雜湊，同步 TASKS／README／AGENTS 判斷與 GitHub 文件。遠端建置與真實 Drive／剪貼簿人工驗收分開。
+
 ## 上方綠色操作提示自動消失（2026-11-15）
 
 使用者回報剪貼簿擷取等綠色訊息一直佔據上方空間。僅調整 App 的 success-banner 操作回饋：顯示 5 秒後自動清除，每次設定新訊息（包含相同文字）重新計時，清空與卸載時取消舊計時；錯誤、掃描進度及需操作的引導面板保留原機制。不修改照片、資料庫或其他工作樹。沿用尚未發布的目前開發版本，不另增版號。
@@ -96,7 +105,7 @@ WebView2 隔離啟動已看到：版本與 schema 正常、2 個合成 root、�
 
 **啟動修復最終封裝紀錄**：`docs/launch-fix-windows-build-final.log` 實際到達 `Build OK`；該次 pytest **258 passed**、Vitest **121 passed／26 files**、Ruff check／format **86 files**、TypeScript／Vite、版本一致性、npm audit **0 vulnerabilities**、PyInstaller、繁中 Setup、EXE self-test 與 portable／installer／READY／HEALTHY／rollback／故障注入更新器 E2E 全通過。Graphify 最終 **1,208 nodes／3,182 edges／76 communities**。目前 EXE SHA256 `0BF3CE18533528A4E53AFAB18FEE2F48DE7A943DD5809091156AABE107566AD0`、Setup SHA256 `BB81F6F0EEADB390B593A4232D7447EDBE4B1717FD6FBE3DC2B1045981A949D6`。包內不含 A-K～A-S 尚未整併功能，不將「可打包／測試通過」當成完整最新版驗收。
 
-狀態：目前版本 v1.12.0（G／H、啟動修復與原始目錄 K～S 軟體已整併，自動化通過；最終封裝與本機還原提交完成，外部人工矩陣仍待驗收；尚未發布）；最近正式 Release 為歷史 v1.11.0。實機、雙機及現場品質校準維持各自驗收狀態。
+狀態：目前版本 v1.12.0（G／H、啟動修復、K～S 整併與綠色提示修正已驗證；使用者已授權正式發版，目前準備推送／Actions；外部人工矩陣仍待驗收）；最近正式 Release 為歷史 v1.11.0。實機、雙機及現場品質校準維持各自驗收狀態。
 
 ## 本輪施工：完成待辦（2026-11-14，使用者已要求「請完成TASKS任務」）
 

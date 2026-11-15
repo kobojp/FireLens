@@ -285,7 +285,7 @@ FireLens 將照片磁碟內容視為真相來源；掃描功能只建立索引�
 ## 發行版
 
 Windows 可執行檔請從 GitHub Releases 下載。Release binary 不直接提交進 Git 歷史。
-GitHub Actions 會監聽 `v*` 標籤。建立正式版本前，`packaging/check_version_consistency.py` 會核對應用程式、套件、前端、TASKS 與發版文件的版本一致性；任一處不一致就停止 build／Release。版本確認通過後才可推送 Tag；以下是本開發版 v1.12.0 **未執行**的發版範例：
+GitHub Actions 會監聽 `v*` 標籤。建立正式版本前，`packaging/check_version_consistency.py` 會核對應用程式、套件、前端、TASKS 與發版文件的版本一致性；任一處不一致就停止 build／Release。版本確認通過後才可推送 Tag；以下是目前版本 v1.12.0 的發版流程範例，實際結果以 TASKS 與 GitHub Releases 為準：
 
 先撰寫並提交對應的繁中 `docs/releases/v<版本>.md`，再執行 `uv run --locked python packaging/check_release_readiness.py` 做本機檢查。說明須包含已驗證的使用者功能與仍待實機驗收的限制，不能只有標題或 Full Changelog；其他 `docs` 測試資料仍不納入 Git。帶 `--tag` 時還會確認 Tag 已存在、指向目前 HEAD，且文件與該提交一致。
 
