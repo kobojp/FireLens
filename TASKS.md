@@ -19,11 +19,13 @@
 WebView2 隔離啟動已看到：版本與 schema 正常、2 個合成 root、預設收合及「瀏覽…」入口、清冊表格／7 份清冊第一頁 5 份及點下一頁後 2 份。Windows native focus 未能穩定取得後停止指標／鍵盤操作，沒有將未完成的實際貼上、選填歸槽／資料夾選擇器、Drive／完整縮放當成已驗收。source launch 與截圖／UI tree 留在 ignored docs/integration-ui-*；正常關閉 **LAUNCH_EXIT=0**，10 張合成原圖 SHA256／mtime_ns 與基準完全相同。
 
 - [x] I-06a 最終來源 EXE／繁中 Setup、self-test／portable 與 installer 更新器 E2E 全部通過，記錄新產物雜湊；原始目錄 HEAD／內容保持不變。
-- [ ] I-06b 版本閘門通過後建立本機 Git 還原提交；確認無衝突標記、無現場資料／本機路徑／秘密進 Git，提交後原始碼狀態乾淨，不推送／發版。
+- [x] I-06b 版本閘門通過後建立本機 Git 還原提交；確認無衝突標記、無現場資料／本機路徑／秘密進 Git，提交後原始碼狀態乾淨，不推送／發版。
 
 **本輪最終封裝驗證（2026-11-15）**：`powershell -NoProfile -ExecutionPolicy Bypass -File packaging/build.ps1` 實際 **Exit Code 0**（docs/integration-windows-build.exit），最終紀錄 docs/integration-windows-build.log 到達 Build OK。該次重新執行 pytest **269 passed**（34.32 秒，1 項既有警告）、Vitest **179 passed／36 files**、Ruff check／format **90 files**、TypeScript／Vite、版本一致性與 npm audit 0；PyInstaller、繁中 Inno Setup、臨時資料目錄 EXE self-test、portable／installer READY／HEALTHY、rollback 及 7 種故障注入更新器 E2E 全通過。交付 EXE SHA256 `3E1E57A61EE54E61884DC423DDCF701AEB6C761568DD7156511633F16CDEA31E`，Setup SHA256 `921A07CD6F1E24FC2FA8C5FCD110F4859F88D31DF10D3155EAAB7F8352D0A55B`。先前歷史封裝紀錄／雜湊不代表目前 dist。
 
 最終 EXE 已另外載入同一隔離合成 SQLite，實際看到整併後設定分組／root 排除 checkbox、月份選單、品質工具列及備份預設收合；以 accessibility Toggle 勾選「暫存備份」並按儲存，UI 顯示成功，唯讀 SQLite 確認 root 1 排除名單已持久而 root 2 未變。品質頁人工按開始掃描後顯示掃描完成，SQLite 有 **10 筆品質結果**。原圖 **10／10 SHA256 與 mtime_ns 不變**；視窗已關閉。原生下拉 set-value 未生效、指標／鍵盤無法穩定取得焦點，未將失敗動作算成功；實際表格貼上／歸槽／原生資料夾選擇器／備份展開及外部完整矩陣仍留 I-05b／各章節 [ ]。
+
+**本機還原點**：程式整併提交 `76e1116`（78 檔），包含兩邊整併結果與全部回歸測試；目前主開發目錄以此工作樹為準。僅本機提交，未推送／Tag／Release。整併前的兩份 source zip 與逐檔 SHA256 保留於工作樹外的備份目錄，原始工作目錄全部 188 檔仍與備份相同。後續僅文件交付狀態同步，不改打包來源。
 
 ## 歷史核查：已完成功能與覆蓋疑慮（2026-11-15，整併前狀態）
 
@@ -65,7 +67,7 @@ WebView2 隔離啟動已看到：版本與 schema 正常、2 個合成 root、�
 
 **啟動修復最終封裝紀錄**：`docs/launch-fix-windows-build-final.log` 實際到達 `Build OK`；該次 pytest **258 passed**、Vitest **121 passed／26 files**、Ruff check／format **86 files**、TypeScript／Vite、版本一致性、npm audit **0 vulnerabilities**、PyInstaller、繁中 Setup、EXE self-test 與 portable／installer／READY／HEALTHY／rollback／故障注入更新器 E2E 全通過。Graphify 最終 **1,208 nodes／3,182 edges／76 communities**。目前 EXE SHA256 `0BF3CE18533528A4E53AFAB18FEE2F48DE7A943DD5809091156AABE107566AD0`、Setup SHA256 `BB81F6F0EEADB390B593A4232D7447EDBE4B1717FD6FBE3DC2B1045981A949D6`。包內不含 A-K～A-S 尚未整併功能，不將「可打包／測試通過」當成完整最新版驗收。
 
-狀態：目前版本 v1.12.0（G／H、啟動修復與原始目錄 K～S 軟體已整併，自動化通過；最終封裝通過／本機還原提交進行中，外部人工矩陣仍待驗收；尚未發布）；最近正式 Release 為歷史 v1.11.0。實機、雙機及現場品質校準維持各自驗收狀態。
+狀態：目前版本 v1.12.0（G／H、啟動修復與原始目錄 K～S 軟體已整併，自動化通過；最終封裝與本機還原提交完成，外部人工矩陣仍待驗收；尚未發布）；最近正式 Release 為歷史 v1.11.0。實機、雙機及現場品質校準維持各自驗收狀態。
 
 ## 本輪施工：完成待辦（2026-11-14，使用者已要求「請完成TASKS任務」）
 
