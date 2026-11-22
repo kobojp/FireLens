@@ -1,5 +1,22 @@
 # 滅火器燈具照片管理系統 任務文件
 
+## 大圖預覽左鍵按住平移（2026-11-22）
+
+使用者回報上一輪功能正常，新增放大後按住滑鼠左鍵拖曳圖片的需求。僅修改共用 InspectorImageViewer 的平移互動、樣式與測試；照片牆／品質／重複清單共用生效。沿用同一輪尚未發布的目前開發版本，不另增版號，不推送或發布。
+
+- [x] P-01 放大至可捲動時，左鍵按住畫布／圖片即可按拖曳距離反向調整 scrollLeft／scrollTop，顯示抓手／抓取中游標；使用 pointer capture 讓指標離開畫布仍可結束操作。右鍵／中鍵、觸控、未載入／讀取失敗、未可捲動與工具列不啟動平移；停用原生圖片拖出與文字選取，保留滾輪定點縮放、滑桿及鍵盤操作。放開／取消／失去 capture／視窗失焦、切圖／關閉／縮放時清理拖曳狀態，不得卡住、誤關閉預覽或修改原圖。
+- [x] P-02 先建立會失敗的 DOM 回歸，再實作；測試拖曳方向與距離、mouseup 後不再移動、pointercancel／lostcapture／blur、非左鍵／未放大與觸控忽略、切圖／縮放／卸載清理及平移後滾輪錨點。以合成圖在真實 Chromium 版面做 pointer 事件／捲動位置驗證，與 Windows 實體滑鼠手感分開記錄。
+- [x] P-03 同步 TASKS／AGENTS／README／目前版本更新說明，執行 Ruff check／format、pytest、Vitest、TypeScript／Vite、版本一致性與 Graphify；重建 Windows EXE／繁中 Setup 並跑隔離 self-test、更新器 E2E，記錄實際測試與最終產物雜湊。本輪只建立本機還原點。
+- [ ] P-04 真實 Windows WebView2 實體左鍵拖曳、跨視窗放開及不同 DPI 手感驗收；不得以 DOM／Chromium 合成事件或封裝自測代替。
+
+
+**本輪驗證（2026-11-22）**：先讀規則／TASKS、寫入以上需求並讀回才改測試。回歸在實作前 **2 failed／16 passed**；實作後並補強取消前確實進入 dragging、原生捲軸／工具列與讀取失敗保護，預覽互動專項 **20 passed**（原 7 案例保留，新增 13 案例）。完整 Vitest **216 passed／39 files**、pytest **307 passed**（59.19 秒，1 項既有 Starlette 警告）、Ruff check／format **95 files**、TypeScript／Vite 與版本一致性通過；Windows 最終封裝結果見下段。Graphify 已重建 **1,368 nodes／3,471 edges／84 communities**，產物仍 ignored。版本沿用尚未發布的目前 MINOR，其他版本來源未分歧。
+
+以新建隔離 Temp SQLite／10 張合成原圖啟動 loopback server，在 Orca 內建 Chromium 用瀏覽器 mouse move/down/up 操作測試（不是直接設定 scroll 值）：pointer event **isTrusted=true、pointerType=mouse**，左鍵 down 後 capture=true／cursor=grabbing；向右 80、向下 50 CSS px 時，scroll delta 實際 **−80／−49.600 px**（版面捲動精度誤差小於 1px）。放開後 capture 與 dragging 清除、cursor=grab，繼續移動指標沒有再改 scroll，預覽仍開啟；另移出畫布後放開也未卡住／誤關閉。UI 截圖已檢視，頁尾有左鍵平移指引。此為 Chromium 輸入路徑，P-04 真實 Windows WebView2／跨 OS 視窗與 DPI 手感不代勾。10／10 合成照片 SHA256／mtime_ns 不變，隔離 DB quick_check=ok；測試分頁與 port 18113 server 已關閉。證據留在 ignored docs/pan-*，不提交現場資料或路徑。
+
+
+**本輪最終封裝**：`powershell -NoProfile -ExecutionPolicy Bypass -File packaging/build.ps1` 實際 exit **0**，`docs/pan-windows-build.log` 到達 Build OK；完整測試與版本／TypeScript／Vite 閘門、PyInstaller／繁中 Setup、隔離 EXE self-test、portable／installer READY／HEALTHY、rollback 與 **7 種故障注入 E2E 全部通過**。目前 `dist/FireLens.exe` SHA256=`FDADDC5A5D9752286DE76B71749F46DCE17AD99FEFE072D1F7AB3D172109DE9C`，`dist/installer/FireLens-1.13.0-setup.exe` SHA256=`EE119BBDB9416C26408588FCA99BAD56892E6CE5671D6116A70AE633DFBFA8C5`；包含本次左鍵平移，後面 U-05 的較早封裝雜湊為當時紀錄。AGENTS／README／更新說明與 TASKS 已同步；只做本機還原提交，不推送／Tag／Release。P-04 實體 Windows 矩陣保持未完成。
+
 ## 啟動重複掃描引導與滑鼠定點滾輪縮放（2026-11-22）
 
 使用者要求將貼圖前的指紋不足提醒提前，並讓大圖預覽以滑鼠位置為中心用滾輪縮放。本輪使用 MINOR v1.13.0 開發版；先完成本機程式、測試與封裝，本輪不自動發布新 Tag／Release、不修改歷史正式資產。
@@ -20,7 +37,7 @@
 真實 Chromium 版面執行合成 WheelEvent：橫向照片從 640×480 放大至約 814×610，游標錨點誤差 **0.290／−0.093 CSS px**；記憶體中生成 1200×1800 直向 PNG（未寫原圖）在同一檢視器放大，誤差 **−0.213／0.227 CSS px**；皆 preventDefault 且沒有整頁縮放。暗／亮主題 computed style 對比皆 **12.736:1**，取消預設聚焦並確實關閉。這些是自動化瀏覽器事件，未冒充實體滑鼠／WebView2 手感；U-06 留待實機。10／10 合成原圖 SHA256 與 mtime_ns 完全不變，隔離 DB quick_check=ok；本輪瀏覽器分頁及 port 18113 伺服器均已關閉。證據與 probe 留在 ignored docs/nov22-*，不包含於正式原始碼。
 
 
-**最終封裝（2026-11-22）**：修正暗色次要按鈕後，重新執行 `powershell -NoProfile -ExecutionPolicy Bypass -File packaging/build.ps1`，最後 `docs/nov22-final-windows-build.log` 到達 Build OK，`.exit` 實際為 **0**；包含上述全套測試／TypeScript／Vite／版本閘門、PyInstaller、繁中 Inno Setup、隔離 EXE self-test、portable／installer READY／HEALTHY、rollback 及 **7 種故障注入 E2E 全通過**。目前交付 `dist/FireLens.exe` SHA256=`20A1744B1BF1B1A4EC291D02B807C4B025D385E4E8171B727DDECA674E52679A`，`dist/installer/FireLens-1.13.0-setup.exe` SHA256=`7081E55FFC12F677B3C775B48D51042E5D067165D2761E9A999B451CEB026399`。第一輪封裝雖也通過，但不含暗色按鈕修正，故僅作歷史驗證，不作此次交付。原始目錄保持唯讀，無推送／Tag／Release；本機還原提交包含本輪功能與測試，U-06 真實人工矩陣保持未勾選。
+**最終封裝（2026-11-22）**：修正暗色次要按鈕後，重新執行 `powershell -NoProfile -ExecutionPolicy Bypass -File packaging/build.ps1`，最後 `docs/nov22-final-windows-build.log` 到達 Build OK，`.exit` 實際為 **0**；包含上述全套測試／TypeScript／Vite／版本閘門、PyInstaller、繁中 Inno Setup、隔離 EXE self-test、portable／installer READY／HEALTHY、rollback 及 **7 種故障注入 E2E 全通過**。當時交付 `dist/FireLens.exe` SHA256=`20A1744B1BF1B1A4EC291D02B807C4B025D385E4E8171B727DDECA674E52679A`，`dist/installer/FireLens-1.13.0-setup.exe` SHA256=`7081E55FFC12F677B3C775B48D51042E5D067165D2761E9A999B451CEB026399`。第一輪封裝雖也通過，但不含暗色按鈕修正，故僅作歷史驗證，不作此次交付。原始目錄保持唯讀，無推送／Tag／Release；本機還原提交包含本輪功能與測試，U-06 真實人工矩陣保持未勾選。
 
 ## 正式 GitHub Release v1.12.0（2026-11-15）
 

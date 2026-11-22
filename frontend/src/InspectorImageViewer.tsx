@@ -37,9 +37,26 @@ export function InspectorImageViewer({
   const imageRef = useRef<HTMLImageElement>(null)
   const zoomRef = useRef(1)
   const zoomAnchor = useRef<{ x: number; y: number; clientX: number; clientY: number } | null>(null)
+  const [panning, setPanning] = useState(false)
+  const pan = useRef<{
+    canvas: HTMLDivElement; pointerId: number; x: number; y: number; left: number; top: number
+  } | null>(null)
   const dialogRef = useRef<HTMLElement>(null)
   const activeIndex = images.findIndex(image => image.id === activeId)
   const current = activeIndex >= 0 ? images[activeIndex] : null
+
+  const endPan = useCallback(() => {
+    const drag = pan.current
+    if (!drag) return
+    pan.current = null
+    setPanning(false)
+    if (drag.canvas.hasPointerCapture?.(drag.pointerId)) drag.canvas.releasePointerCapture(drag.pointerId)
+  }, [])
+
+  useEffect(() => {
+    window.addEventListener('blur', endPan)
+    return () => window.removeEventListener('blur', endPan)
+  }, [endPan])
 
   const measureImage = useCallback(() => {
     const canvas = canvasRef.current
@@ -56,6 +73,7 @@ export function InspectorImageViewer({
   }, [])
 
   useLayoutEffect(() => {
+    endPan()
     setZoom(1)
     zoomRef.current = 1
     zoomAnchor.current = null
@@ -69,8 +87,8 @@ export function InspectorImageViewer({
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measureImage)
     if (canvasRef.current) observer?.observe(canvasRef.current)
     window.addEventListener('resize', measureImage)
-    return () => { observer?.disconnect(); window.removeEventListener('resize', measureImage) }
-  }, [activeId, current?.src, measureImage])
+    return () => { endPan(); observer?.disconnect(); window.removeEventListener('resize', measureImage) }
+  }, [activeId, current?.src, measureImage, endPan])
 
   const changeZoom = useCallback((value: number, clientX?: number, clientY?: number) => {
     const canvas = canvasRef.current
@@ -80,6 +98,7 @@ export function InspectorImageViewer({
     if (!bounds.width || !bounds.height) return
     const next = Math.max(0.5, Math.min(4, value))
     if (next === zoomRef.current) return
+    endPan()
     const viewport = canvas.getBoundingClientRect()
     const x = clientX ?? viewport.left + canvas.clientWidth / 2
     const y = clientY ?? viewport.top + canvas.clientHeight / 2
@@ -90,7 +109,7 @@ export function InspectorImageViewer({
     }
     zoomRef.current = next
     setZoom(next)
-  }, [])
+  }, [endPan])
 
   useLayoutEffect(() => {
     const anchor = zoomAnchor.current
@@ -163,23 +182,47 @@ export function InspectorImageViewer({
           <button type="button" className="inspector-lightbox-close" data-dialog-cancel
             onClick={onClose} aria-label="關閉預覽">關閉</button>
         </div>
-        <div className="inspector-lightbox-canvas" ref={canvasRef}>
+        <div className={`inspector-lightbox-canvas${zoom > 1 && !loadFailed ? ' can-pan' : ''}${panning ? ' is-panning' : ''}`}
+          ref={canvasRef}
+          onPointerDown={event => {
+            const canvas = event.currentTarget
+            if (event.pointerType !== 'mouse' || event.button !== 0 || !fitSize || loadFailed || zoomRef.current <= 1
+              || (canvas.scrollWidth <= canvas.clientWidth && canvas.scrollHeight <= canvas.clientHeight)) return
+            const bounds = canvas.getBoundingClientRect()
+            // Leave the native scrollbars available to drag normally.
+            if (event.clientX >= bounds.left + canvas.clientLeft + canvas.clientWidth
+              || event.clientY >= bounds.top + canvas.clientTop + canvas.clientHeight) return
+            event.preventDefault()
+            canvas.setPointerCapture?.(event.pointerId)
+            pan.current = { canvas, pointerId: event.pointerId, x: event.clientX, y: event.clientY,
+              left: canvas.scrollLeft, top: canvas.scrollTop }
+            setPanning(true)
+          }}
+          onPointerMove={event => {
+            const drag = pan.current
+            if (!drag || drag.pointerId !== event.pointerId) return
+            if ((event.buttons & 1) === 0) { endPan(); return }
+            event.preventDefault()
+            drag.canvas.scrollLeft = drag.left - (event.clientX - drag.x)
+            drag.canvas.scrollTop = drag.top - (event.clientY - drag.y)
+          }}
+          onPointerUp={endPan} onPointerCancel={endPan} onLostPointerCapture={endPan}>
           {loadFailed
             ? <p role="alert">這張照片目前無法讀取，請確認來源磁碟與雲端同步狀態。</p>
             : <div className="inspector-lightbox-stage" style={fitSize ? {
                 width: fitSize.viewportWidth * Math.max(1, zoom),
                 height: fitSize.viewportHeight * Math.max(1, zoom),
               } : { width: '100%', height: '100%' }}>
-                <img key={current.id} ref={imageRef} src={current.src} alt={current.filename}
+                <img key={current.id} ref={imageRef} src={current.src} alt={current.filename} draggable={false}
                   style={fitSize ? { width: fitSize.width * zoom, height: fitSize.height * zoom } : {
                     maxWidth: '100%', maxHeight: '100%',
-                  }} onLoad={measureImage} onError={() => setLoadFailed(true)} />
+                  }} onLoad={measureImage} onError={() => { endPan(); setLoadFailed(true) }} />
               </div>}
         </div>
         <footer className="inspector-lightbox-footer">
           <strong>{current.subtitle}</strong>
           <span title={current.path}>{current.path}</span>
-          <small>滾輪以滑鼠位置放大／縮小 · 方向鍵 ← → 切換照片 · Esc 關閉</small>
+          <small>按住左鍵拖曳平移 · 滾輪以滑鼠位置放大／縮小 · 方向鍵 ← → 切換照片 · Esc 關閉</small>
         </footer>
       </section>
     </ModalBackdrop>

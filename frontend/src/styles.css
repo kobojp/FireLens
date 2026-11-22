@@ -953,6 +953,8 @@ html[data-theme="dark"] .quality-export-open button { background: #304d3e; borde
 .inspector-lightbox-stage {
   display: grid; place-items: center; min-width: 100%; min-height: 100%;
 }
+.inspector-lightbox-canvas.can-pan { cursor: grab; user-select: none; }
+.inspector-lightbox-canvas.is-panning { cursor: grabbing; }
 .inspector-lightbox-canvas img {
   display: block; object-fit: contain; height: auto; min-width: 0; max-width: none;
 }

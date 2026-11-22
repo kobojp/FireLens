@@ -20,7 +20,15 @@ async function render(activeId: number | null = 1) {
 }
 async function load(width = 1200, height = 1800) {
   const view = canvas(); const photo = image()
-  Object.defineProperties(view, { clientWidth: { configurable: true, value: 800 }, clientHeight: { configurable: true, value: 600 } })
+  const captured = new Set<number>()
+  Object.defineProperties(view, {
+    clientWidth: { configurable: true, value: 800 }, clientHeight: { configurable: true, value: 600 },
+    scrollWidth: { configurable: true, get: () => Math.max(800, parseFloat(stage().style.width) || 800) },
+    scrollHeight: { configurable: true, get: () => Math.max(600, parseFloat(stage().style.height) || 600) },
+    setPointerCapture: { configurable: true, value: vi.fn((id: number) => captured.add(id)) },
+    hasPointerCapture: { configurable: true, value: (id: number) => captured.has(id) },
+    releasePointerCapture: { configurable: true, value: vi.fn((id: number) => captured.delete(id)) },
+  })
   vi.spyOn(view, 'getBoundingClientRect').mockImplementation(() => rect(100, 80, 800, 600))
   let left = 0; let top = 0
   Object.defineProperties(view, {
@@ -38,6 +46,12 @@ async function load(width = 1200, height = 1800) {
 }
 async function wheel(deltaY: number, x = 560, y = 440, deltaX = 0, deltaMode = 0) {
   const event = new WheelEvent('wheel', { deltaY, deltaX, deltaMode, clientX: x, clientY: y, cancelable: true, bubbles: true })
+  await act(async () => canvas().dispatchEvent(event))
+  return event
+}
+async function pointer(type: string, x = 500, y = 350, button = 0, pointerType = 'mouse', buttons = 1) {
+  const event = new MouseEvent(type, { clientX: x, clientY: y, button, buttons, bubbles: true, cancelable: true })
+  Object.defineProperties(event, { pointerId: { value: 7 }, pointerType: { value: pointerType } })
   await act(async () => canvas().dispatchEvent(event))
   return event
 }
@@ -105,4 +119,85 @@ it('does not intercept wheel events after a photo load error or viewer close', a
   await render(null)
   const event = new WheelEvent('wheel', { deltaY: -120, cancelable: true })
   view.dispatchEvent(event); expect(event.defaultPrevented).toBe(false)
+})
+
+it('pans with the held left button, captures the pointer and stops after release', async () => {
+  await wheel(-120)
+  const view = canvas(); const left = view.scrollLeft; const top = view.scrollTop
+  expect((await pointer('pointerdown')).defaultPrevented).toBe(true)
+  expect(view.setPointerCapture).toHaveBeenCalledWith(7)
+  expect(view.classList.contains('is-panning')).toBe(true)
+  await pointer('pointermove', 530, 330)
+  expect(view.scrollLeft).toBeCloseTo(left - 30)
+  expect(view.scrollTop).toBeCloseTo(top + 20)
+  await pointer('pointerup', 530, 330, 0, 'mouse', 0)
+  expect(view.releasePointerCapture).toHaveBeenCalledWith(7)
+  expect(view.classList.contains('is-panning')).toBe(false)
+  await pointer('pointermove', 580, 300)
+  expect(view.scrollLeft).toBeCloseTo(left - 30)
+  expect(close).not.toHaveBeenCalled()
+  expect(image().draggable).toBe(false)
+})
+
+it.each(['pointercancel', 'lostpointercapture', 'blur', 'buttons-lost'])('cleans a drag on %s', async reason => {
+  await wheel(-120); await pointer('pointerdown')
+  expect(canvas().classList.contains('is-panning')).toBe(true)
+  if (reason === 'blur') await act(async () => window.dispatchEvent(new Event('blur')))
+  else if (reason === 'buttons-lost') await pointer('pointermove', 520, 360, 0, 'mouse', 0)
+  else await pointer(reason)
+  expect(canvas().classList.contains('is-panning')).toBe(false)
+  const left = canvas().scrollLeft
+  await pointer('pointermove', 560, 380)
+  expect(canvas().scrollLeft).toBe(left)
+})
+
+it.each(['right', 'middle', 'touch', 'not-zoomed'])('does not start a drag for %s input', async input => {
+  if (input !== 'not-zoomed') await wheel(-120)
+  else Object.defineProperty(canvas(), 'scrollWidth', { configurable: true, value: 801 })
+  const left = canvas().scrollLeft
+  await pointer('pointerdown', 500, 350, input === 'right' ? 2 : input === 'middle' ? 1 : 0, input === 'touch' ? 'touch' : 'mouse')
+  await pointer('pointermove', 560, 380)
+  expect(canvas().classList.contains('is-panning')).toBe(false)
+  expect(canvas().setPointerCapture).not.toHaveBeenCalled()
+  expect(canvas().scrollLeft).toBe(left)
+})
+
+it('leaves native scrollbars and toolbar pointer events alone', async () => {
+  await wheel(-120)
+  expect((await pointer('pointerdown', 901, 350)).defaultPrevented).toBe(false)
+  expect((await pointer('pointerdown', 500, 681)).defaultPrevented).toBe(false)
+  const toolbar = document.querySelector('.inspector-lightbox-toolbar button')!
+  await act(async () => toolbar.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 })))
+  expect(canvas().setPointerCapture).not.toHaveBeenCalled()
+})
+
+it('does not drag an unreadable photo', async () => {
+  await wheel(-120)
+  await act(async () => image().dispatchEvent(new Event('error')))
+  expect((await pointer('pointerdown')).defaultPrevented).toBe(false)
+  expect(canvas().setPointerCapture).not.toHaveBeenCalled()
+})
+
+it('cleans dragging when zoom changes, the photo switches or the viewer unmounts', async () => {
+  await wheel(-120); await pointer('pointerdown'); await wheel(-120)
+  expect(canvas().classList.contains('is-panning')).toBe(false)
+  await pointer('pointerdown')
+  const release = canvas().releasePointerCapture
+  await render(2)
+  expect(release).toHaveBeenCalledWith(7)
+  expect(canvas().classList.contains('is-panning')).toBe(false)
+  await load(); await wheel(-120); await pointer('pointerdown')
+  const finalRelease = canvas().releasePointerCapture
+  await act(async () => root.render(null))
+  expect(finalRelease).toHaveBeenCalledWith(7)
+})
+
+it('keeps wheel zoom anchored after panning', async () => {
+  await wheel(-240); await pointer('pointerdown'); await pointer('pointermove', 530, 370); await pointer('pointerup')
+  const before = image().getBoundingClientRect()
+  const x = before.left + before.width * 0.6; const y = before.top + before.height * 0.6
+  await wheel(-120, x, y)
+  const after = image().getBoundingClientRect()
+  expect(after.left + after.width * 0.6).toBeCloseTo(x, 5)
+  expect(after.top + after.height * 0.6).toBeCloseTo(y, 5)
 })
