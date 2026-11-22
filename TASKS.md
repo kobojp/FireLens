@@ -4,10 +4,19 @@
 
 使用者已明確要求「推 github 及 Releases」，本輪授權推送目前已驗證的啟動掃描引導、定點滾輪縮放與左鍵平移，建立正式版本 Tag 並由既有 Windows Actions 建置、簽章及發布。此授權取代前兩輪當時「僅本機／不推送／不發布」限制；不改寫歷史 Tag／Release、原始目錄或現場資料。
 
-- [ ] R13-01 核對遠端 main／目前 HEAD、Tag／Release 未存在、版本、已提交繁中更新說明、既有 Actions 與簽章 Secret 名稱；讀回本機最終封裝 exit 0、檢查來源差異無現場資料／實際機器路徑／秘密。沿用目前已驗證 MINOR，不另升版，不讀取私鑰。
-- [ ] R13-02 先提交正式繁中 Notes 與發版施工紀錄，版本／Notes 閘門通過後以非強制 fast-forward 推送 origin/main，建立 annotated v1.13.0 並驗證 Tag 所指提交與文件再推送；不更動其他本機工作樹。
-- [ ] R13-03 等待真實 GitHub Windows runner 完成全套測試／EXE／Setup／self-test／更新器 E2E、SHA256SUMS、Ed25519 manifest 簽章、Notes 與五項資產發布，記錄 Run URL 與實際結果；失敗不得標完成。
-- [ ] R13-04 回讀正式 Latest Release 狀態、繁中說明與 Tag commit，下載五項正式資產核對 GitHub digest／大小、SHA256SUMS 與產品內建公鑰驗章；同步 README／TASKS、核對 AGENTS 長期規則，記錄正式資產雜湊並提交推送發布紀錄。人工 WebView2／Drive／LINE／DPI 矩陣保留未驗收狀態。
+- [x] R13-01 核對遠端 main／目前 HEAD、Tag／Release 未存在、版本、已提交繁中更新說明、既有 Actions 與簽章 Secret 名稱；讀回本機最終封裝 exit 0、檢查來源差異無現場資料／實際機器路徑／秘密。沿用目前已驗證 MINOR，不另升版，不讀取私鑰。
+- [x] R13-02 先提交正式繁中 Notes 與發版施工紀錄，版本／Notes 閘門通過後以非強制 fast-forward 推送 origin/main，建立 annotated v1.13.0 並驗證 Tag 所指提交與文件再推送；不更動其他本機工作樹。
+- [x] R13-03 真實 GitHub Windows runner 已完成全套測試／EXE／Setup／self-test／更新器 E2E、SHA256SUMS、Ed25519 manifest 簽章、Notes 與五項資產發布，Run URL 與實際結果如下。
+- [x] R13-04 已回讀正式 Latest Release 狀態、繁中說明與 Tag commit，下載五項正式資產核對 GitHub digest／大小、SHA256SUMS 與產品內建公鑰驗章；同步 README／TASKS 並核對 AGENTS 長期規則，正式資產雜湊如下。人工 WebView2／Drive／LINE／DPI 矩陣保留未驗收狀態。
+
+**正式發布與下載驗證（2026-11-22）**：Run <https://github.com/kobojp/FireLens/actions/runs/44998736851> 為 completed／success，headSha=`774e23ddf12dd54660d3d71ef7fc1f4655d4819b`，與 peeled Tag 相同。<https://github.com/kobojp/FireLens/releases/tag/v1.13.0> 已於 `2026-11-22T07:38:25Z` 公開發布，latest API 指向本版，非 Draft／非 Prerelease。Release 描述正規化換行後與已提交的 `docs/releases/v1.13.0.md` 完全相同。五項資產名稱／uploaded 狀態／大小與實際下載 SHA256 均吻合 GitHub digest；已通過產品內建公鑰 Ed25519 驗章、manifest 版本／檔名／EXE 大小與 hash、兩項安裝資產 SHA256SUMS。正式 portable SHA256=`94ef0e554e967559193ebc4ac2533c7fb6d2fbc17b9eb8686cccf3f1bb69b9ad`，Setup SHA256=`c65caafacbf2aa9187eb310d4ea4ac43c966369904d47cc399a57248c3bd9e0d`。雲端下載以本段為準，本機先前 dist 是不同建置環境的產物。
+
+CI 實際完成 Vitest **216 passed／39 files**、pytest **307 passed**（107.63 秒，2 warnings）、Ruff check／format **95 files**、TypeScript／Vite、版本／已提交 Notes 閘門、Windows EXE／繁中 Setup、隔離 self-test、portable／installer READY／HEALTHY、rollback 及 7 種故障注入、簽章與發布前資產驗證。pytest 警告為既有 Starlette httpx 棄用及版本測試子程序 stdout 在 runner cp1252 的中文解碼 reader-thread warning；獨立版本閘門與子程序 exit 0，不偽稱無警告，留後續 CI 維護。Actions 另有既有 action Node runtime 棄用提示。正式下載的 EXE 經 SHA256／驗章後，另在新建 Temp FIRELENS_DATA_DIR 執行自我測試，實際 exit **0**，未啟動正式資料庫。日誌／API／下載檔／self-test exit 留在 ignored docs/release-v1.13.0-*。
+
+AGENTS 長期發版與安全規則已核對，本輪無規則變更，無須重寫；README／TASKS 已同步正式狀態。既有 P-04／U-06 與其他 WebView2、真實 Drive／LINE／不同 DPI 人工矩陣保持未完成。Tag 與 Release 資產維持不變，後續僅提交推送發布紀錄與 README。
+
+
+**發版前閘門與推送證據**：起始工作樹乾淨，HEAD=b4676a8，遠端 main=2647e6a；無同名 Tag／Release。讀回本機 pan-windows-build.exit=0，版本一致性、已提交繁中 Notes 及差異敏感資料檢查通過，既有 workflow active、簽章 Secret 名稱存在（未讀取私鑰）。正式發版文件提交 `774e23ddf12dd54660d3d71ef7fc1f4655d4819b` 已非強制推至 main；annotated Tag object `f45befca9e7a1ff3cf4f5ce3fae3ba0c4863b16b` 的 peeled commit 與遠端 main 相同，已通過 Tag／版本／Notes 閘門才推送。Actions <https://github.com/kobojp/FireLens/actions/runs/44998736851> 已觸發，尚待完成及正式資產下載驗證；不能以已推送代表已發布。
 
 ## 大圖預覽左鍵按住平移（2026-11-22）
 
@@ -157,7 +166,7 @@ WebView2 隔離啟動已看到：版本與 schema 正常、2 個合成 root、�
 
 **啟動修復最終封裝紀錄**：`docs/launch-fix-windows-build-final.log` 實際到達 `Build OK`；該次 pytest **258 passed**、Vitest **121 passed／26 files**、Ruff check／format **86 files**、TypeScript／Vite、版本一致性、npm audit **0 vulnerabilities**、PyInstaller、繁中 Setup、EXE self-test 與 portable／installer／READY／HEALTHY／rollback／故障注入更新器 E2E 全通過。Graphify 最終 **1,208 nodes／3,182 edges／76 communities**。目前 EXE SHA256 `0BF3CE18533528A4E53AFAB18FEE2F48DE7A943DD5809091156AABE107566AD0`、Setup SHA256 `BB81F6F0EEADB390B593A4232D7447EDBE4B1717FD6FBE3DC2B1045981A949D6`。包內不含 A-K～A-S 尚未整併功能，不將「可打包／測試通過」當成完整最新版驗收。
 
-狀態：目前版本 v1.13.0（啟動重複掃描引導、定點滾輪縮放與左鍵平移已驗證，使用者已授權正式發版，正在準備推送／Actions）；最近正式 Release 為歷史 v1.12.0，連結及證據見 R12。實機、雙機及現場品質校準維持各自驗收狀態。
+狀態：目前版本 v1.13.0（啟動重複掃描引導、定點滾輪縮放與左鍵平移已正式發布，Actions、正式下載簽章／雜湊與隔離 EXE 自我測試通過）；最近正式 Release 為 v1.13.0，連結及證據見頂部 R13。實機、雙機及現場品質校準維持各自驗收狀態。
 
 ## 本輪施工：完成待辦（2026-11-14，使用者已要求「請完成TASKS任務」）
 
