@@ -1,5 +1,14 @@
 # 滅火器燈具照片管理系統 任務文件
 
+## 正式 GitHub Release v1.13.0（2026-11-22）
+
+使用者已明確要求「推 github 及 Releases」，本輪授權推送目前已驗證的啟動掃描引導、定點滾輪縮放與左鍵平移，建立正式版本 Tag 並由既有 Windows Actions 建置、簽章及發布。此授權取代前兩輪當時「僅本機／不推送／不發布」限制；不改寫歷史 Tag／Release、原始目錄或現場資料。
+
+- [ ] R13-01 核對遠端 main／目前 HEAD、Tag／Release 未存在、版本、已提交繁中更新說明、既有 Actions 與簽章 Secret 名稱；讀回本機最終封裝 exit 0、檢查來源差異無現場資料／實際機器路徑／秘密。沿用目前已驗證 MINOR，不另升版，不讀取私鑰。
+- [ ] R13-02 先提交正式繁中 Notes 與發版施工紀錄，版本／Notes 閘門通過後以非強制 fast-forward 推送 origin/main，建立 annotated v1.13.0 並驗證 Tag 所指提交與文件再推送；不更動其他本機工作樹。
+- [ ] R13-03 等待真實 GitHub Windows runner 完成全套測試／EXE／Setup／self-test／更新器 E2E、SHA256SUMS、Ed25519 manifest 簽章、Notes 與五項資產發布，記錄 Run URL 與實際結果；失敗不得標完成。
+- [ ] R13-04 回讀正式 Latest Release 狀態、繁中說明與 Tag commit，下載五項正式資產核對 GitHub digest／大小、SHA256SUMS 與產品內建公鑰驗章；同步 README／TASKS、核對 AGENTS 長期規則，記錄正式資產雜湊並提交推送發布紀錄。人工 WebView2／Drive／LINE／DPI 矩陣保留未驗收狀態。
+
 ## 大圖預覽左鍵按住平移（2026-11-22）
 
 使用者回報上一輪功能正常，新增放大後按住滑鼠左鍵拖曳圖片的需求。僅修改共用 InspectorImageViewer 的平移互動、樣式與測試；照片牆／品質／重複清單共用生效。沿用同一輪尚未發布的目前開發版本，不另增版號，不推送或發布。
@@ -148,7 +157,7 @@ WebView2 隔離啟動已看到：版本與 schema 正常、2 個合成 root、�
 
 **啟動修復最終封裝紀錄**：`docs/launch-fix-windows-build-final.log` 實際到達 `Build OK`；該次 pytest **258 passed**、Vitest **121 passed／26 files**、Ruff check／format **86 files**、TypeScript／Vite、版本一致性、npm audit **0 vulnerabilities**、PyInstaller、繁中 Setup、EXE self-test 與 portable／installer／READY／HEALTHY／rollback／故障注入更新器 E2E 全通過。Graphify 最終 **1,208 nodes／3,182 edges／76 communities**。目前 EXE SHA256 `0BF3CE18533528A4E53AFAB18FEE2F48DE7A943DD5809091156AABE107566AD0`、Setup SHA256 `BB81F6F0EEADB390B593A4232D7447EDBE4B1717FD6FBE3DC2B1045981A949D6`。包內不含 A-K～A-S 尚未整併功能，不將「可打包／測試通過」當成完整最新版驗收。
 
-狀態：目前版本 v1.13.0（本機開發版：啟動重複掃描引導與定點滾輪縮放，自動化／Chromium 畫面與 Windows 封裝驗證通過，尚未發布）；最近正式 Release 為歷史 v1.12.0，連結及證據見 R12。實機、雙機及現場品質校準維持各自驗收狀態。
+狀態：目前版本 v1.13.0（啟動重複掃描引導、定點滾輪縮放與左鍵平移已驗證，使用者已授權正式發版，正在準備推送／Actions）；最近正式 Release 為歷史 v1.12.0，連結及證據見 R12。實機、雙機及現場品質校準維持各自驗收狀態。
 
 ## 本輪施工：完成待辦（2026-11-14，使用者已要求「請完成TASKS任務」）
 

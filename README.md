@@ -4,7 +4,7 @@
 
 FireLens 是一套以 Windows 桌面環境為主的消防設備照片管理工具，協助整理滅火器、放置盒與燈具更換照片，並搭配 Excel／文字清冊進行核對、補拍與命名整理。
 
-目前原始碼開發版本為 **v1.13.0**，新增啟動索引掃描後的重複圖片準備提醒，以及大圖預覽的滑鼠定點滾輪縮放；本輪追加放大後左鍵按住平移，已通過完整測試與最終 Windows 封裝驗證，尚未發布。啟動提醒只查 SQLite 指紋索引，不會自動雜湊整庫或下載雲端照片；使用者按「前往重複掃描」後再手動開始增量掃描。共用大圖預覽支援 50%～400% 滾輪與滑桿縮放，切換照片回到 100%。既有清冊、同步與原圖安全規則維持不變。
+目前原始碼版本為 **v1.13.0**，新增啟動索引掃描後的重複圖片準備提醒，以及大圖預覽的滑鼠定點滾輪縮放；本輪追加放大後左鍵按住平移，已通過完整測試與最終 Windows 封裝驗證，目前進入正式發布流程。啟動提醒只查 SQLite 指紋索引，不會自動雜湊整庫或下載雲端照片；使用者按「前往重複掃描」後再手動開始增量掃描。共用大圖預覽支援 50%～400% 滾輪與滑桿縮放，切換照片回到 100%。既有清冊、同步與原圖安全規則維持不變。
 
 ## 主要功能
 
@@ -287,7 +287,7 @@ FireLens 將照片磁碟內容視為真相來源；掃描功能只建立索引�
 Windows 可執行檔請從 GitHub Releases 下載。Release binary 不直接提交進 Git 歷史。
 
 目前正式版：[FireLens v1.12.0](https://github.com/kobojp/FireLens/releases/tag/v1.12.0)。一般安裝請下載 `FireLens-1.12.0-setup.exe`；免安裝使用者可下載 `FireLens-1.12.0-windows-x64.exe`。繁中更新說明及仍待實機驗收的限制見 Release 頁。
-GitHub Actions 會監聽 `v*` 標籤。建立正式版本前，`packaging/check_version_consistency.py` 會核對應用程式、套件、前端、TASKS 與發版文件的版本一致性；任一處不一致就停止 build／Release。版本確認通過後才可推送 Tag；以下是目前開發版本 v1.13.0 尚未執行的發版流程範例，實際結果以 TASKS 與 GitHub Releases 為準：
+GitHub Actions 會監聽 `v*` 標籤。建立正式版本前，`packaging/check_version_consistency.py` 會核對應用程式、套件、前端、TASKS 與發版文件的版本一致性；任一處不一致就停止 build／Release。版本確認通過後才可推送 Tag；以下是目前版本 v1.13.0 的發版流程範例，實際結果以 TASKS 與 GitHub Releases 為準：
 
 先撰寫並提交對應的繁中 `docs/releases/v<版本>.md`，再執行 `uv run --locked python packaging/check_release_readiness.py` 做本機檢查。說明須包含已驗證的使用者功能與仍待實機驗收的限制，不能只有標題或 Full Changelog；其他 `docs` 測試資料仍不納入 Git。帶 `--tag` 時還會確認 Tag 已存在、指向目前 HEAD，且文件與該提交一致。
 
