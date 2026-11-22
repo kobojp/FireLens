@@ -24,6 +24,7 @@ import type {
   QualityJob,
   DuplicateJob,
   DuplicateGallery,
+  DuplicateReadiness,
   DuplicateErrorInfo,
   SharedIssueStatus,
   SharedIssueConflict,
@@ -424,6 +425,8 @@ export const api = {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   }),
+  duplicateReadiness: (rootId: number) =>
+    request<DuplicateReadiness>(`/api/duplicates/${rootId}/readiness`),
   duplicateGallery: (rootId: number, params: URLSearchParams) =>
     request<DuplicateGallery>(`/api/duplicates/${rootId}?${params}`),
   duplicateScan: (rootId: number, full: boolean) =>

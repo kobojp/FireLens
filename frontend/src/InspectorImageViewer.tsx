@@ -1,5 +1,5 @@
 import { ModalBackdrop } from './AppDialog'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 export type InspectorImage = {
   id: number
@@ -30,19 +30,92 @@ export function InspectorImageViewer({
 }) {
   const [zoom, setZoom] = useState(1)
   const [loadFailed, setLoadFailed] = useState(false)
+  const [fitSize, setFitSize] = useState<{
+    width: number; height: number; viewportWidth: number; viewportHeight: number
+  } | null>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
+  const imageRef = useRef<HTMLImageElement>(null)
+  const zoomRef = useRef(1)
+  const zoomAnchor = useRef<{ x: number; y: number; clientX: number; clientY: number } | null>(null)
   const dialogRef = useRef<HTMLElement>(null)
   const activeIndex = images.findIndex(image => image.id === activeId)
   const current = activeIndex >= 0 ? images[activeIndex] : null
 
-  useEffect(() => {
+  const measureImage = useCallback(() => {
+    const canvas = canvasRef.current
+    const image = imageRef.current
+    if (!canvas || !image?.naturalWidth || !image.naturalHeight) return
+    const bounds = canvas.getBoundingClientRect()
+    if (!bounds.width || !bounds.height) return
+    const scale = Math.min(1, bounds.width / image.naturalWidth, bounds.height / image.naturalHeight)
+    const width = image.naturalWidth * scale
+    const height = image.naturalHeight * scale
+    setFitSize(previous => previous?.width === width && previous.height === height
+      && previous.viewportWidth === bounds.width && previous.viewportHeight === bounds.height
+      ? previous : { width, height, viewportWidth: bounds.width, viewportHeight: bounds.height })
+  }, [])
+
+  useLayoutEffect(() => {
     setZoom(1)
+    zoomRef.current = 1
+    zoomAnchor.current = null
+    setFitSize(null)
     setLoadFailed(false)
     if (canvasRef.current) {
       canvasRef.current.scrollTop = 0
       canvasRef.current.scrollLeft = 0
     }
-  }, [activeId])
+    measureImage()
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measureImage)
+    if (canvasRef.current) observer?.observe(canvasRef.current)
+    window.addEventListener('resize', measureImage)
+    return () => { observer?.disconnect(); window.removeEventListener('resize', measureImage) }
+  }, [activeId, current?.src, measureImage])
+
+  const changeZoom = useCallback((value: number, clientX?: number, clientY?: number) => {
+    const canvas = canvasRef.current
+    const image = imageRef.current
+    if (!canvas || !image) return
+    const bounds = image.getBoundingClientRect()
+    if (!bounds.width || !bounds.height) return
+    const next = Math.max(0.5, Math.min(4, value))
+    if (next === zoomRef.current) return
+    const viewport = canvas.getBoundingClientRect()
+    const x = clientX ?? viewport.left + canvas.clientWidth / 2
+    const y = clientY ?? viewport.top + canvas.clientHeight / 2
+    zoomAnchor.current = {
+      x: Math.max(0, Math.min(1, (x - bounds.left) / bounds.width)),
+      y: Math.max(0, Math.min(1, (y - bounds.top) / bounds.height)),
+      clientX: x, clientY: y,
+    }
+    zoomRef.current = next
+    setZoom(next)
+  }, [])
+
+  useLayoutEffect(() => {
+    const anchor = zoomAnchor.current
+    const canvas = canvasRef.current
+    const image = imageRef.current
+    if (!anchor || !canvas || !image) return
+    const bounds = image.getBoundingClientRect()
+    canvas.scrollLeft += bounds.left + bounds.width * anchor.x - anchor.clientX
+    canvas.scrollTop += bounds.top + bounds.height * anchor.y - anchor.clientY
+    zoomAnchor.current = null
+  }, [zoom])
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas || !fitSize || loadFailed) return
+    const onWheel = (event: WheelEvent) => {
+      if (!event.deltaY || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return
+      event.preventDefault()
+      const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? canvas.clientHeight : 1
+      const delta = Math.max(-400, Math.min(400, event.deltaY * unit))
+      changeZoom(zoomRef.current * Math.exp(-delta * 0.002), event.clientX, event.clientY)
+    }
+    canvas.addEventListener('wheel', onWheel, { passive: false })
+    return () => canvas.removeEventListener('wheel', onWheel)
+  }, [activeId, fitSize, loadFailed, changeZoom])
 
   useEffect(() => {
     if (activeId === null || !current) return
@@ -82,7 +155,8 @@ export function InspectorImageViewer({
           </div>
           <label className="inspector-lightbox-zoom">縮放
             <input type="range" min="0.5" max="4" step="0.1" value={zoom}
-              onChange={event => setZoom(Number(event.target.value))}
+              disabled={!fitSize || loadFailed}
+              onChange={event => changeZoom(Number(event.target.value))}
               aria-label="圖片縮放" />
             <span>{Math.round(zoom * 100)}%</span>
           </label>
@@ -92,17 +166,20 @@ export function InspectorImageViewer({
         <div className="inspector-lightbox-canvas" ref={canvasRef}>
           {loadFailed
             ? <p role="alert">這張照片目前無法讀取，請確認來源磁碟與雲端同步狀態。</p>
-            : <img key={current.id} src={current.src} alt={current.filename}
-                style={{
-                  width: zoom === 1 ? 'auto' : `${zoom * 100}%`,
-                  maxWidth: zoom === 1 ? '100%' : 'none',
-                  maxHeight: zoom === 1 ? '100%' : 'none',
-                }} onError={() => setLoadFailed(true)} />}
+            : <div className="inspector-lightbox-stage" style={fitSize ? {
+                width: fitSize.viewportWidth * Math.max(1, zoom),
+                height: fitSize.viewportHeight * Math.max(1, zoom),
+              } : { width: '100%', height: '100%' }}>
+                <img key={current.id} ref={imageRef} src={current.src} alt={current.filename}
+                  style={fitSize ? { width: fitSize.width * zoom, height: fitSize.height * zoom } : {
+                    maxWidth: '100%', maxHeight: '100%',
+                  }} onLoad={measureImage} onError={() => setLoadFailed(true)} />
+              </div>}
         </div>
         <footer className="inspector-lightbox-footer">
           <strong>{current.subtitle}</strong>
           <span title={current.path}>{current.path}</span>
-          <small>方向鍵 ← → 切換照片 · Esc 關閉 · 縮放後可捲動檢查標籤細節</small>
+          <small>滾輪以滑鼠位置放大／縮小 · 方向鍵 ← → 切換照片 · Esc 關閉</small>
         </footer>
       </section>
     </ModalBackdrop>

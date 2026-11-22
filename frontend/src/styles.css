@@ -219,7 +219,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .app-confirm-content p { margin: 0 0 10px; }
 .app-confirm-footer { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; padding: 13px 20px 18px; }
 .app-confirm-footer button { min-height: 39px; padding: 8px 16px; border-radius: 8px; font-weight: 750; }
-.app-confirm-footer button:first-child:not(.primary-button) { border: 1px solid var(--border, #b6c3d1); background: var(--panel-bg, #fff); color: inherit; }
+.app-confirm-footer button:first-child:not(.primary-button) { border: 1px solid #b6c3d1; background: #eef2f7; color: #232b34; }
 .app-confirm-dialog button:focus-visible { outline: 3px solid #419ce1; outline-offset: 2px; }
 html[data-theme="dark"] .app-confirm-dialog { background: #282f38; border-color: #5a687b; color: #f0f4fb; }
 @media (prefers-color-scheme: dark) { html:not([data-theme]) .app-confirm-dialog { background: #282f38; border-color: #5a687b; color: #f0f4fb; } }
@@ -950,9 +950,11 @@ html[data-theme="dark"] .quality-export-open button { background: #304d3e; borde
   flex: 1 1 auto; min-height: 0; min-width: 0; overflow: auto;
   text-align: center; background: #111418; overscroll-behavior: contain;
 }
+.inspector-lightbox-stage {
+  display: grid; place-items: center; min-width: 100%; min-height: 100%;
+}
 .inspector-lightbox-canvas img {
-  display: block; margin: auto; object-fit: contain; height: auto;
-  min-width: 0; transition: width .06s ease;
+  display: block; object-fit: contain; height: auto; min-width: 0; max-width: none;
 }
 .inspector-lightbox-canvas p { color: #fecaca; font-weight: 700; padding: 24px; }
 .inspector-lightbox-footer {

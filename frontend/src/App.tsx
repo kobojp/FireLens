@@ -1,6 +1,7 @@
 import { InspectorImageViewer } from './InspectorImageViewer'
 import { photosInDisplayOrder } from './slots'
 import { ModalBackdrop } from './AppDialog'
+import { AppConfirmDialog } from './AppConfirmDialog'
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { api, ApiError } from './api'
 import { initialNewItemPanelOpen, newItemPanelButtonText } from './newItemPanel'
@@ -32,6 +33,7 @@ import type {
   PhotoSlotTransferPreview,
   PhotoRecord,
   DuplicatePhotoRecord,
+  DuplicateReadiness,
   RootRecord,
   RootStatus,
   OfflineQueueEntry,
@@ -328,6 +330,11 @@ export default function App() {
   } | null>(null)
   const [indexGuideDialog, setIndexGuideDialog] = useState(false)
   const [scanGuideTicket, setScanGuideTicket] = useState<number | null>(null)
+  const [startupReadiness, setStartupReadiness] = useState<DuplicateReadiness | null>(null)
+  const [startupGuideRootId, setStartupGuideRootId] = useState<number | null>(null)
+  const readinessRequest = useRef(0)
+  const readinessPrompted = useRef(new Set<number>())
+  useEffect(() => () => { readinessRequest.current += 1 }, [])
   const nextGuideTicket = useRef(0)
   const duplicatePreviewUrl = useMemo(() => (
     duplicateUpload ? URL.createObjectURL(duplicateUpload.file) : null
@@ -415,6 +422,14 @@ export default function App() {
   }, [item, appSettings])
   useEffect(() => { setPreview(null) }, [rootId, item])
   const scanRunning = rootId !== null && scanJob?.root_id === rootId && scanJob.state === 'running'
+  const showStartupReadiness = startupReadiness?.root_id === rootId && view === 'browse'
+    && rootStatusInfo?.connected === true && !busy && !scanRunning && scanGuideTicket === null
+    && scanJob?.state !== 'cancelled' && scanJob?.state !== 'error'
+    && !preview && !pasteSlot && !showPasteHelp && !pendingPaste && !duplicateUpload && !indexRequired
+    && !photoToDelete && !renameDialog && !slotTransfer && !folderToDelete && !folderRename && !treeCreatePath
+  useEffect(() => {
+    if (showStartupReadiness && rootId !== null) readinessPrompted.current.add(rootId)
+  }, [showStartupReadiness, rootId])
   useEffect(() => {
     setIssueSelection(null)
     if (!item) return
@@ -596,6 +611,8 @@ export default function App() {
 
   useEffect(() => {
     activeRootRef.current = rootId
+    readinessRequest.current += 1
+    setStartupReadiness(null)
     scanMonitorToken.current += 1
     setSelected(null)
     setItem(null)
@@ -635,9 +652,12 @@ export default function App() {
     if (rootId === null || !appSettings || !rootStatusInfo) return
     if (rootStatusInfo.root_id !== rootId || autoScanAttempted.current.has(rootId)) return
     autoScanAttempted.current.add(rootId)
-    if (!appSettings.auto_scan_on_start || !rootStatusInfo.connected) return
-    if (shouldAutoScan(rootStatusInfo.last_scan_at, appSettings.auto_scan_min_interval_minutes)) {
+    if (!rootStatusInfo.connected) return
+    if (appSettings.auto_scan_on_start
+      && shouldAutoScan(rootStatusInfo.last_scan_at, appSettings.auto_scan_min_interval_minutes)) {
       void startScan(true)
+    } else {
+      void checkDuplicateReadiness(rootId)
     }
   }, [
     rootId,
@@ -662,6 +682,23 @@ export default function App() {
       setError(err instanceof Error ? err.message : '新增根目錄失敗')
     } finally {
       setBusy(false)
+    }
+  }
+
+  async function checkDuplicateReadiness(id: number) {
+    if (activeRootRef.current !== id || readinessPrompted.current.has(id)) return
+    const request = ++readinessRequest.current
+    try {
+      const scan = await api.scanStatus(id)
+      if (activeRootRef.current !== id || request !== readinessRequest.current) return
+      if (!['idle', 'completed'].includes(scan.state)) return
+      const result = await api.duplicateReadiness(id)
+      if (activeRootRef.current !== id || request !== readinessRequest.current) return
+      if (result.root_id === id && result.pending > 0 && result.duplicate_scan_state !== 'running') {
+        setStartupReadiness(result)
+      }
+    } catch {
+      // A failed advisory check must not block browsing or claim the index is ready.
     }
   }
 
@@ -693,6 +730,7 @@ export default function App() {
         } else if (status.state === 'error') {
           setError(status.error || '掃描失敗')
         }
+        if (status.state === 'completed') void checkDuplicateReadiness(id)
         return
       } catch (err) {
         setError(err instanceof Error ? err.message : '讀取掃描狀態失敗')
@@ -704,6 +742,8 @@ export default function App() {
   async function startScan(automatic = false) {
     const id = rootId
     if (id === null) return
+    readinessRequest.current += 1
+    setStartupReadiness(null)
     setError('')
     if (!automatic) setCacheMessage('')
     try {
@@ -909,7 +949,11 @@ export default function App() {
       pendingStatsNavigation.current = { rootId: pending.rootId, itemId: pending.itemId }
       setRootId(pending.rootId)
       setCacheMessage('重複掃描已完成；已保留原本待貼上的照片。請按下方「重新嘗試貼上」繼續。')
+    } else if (startupGuideRootId !== null) {
+      setRootId(startupGuideRootId)
+      setCacheMessage('重複掃描已完成，可以開始貼上照片。')
     }
+    setStartupGuideRootId(null)
     setView('browse')
   }
 
@@ -1360,7 +1404,7 @@ export default function App() {
       <header className="topbar">
         <div>
           <strong>FireLens</strong>
-          <span>照片管理、核對與離線工作 · v{appInfo?.version ?? '1.12.0'}</span>
+          <span>照片管理、核對與離線工作 · v{appInfo?.version ?? '1.13.0'}</span>
         </div>
         <div className="root-controls">
           <label htmlFor="root-select">根目錄</label>
@@ -1990,15 +2034,32 @@ export default function App() {
       {(visitedTabs.quality || view === 'quality') && (
         <RetainedView visible={view === 'quality'}>
           <PhotoQualityView roots={roots} defaultRootId={rootId}
-            isActive={view === 'quality'} guideTicket={scanGuideTicket} guidedRootId={indexRequired?.rootId ?? null}
+            isActive={view === 'quality'} guideTicket={scanGuideTicket} guidedRootId={indexRequired?.rootId ?? startupGuideRootId}
+            guideHasPendingPaste={indexRequired !== null}
             onGuideFinish={returnFromGuidedScan}
-            onGuideCancel={() => { setScanGuideTicket(null); setView('browse') }}
+            onGuideCancel={() => { setScanGuideTicket(null); setStartupGuideRootId(null); setView('browse') }}
             onOpenItem={(nextRootId, itemId) => {
               pendingStatsNavigation.current = { rootId: nextRootId, itemId }
               setRootId(nextRootId)
               setView('browse')
             }} />
         </RetainedView>
+      )}
+
+      {showStartupReadiness && startupReadiness && (
+        <AppConfirmDialog title="貼圖前，先完成重複照片掃描" cancelLabel="稍後再說"
+          confirmLabel="前往重複掃描 →"
+          onCancel={() => { readinessRequest.current += 1; setStartupReadiness(null) }}
+          onConfirm={() => {
+            setStartupGuideRootId(startupReadiness.root_id)
+            setStartupReadiness(null)
+            setScanGuideTicket(++nextGuideTicket.current)
+            setView('quality')
+          }}>
+          <p><b>{roots.find(root => root.id === startupReadiness.root_id)?.label}</b> 的照片索引已載入，目前有 <b>{startupReadiness.pending}</b> 張本機照片尚未建立最新指紋。</p>
+          <p>建議先完成重複照片掃描，避免貼上時才中斷。按「前往重複掃描」後，會引導你手動開始增量掃描。</p>
+          <p className="help-text">這個提示不會自動掃描、下載雲端照片或儲存圖片。</p>
+        </AppConfirmDialog>
       )}
 
       {treeCreatePath && (

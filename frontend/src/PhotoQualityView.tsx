@@ -23,6 +23,7 @@ const STATUS: Record<string, string> = {
 
 export function PhotoQualityView({
   roots, defaultRootId, onOpenItem, isActive = true, guideTicket, guidedRootId, onGuideFinish, onGuideCancel,
+  guideHasPendingPaste = true,
 }: {
   roots: RootRecord[]
   defaultRootId: number | null
@@ -30,6 +31,7 @@ export function PhotoQualityView({
   isActive?: boolean
   guideTicket?: number | null
   guidedRootId?: number | null
+  guideHasPendingPaste?: boolean
   onGuideFinish?: () => void
   onGuideCancel?: () => void
 }) {
@@ -319,6 +321,7 @@ export function PhotoQualityView({
         </div>
         <DuplicatePhotoPanel roots={roots} rootId={rootId} onOpenItem={onOpenItem}
           isActive={isActive} guideTicket={guideTicket} onGuideFinish={onGuideFinish}
+          guideHasPendingPaste={guideHasPendingPaste}
           onGuideCancel={onGuideCancel} />
       </section>
     )

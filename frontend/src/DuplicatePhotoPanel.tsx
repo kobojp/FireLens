@@ -12,12 +12,14 @@ type Props = {
   onOpenItem: (rootId: number, itemId: number) => void
   isActive?: boolean
   guideTicket?: number | null
+  guideHasPendingPaste?: boolean
   onGuideFinish?: () => void
   onGuideCancel?: () => void
 }
 
 export function DuplicatePhotoPanel({
   rootId, roots, onOpenItem, isActive = true, guideTicket, onGuideFinish, onGuideCancel,
+  guideHasPendingPaste = true,
 }: Props) {
   const [categories, setCategories] = useState<CategoryDefinition[]>([])
   const [category, setCategory] = useState('')
@@ -180,16 +182,16 @@ export function DuplicatePhotoPanel({
               第 2 步：{guideStarted ? '已按下開始掃描' : '請按下面發光框的「開始重複掃描」按鈕（增量模式）'}
             </li>
             <li className={guideComplete ? 'scan-guide-completed' : guideRunning ? 'scan-guide-current' : ''}>
-              第 3 步：{guideComplete ? '掃描完成，可以返回照片牆重新嘗試貼上' :
+              第 3 步：{guideComplete ? (guideHasPendingPaste ? '掃描完成，可以返回照片牆重新嘗試貼上' : '掃描完成，可以返回照片牆開始工作') :
                 guideRunning ? '掃描進行中，請等待完成，勿關閉程式' : '掃描完成後再返回照片牆'}
             </li>
           </ol>
           {guideComplete && <button type="button" className="scan-guide-finish"
-            onClick={onGuideFinish}>完成任務，返回照片牆重新貼上 →</button>}
+            onClick={onGuideFinish}>{guideHasPendingPaste ? '完成任務，返回照片牆重新貼上 →' : '完成任務，返回照片牆 →'}</button>}
           {guideStarted && ['failed', 'cancelled', 'error'].includes(job?.state ?? '') && (
             <p className="quality-flag">掃描未完成：請查看下方錯誤／取消原因，重新按「開始重複掃描」。</p>
           )}
-          <p className="help-text">未完成掃描前，原本的照片不會被偷偷儲存，也不會自動下載雲端佔位檔。</p>
+          <p className="help-text">{guideHasPendingPaste ? '未完成掃描前，原本的照片不會被偷偷儲存，也不會自動下載雲端佔位檔。' : '掃描只讀取可安全使用的本機照片，不會自動下載雲端佔位檔。'}</p>
         </aside>
       )}
       <div className="quality-toolbar">

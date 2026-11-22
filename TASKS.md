@@ -1,5 +1,27 @@
 # 滅火器燈具照片管理系統 任務文件
 
+## 啟動重複掃描引導與滑鼠定點滾輪縮放（2026-11-22）
+
+使用者要求將貼圖前的指紋不足提醒提前，並讓大圖預覽以滑鼠位置為中心用滾輪縮放。本輪使用 MINOR v1.13.0 開發版；先完成本機程式、測試與封裝，本輪不自動發布新 Tag／Release、不修改歷史正式資產。
+
+- [x] U-01 增加 root 級 SQLite-only 指紋就緒查詢，回傳總張數／待補指紋／雲端佔位與重複掃描狀態，共用 root 排除規則；不 lstat／hash／讀原圖／下載雲端檔、不改 DB。合成 SQLite／API 測試涵蓋完整、缺失／舊版／mtime 不符、空庫、佔位、跨 root／排除及查詢無寫入與磁碟讀取。
+- [x] U-02 啟動一般索引掃描完成後主動查就緒狀態；若本次啟動因設定或最短間隔不掃描，也在既有索引載入後檢查。正常連線、有本機照片缺指紋時，同一 root 每執行階段最多提醒一次，提供「稍後再說／前往重複掃描」，後者切換正確 root 至品質檢查的重複圖片並高亮手動掃描入口；不自動開始重複掃描。取消／失敗／離線、空庫、已完整、正在重複掃描不提示；切 root、卸載或過期回應不得跳錯 root，不搶正在貼圖／其他確認操作。保留原貼圖 File 與 409 引導，完成／取消導覽可返回照片牆，不虛稱已儲存。前端 DOM 測試覆蓋啟動完成／略過、連續刷新只提醒一次、取消／失敗／離線、root 切換與 stale response、導覽不啟動掃描／不寫入。
+- [x] U-03 共用 InspectorImageViewer 支援普通滾輪向上放大、向下縮小，範圍沿用 50%～400%，滑鼠下的圖片像素縮放後保持同一視窗位置（邊界允許捲動夾限）；橫向滾輪仍捲動，不觸發整頁縮放。採圖片實際 fit 尺寸為 100% 基準，避免現有 100%→110% 尺寸跳躍；滑桿仍可操作、切換圖片／重新開啟回到 100% 並清空捲動。前端 DOM／幾何測試驗證游標錨點、縮放上下限／縮小、不同圖片比例、載入／切圖／卸載與方向鍵／Escape，相同元件涵蓋照片牆、品質與重複清單，不修改原圖。
+- [x] U-02a 實際畫面發現共用確認視窗次要按鈕在暗色模式繼承白字但使用白底，使新提示「稍後再說」難以辨識；先記錄再修正該按鈕前景／背景，在真正 Chromium 以 computed style 自動驗證對比至少 4.5:1、取消與焦點仍可用。首輪封裝不含此修正，不作最終交付，需以修正後來源重新封裝及驗收。
+- [x] U-04 同步 MINOR 版本來源、TASKS／AGENTS／README 與新版本更新說明；執行 Ruff check／format、pytest、Vitest、TypeScript／Vite、版本一致性與 Graphify。歷史 Release 文件與已發布資產保留原版本；只標記實際驗證完成項。
+- [x] U-05 重建 Windows EXE／繁中 Setup，執行隔離 self-test、portable／installer 更新器 E2E；以合成資料實際啟動檢查本次 UI，記錄真實結果、產物雜湊與未驗收限制。真實 Google Drive／LINE／不同縮放與完整 Windows 滾輪手感另留人工驗收。
+- [ ] U-06 真實 Windows WebView2 的滑鼠實體滾輪手感、貼圖完整操作與 Google Drive／LINE／不同 DPI 矩陣；以下 Chromium DOM／WheelEvent 與合成驗證不能替代。
+
+
+**本輪自動化與畫面證據（2026-11-22）**：先寫入 TASKS 並讀回才實作。新增 metadata 查詢測試先 **8 failed**，實作後 **8 passed**；涵蓋缺失／舊演算法／mtime／大小、排除／跨 root／空庫／佔位、SQL-only 不寫入／不讀原圖及 API 404。新增前端啟動引導 **13** 案例、縮放 **7** 案例，原測試保留。包含最後暗色按鈕修正的全套驗證：`packaging/build.ps1` 內已完成 Vitest **203 passed／39 files**、pytest **307 passed**（54.96 秒，1 項既有 Starlette 警告）、Ruff check／format **95 files**、TypeScript／Vite 及版本一致性；最終封裝 E2E 亦已完成，結果見下段。`graphify.watch._rebuild_code(Path.cwd())` 最終重建 **1,368 nodes／3,471 edges／84 communities**，兩項產物均更新且 ignored。
+
+實際啟動打包 EXE 時使用新建 Temp 合成 SQLite／10 張照片與隔離 FIRELENS_DATA_DIR；以 Hidden 避免切走使用者焦點，該測試視窗未被原生可見視窗 inventory 列出，故不冒稱原生畫面／滾輪已驗收。HTTP 日誌看到新版本 UI 對 `/api/duplicates/1/readiness` 正常 GET 200；僅關閉本輪已核對路徑／parent PID 的程序，未操作使用者原安裝版程序。後續以同一隔離資料啟動 loopback server，在 Orca 內建 Chromium 見證：首次貼圖之前彈提醒 → 正確 root 的重複圖片與高亮手動按鈕 → 按鈕操作後完成掃描 → 返回照片牆；進入引導時仍 10 張待建指紋，未自動開始掃描。
+
+真實 Chromium 版面執行合成 WheelEvent：橫向照片從 640×480 放大至約 814×610，游標錨點誤差 **0.290／−0.093 CSS px**；記憶體中生成 1200×1800 直向 PNG（未寫原圖）在同一檢視器放大，誤差 **−0.213／0.227 CSS px**；皆 preventDefault 且沒有整頁縮放。暗／亮主題 computed style 對比皆 **12.736:1**，取消預設聚焦並確實關閉。這些是自動化瀏覽器事件，未冒充實體滑鼠／WebView2 手感；U-06 留待實機。10／10 合成原圖 SHA256 與 mtime_ns 完全不變，隔離 DB quick_check=ok；本輪瀏覽器分頁及 port 18113 伺服器均已關閉。證據與 probe 留在 ignored docs/nov22-*，不包含於正式原始碼。
+
+
+**最終封裝（2026-11-22）**：修正暗色次要按鈕後，重新執行 `powershell -NoProfile -ExecutionPolicy Bypass -File packaging/build.ps1`，最後 `docs/nov22-final-windows-build.log` 到達 Build OK，`.exit` 實際為 **0**；包含上述全套測試／TypeScript／Vite／版本閘門、PyInstaller、繁中 Inno Setup、隔離 EXE self-test、portable／installer READY／HEALTHY、rollback 及 **7 種故障注入 E2E 全通過**。目前交付 `dist/FireLens.exe` SHA256=`20A1744B1BF1B1A4EC291D02B807C4B025D385E4E8171B727DDECA674E52679A`，`dist/installer/FireLens-1.13.0-setup.exe` SHA256=`7081E55FFC12F677B3C775B48D51042E5D067165D2761E9A999B451CEB026399`。第一輪封裝雖也通過，但不含暗色按鈕修正，故僅作歷史驗證，不作此次交付。原始目錄保持唯讀，無推送／Tag／Release；本機還原提交包含本輪功能與測試，U-06 真實人工矩陣保持未勾選。
+
 ## 正式 GitHub Release v1.12.0（2026-11-15）
 
 使用者已明確要求「上傳 github 跟 Releases」，授權將目前整併版本與綠色提示修正提交推送 GitHub，建立新版本 Tag 並以既有 Windows Actions 建置、Ed25519 簽章及發布五項資產。本段取代較早輪次「未授權／不推送／不發版」的當時限制；不改寫歷史 Release 或其他工作目錄，不上傳現場資料、DB 或秘密。
@@ -19,7 +41,7 @@ CI 實際通過 Vitest **183／37 files**、pytest **299**（107.79 秒，2 warn
 
 - [x] T-01 先建立可重現持續顯示的自動化測試，再實作綠色訊息 5 秒自動清除；涵蓋到期前仍顯示、到期移除、新／相同訊息重新計時、手動清空與卸載清理。真實 App DOM 配合 fake timers，修正前 3 failed／1 passed，修正後 4 passed。
 - [x] T-02 執行針對性與完整 Vitest、pytest、Ruff check／format、TypeScript／Vite、版本一致性、Graphify；同步 AGENTS／TASKS 及更新說明，確認不影響錯誤與需操作引導。完整 Vitest 183 passed／37 files、pytest 299 passed（1 項既有 Starlette 警告）、Ruff check／format 93 files、TypeScript／Vite 與版本閘門通過；Graphify 1,346 nodes／3,443 edges／84 communities。
-- [x] T-03 重建 Windows EXE／Setup 並執行打包 self-test 與更新器 E2E，記錄實際結果；僅本機產物與還原點，不推送／Tag／Release。`powershell -NoProfile -ExecutionPolicy Bypass -File packaging/build.ps1` 實際 exit 0（docs/transient-windows-build.exit／.log），EXE self-test、portable／installer READY／HEALTHY、rollback 與 7 種故障注入全部通過。新版 EXE SHA256 `1ECCB23087B74BC1E6AA8CFA61192DDD4A4508557BB86AE08408D232216F084C`、繁中 Setup SHA256 `3325C5F3F478452E0C236E62DEDF85AD4D4B6226D1A984EE7F318F732C50EAA6`；這組是目前 dist，較早章節產物雜湊僅代表歷史封裝。
+- [x] T-03 重建 Windows EXE／Setup 並執行打包 self-test 與更新器 E2E，記錄實際結果；僅本機產物與還原點，不推送／Tag／Release。`powershell -NoProfile -ExecutionPolicy Bypass -File packaging/build.ps1` 實際 exit 0（docs/transient-windows-build.exit／.log），EXE self-test、portable／installer READY／HEALTHY、rollback 與 7 種故障注入全部通過。新版 EXE SHA256 `1ECCB23087B74BC1E6AA8CFA61192DDD4A4508557BB86AE08408D232216F084C`、繁中 Setup SHA256 `3325C5F3F478452E0C236E62DEDF85AD4D4B6226D1A984EE7F318F732C50EAA6`；這組是當時 dist，較早章節產物雜湊僅代表歷史封裝。
 - [ ] T-04 真實 Windows WebView2 貼上後綠色訊息消失的人工驗收；自動化與封裝測試不代替實機操作。
   - 已以新建隔離 SQLite 與 10 張合成照片啟動 Windows WebView2，點「建立縮圖快取」後觀察到綠色提示與原生 accessibility 狀態，後續完整 accessibility tree 確認提示已移除。前圖可見提示；後圖受其他應用遮擋，只以本視窗 tree 判定，未冒充完整像素見證或實際剪貼簿貼上。測試視窗正常關閉 exit 0；10／10 合成照片 SHA256／mtime_ns 不變。紀錄在 ignored docs/transient-ui-*。
 
@@ -27,14 +49,14 @@ CI 實際通過 Vitest **183／37 files**、pytest **299**（107.79 秒，2 warn
 
 使用者已要求「繼續依 TASKS 實作」，本輪先處理可獨立施工的 K-02；K-03 歷史 Release 描述、真實 Tag／push／Release、未定案封存政策與 Google Sheets 批次寫入仍不在授權內。沿用尚未發布的目前開發版本；只改 CI／發版檢查與文件，不改桌面 runtime，不另升版、不重建相同 EXE，會核對既有已驗證產物雜湊。
 
-- [x] K2-01 先準備目前版本 `docs/releases/v1.12.0.md` 的繁中使用者說明，依已驗證 K～S／G／H 與啟動修復撰寫，明確列出未完成 Windows／Drive／多機驗收；只將 docs/releases 的 Markdown 例外納入 Git，其餘 docs 測試資料維持 ignored。通過版本閘門後先做本機文件提交 `840fe18`，才修改 workflow。
+- [x] K2-01 當時先準備目前版本 `docs/releases/v1.12.0.md` 的繁中使用者說明，依已驗證 K～S／G／H 與啟動修復撰寫，明確列出未完成 Windows／Drive／多機驗收；只將 docs/releases 的 Markdown 例外納入 Git，其餘 docs 測試資料維持 ignored。通過版本閘門後先做本機文件提交 `840fe18`，才修改 workflow。
 - [x] K2-02 新增可本機執行的 Release Notes／資產檢查器。從 desktop/version.py 決定唯一文件路徑，拒絕缺檔／空白／僅標題或 Full Changelog、版號不符、不安全連結、未提交或與 Git blob 不同的說明；指定 Tag 時必須是既有穩定版本 Tag、指向目前 HEAD 且說明包含於該提交。測試用暫存 Git repo 與測試 Tag，不修改本專案 Tag。
 - [x] K2-03 workflow 改為檢出要求的 Tag，透過 env 傳遞輸入避免腳本插值；建置前檢查版本與已提交說明，簽章後／上傳與發布前檢查五項資產存在、manifest Ed25519 驗章／版本／EXE 大小與 SHA256、兩個安裝資產 SHA256SUMS。`gh release create` 只用已驗證的 `--notes-file` 與 `--verify-tag`，native 命令失敗立即停止，不使用 --generate-notes 或空白 fallback。
 - [x] K2-04 先建立會失敗的回歸測試，再實作檢查器及 workflow 接線；涵蓋文件問題、Tag／HEAD／版本不符、未提交變更、缺資產、假簽章、manifest／hash／大小不符，以及本機 PowerShell 假 gh 成功／失敗的實際參數與退出碼，不接觸 GitHub。保留現有桌面／資料回歸測試。
 - [x] K2-05 實際跑 pytest／Vitest／Ruff／format／TypeScript／Vite、版本閘門、Graphify、文件與 staged diff 檢查，核對現有 EXE／Setup 雜湊未變；同步 AGENTS／README／TASKS，再建立本機程式還原提交。僅 CI／文件變動不重跑相同桌面封裝。
 - [x] K2-06 遠端完整驗收：後續使用者授權正式發布，已由頂部 R12 的真實 Tag／GitHub runner 完成 Build／Test／Sign／Notes／Release；正式下載資產與簽章再次驗證通過，證據見 R12，非本機模擬。
 
-**K-02 本輪實作與驗證（2026-11-15）**：先確認 TASKS 寫入，再準備繁中 docs/releases/v1.12.0.md 並以 `840fe18` 本機提交，之後才新增 `packaging/check_release_readiness.py`／`packaging/publish_release.ps1` 和修改 workflow。新測試在實作前因檢查器缺檔發生 **1 個 collection error**；實作後最初針對性測試 **29 passed**，再補應用程式版本未提交情境，完整測試總計 **299 passed**（新增 **30** 項，1 項既有 Starlette 警告，46.39 秒）；Vitest **179 passed／36 files**。實際執行 `uv run --locked pytest -q`、`ruff check .`／`ruff format --check .`（**93 files**）、Node 24 `npm run test -- --run`／`npm run build`、版本一致性全部通過。用現有 base Python 的 PyYAML 唯讀解析 workflow **14 個 step**，9 個 PowerShell run 區塊經 Parser.ParseInput 通過；未新增 Python／npm 依賴。`uv run --locked python packaging/check_release_readiness.py --json` 對本機已提交說明成功。Graphify 重建成功：**1,342 nodes／3,438 edges／84 communities**，仍維持 ignored。
+**K-02 歷史實作與驗證（2026-11-15）**：先確認 TASKS 寫入，再準備繁中 docs/releases/v1.12.0.md 並以 `840fe18` 本機提交，之後才新增 `packaging/check_release_readiness.py`／`packaging/publish_release.ps1` 和修改 workflow。新測試在實作前因檢查器缺檔發生 **1 個 collection error**；實作後最初針對性測試 **29 passed**，再補應用程式版本未提交情境，完整測試總計 **299 passed**（新增 **30** 項，1 項既有 Starlette 警告，46.39 秒）；Vitest **179 passed／36 files**。實際執行 `uv run --locked pytest -q`、`ruff check .`／`ruff format --check .`（**93 files**）、Node 24 `npm run test -- --run`／`npm run build`、版本一致性全部通過。用現有 base Python 的 PyYAML 唯讀解析 workflow **14 個 step**，9 個 PowerShell run 區塊經 Parser.ParseInput 通過；未新增 Python／npm 依賴。`uv run --locked python packaging/check_release_readiness.py --json` 對本機已提交說明成功。Graphify 重建成功：**1,342 nodes／3,438 edges／84 communities**，仍維持 ignored。
 
 回歸涵蓋暫存 Git repo 的已提交／未追蹤／修改未提交／空白／僅標題／僅 Changelog／錯版／Git symlink mode、Tag 不存在／錯版／不指向 HEAD，以及測試用記憶體 Ed25519 金鑰的正確與被修改 manifest／EXE／Setup／SHA256SUMS。Windows PowerShell 實際呼叫假的 uv.cmd／gh.cmd，核對完整五項資產與 --notes-file／--verify-tag 參數；uv 失敗 **19** 時不執行 gh，gh 失敗 **37** 時保留退出碼。沒有使用真實私鑰、網路發版或本專案 Tag。
 
@@ -109,7 +131,7 @@ WebView2 隔離啟動已看到：版本與 schema 正常、2 個合成 root、�
 
 **啟動修復最終封裝紀錄**：`docs/launch-fix-windows-build-final.log` 實際到達 `Build OK`；該次 pytest **258 passed**、Vitest **121 passed／26 files**、Ruff check／format **86 files**、TypeScript／Vite、版本一致性、npm audit **0 vulnerabilities**、PyInstaller、繁中 Setup、EXE self-test 與 portable／installer／READY／HEALTHY／rollback／故障注入更新器 E2E 全通過。Graphify 最終 **1,208 nodes／3,182 edges／76 communities**。目前 EXE SHA256 `0BF3CE18533528A4E53AFAB18FEE2F48DE7A943DD5809091156AABE107566AD0`、Setup SHA256 `BB81F6F0EEADB390B593A4232D7447EDBE4B1717FD6FBE3DC2B1045981A949D6`。包內不含 A-K～A-S 尚未整併功能，不將「可打包／測試通過」當成完整最新版驗收。
 
-狀態：目前版本 v1.12.0（G／H、啟動修復、K～S 整併與綠色提示修正已正式發布；Actions、正式資產下載／簽章／雜湊驗證通過）；最近正式 Release 為 v1.12.0，連結及證據見頂部 R12。實機、雙機及現場品質校準維持各自驗收狀態。
+狀態：目前版本 v1.13.0（本機開發版：啟動重複掃描引導與定點滾輪縮放，自動化／Chromium 畫面與 Windows 封裝驗證通過，尚未發布）；最近正式 Release 為歷史 v1.12.0，連結及證據見 R12。實機、雙機及現場品質校準維持各自驗收狀態。
 
 ## 本輪施工：完成待辦（2026-11-14，使用者已要求「請完成TASKS任務」）
 
@@ -127,7 +149,7 @@ WebView2 隔離啟動已看到：版本與 schema 正常、2 個合成 root、�
   - [x] R-03b 最終逐項核對補齊 H-03b 的「衝突」明細篩選，以及 H-03 高風險復原必須先取得影響設備預覽再確認；新增篩選不將衝突當更新、取消不復原與備份預覽明細測試。打包以包含此補漏的最後一次成功記錄為準。
   - [x] R-03c 摘要須比較設備異常關聯而非分類顯示名稱；新增「只更名分類」仍為零設備更新的測試，避免把分類操作誤算成設備異常更新。
   - [x] R-05b 異常統計 CSV／XLSX 缺少本機資料時間與同步狀態欄位；匯出尾端加本機快照時間／最近本機讀取／本機狀態，沿用既有篩選與公式防護，不宣稱雲端最新，新增 CSV／Excel 驗證。
-- [x] R-06 同步 v1.12.0 版本來源、README、AGENTS 長期規則、TASKS；執行 Ruff check／format、pytest、Vitest、TypeScript／Vite、版本一致性、Graphify 重建及 Windows EXE／繁中 Setup／self-test／更新器 E2E，記錄本輪實際結果。
+- [x] R-06 當時同步 v1.12.0 版本來源、README、AGENTS 長期規則、TASKS；執行 Ruff check／format、pytest、Vitest、TypeScript／Vite、版本一致性、Graphify 重建及 Windows EXE／繁中 Setup／self-test／更新器 E2E，記錄本輪實際結果。
 - [x] R-07a 本機合成資料視覺驗收：原始碼與最後打包 EXE 均實際啟動 WebView2，確認版本、教學預設關閉／手動彈窗／Escape 與先前記錄的主要操作；截圖與資料完整性證據見下方。
 - [ ] R-07b 外部完整驗收：需第二台 Windows、Google OAuth／ACL、Google Drive 真實傳輸、LINE 來源及現場影像樣本／完整 Windows 縮放矩陣；目前沒有這些實際輸出，不代為勾選。
 

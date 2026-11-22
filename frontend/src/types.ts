@@ -127,6 +127,14 @@ export type DuplicateGroup = {
   device_count: number
   photos: DuplicatePhotoRecord[]
 }
+export type DuplicateReadiness = {
+  root_id: number
+  total: number
+  pending: number
+  cloud_placeholder: number
+  duplicate_scan_state: string
+}
+
 export type DuplicateGallery = {
   total: number
   total_photos: number

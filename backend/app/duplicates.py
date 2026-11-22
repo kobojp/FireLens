@@ -269,6 +269,30 @@ def _missing_index_rows(
     ]
 
 
+def index_readiness(conn: sqlite3.Connection, root_id: int) -> dict:
+    """Read cached completeness only; never stat, hash or open a source photo."""
+    if conn.execute("SELECT 1 FROM root WHERE id=?", (root_id,)).fetchone() is None:
+        raise DuplicateError("找不到指定的根目錄")
+    clause, exclusions = _excluded_filter(conn, root_id)
+    row = conn.execute(
+        f"""
+        SELECT COUNT(*) AS total,
+               COALESCE(SUM(CASE WHEN p.cloud_placeholder=0
+                 AND (f.sha256 IS NULL OR f.algorithm!=?
+                      OR f.size_bytes!=p.size_bytes OR f.mtime_ns!=p.mtime_ns)
+                 THEN 1 ELSE 0 END),0) AS pending,
+               COALESCE(SUM(CASE WHEN p.cloud_placeholder!=0 THEN 1 ELSE 0 END),0)
+                 AS cloud_placeholder
+          FROM item i JOIN photo p ON p.item_id=i.id
+          LEFT JOIN photo_fingerprint f
+            ON f.root_id=i.root_id AND f.relative_path=p.relative_path
+         WHERE i.root_id=? {clause}
+        """,
+        (ALGORITHM, root_id, *exclusions),
+    ).fetchone()
+    return {"root_id": root_id, **dict(row), "duplicate_scan_state": job_status(root_id)["state"]}
+
+
 def _index_missing_small(
     conn: sqlite3.Connection,
     root_id: int,

@@ -43,6 +43,9 @@ from .duplicates import (
     grouped as duplicate_groups,
 )
 from .duplicates import (
+    index_readiness as duplicate_index_readiness,
+)
+from .duplicates import (
     job_status as duplicate_job_status,
 )
 from .duplicates import (
@@ -654,6 +657,14 @@ def create_app() -> FastAPI:
                 )
             except DuplicateError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/duplicates/{root_id}/readiness")
+    def duplicate_readiness(root_id: int) -> dict:
+        with database() as conn:
+            try:
+                return duplicate_index_readiness(conn, root_id)
+            except DuplicateError as exc:
+                raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     @app.post("/api/duplicates/{root_id}/scan", status_code=202)
     def run_duplicate_scan(root_id: int, payload: DuplicateScanRequest) -> dict:
